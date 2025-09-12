@@ -1,0 +1,51 @@
+ifndef BUILDDIR
+override BUILDDIR=../../build
+endif
+ifndef BUILDDIR_NPTM
+override BUILDDIR_NPTM=$(BUILDDIR)/libnptm
+endif
+ifndef LIBNPTM
+# choose one of the two following lines, depending on whether a static or dynamic libnptm is wanted
+override LIBNPTM=$(BUILDDIR_NPTM)/libnptm.a
+#override LIBNPTM=$(BUILDDIR_NPTM)/libnptm.so
+endif
+ifndef OBJDIR
+override OBJDIR=./objects
+endif
+ifndef DYNOBJDIR
+override DYNOBJDIR=./dynobjects
+endif
+
+include ../make.inc
+
+
+CXX_NPTM_OBJS=$(OBJDIR)/Commons.o $(OBJDIR)/Configuration.o $(OBJDIR)/file_io.o $(OBJDIR)/Parsers.o $(OBJDIR)/sph_subs.o $(OBJDIR)/clu_subs.o $(OBJDIR)/tfrfme.o $(OBJDIR)/tra_subs.o $(OBJDIR)/TransitionMatrix.o $(OBJDIR)/lapack_calls.o $(OBJDIR)/magma_calls.o $(OBJDIR)/algebraic.o $(OBJDIR)/types.o $(OBJDIR)/logging.o
+
+CXX_NPTM_DYNOBJS=$(DYNOBJDIR)/Commons.o $(DYNOBJDIR)/Configuration.o $(DYNOBJDIR)/file_io.o $(DYNOBJDIR)/Parsers.o $(DYNOBJDIR)/sph_subs.o $(DYNOBJDIR)/clu_subs.o $(DYNOBJDIR)/tfrfme.o $(DYNOBJDIR)/tra_subs.o $(DYNOBJDIR)/TransitionMatrix.o $(DYNOBJDIR)/lapack_calls.o $(DYNOBJDIR)/magma_calls.o $(DYNOBJDIR)/algebraic.o $(DYNOBJDIR)/types.o $(DYNOBJDIR)/logging.o
+
+CXX_NPTM_DEBUG=$(OBJDIR)/Commons.g* $(OBJDIR)/Configuration.g* $(OBJDIR)/file_io.g* $(OBJDIR)/Parsers.g* $(OBJDIR)/sph_subs.g* $(OBJDIR)/clu_subs.g* $(OBJDIR)/tfrfme.g* $(OBJDIR)/tra_subs.g* $(OBJDIR)/TransitionMatrix.g* $(OBJDIR)/lapack_calls.g* $(OBJDIR)/magma_calls.g* $(OBJDIR)/algebraic.g* $(OBJDIR)/types.g* $(OBJDIR)/logging.g* $(DYNOBJDIR)/Commons.g* $(DYNOBJDIR)/Configuration.g* $(DYNOBJDIR)/file_io.g* $(DYNOBJDIR)/Parsers.g* $(DYNOBJDIR)/sph_subs.g* $(DYNOBJDIR)/clu_subs.g* $(DYNOBJDIR)/tfrfme.g* $(DYNOBJDIR)/tra_subs.g* $(DYNOBJDIR)/TransitionMatrix.g* $(DYNOBJDIR)/lapack_calls.g* $(DYNOBJDIR)/magma_calls.g* $(DYNOBJDIR)/algebraic.g* $(DYNOBJDIR)/types.g* $(DYNOBJDIR)/logging.g*
+
+all: $(BUILDDIR_NPTM)/libnptm.a $(BUILDDIR_NPTM)/libnptm.so
+
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
+
+$(DYNOBJDIR):
+	mkdir -p $(DYNOBJDIR)
+
+$(BUILDDIR_NPTM):
+	mkdir -p $(BUILDDIR_NPTM)
+
+$(BUILDDIR_NPTM)/libnptm.a: $(BUILDDIR_NPTM) $(OBJDIR) $(CXX_NPTM_OBJS) 
+	$(AR) $(ARFLAGS) $(BUILDDIR_NPTM)/libnptm.a $(CXX_NPTM_OBJS)
+
+$(BUILDDIR_NPTM)/libnptm.so: $(BUILDDIR_NPTM) $(DYNOBJDIR) $(CXX_NPTM_DYNOBJS) 
+	$(CXX) $(CXXFLAGS) $(PICFLAGS) $(SOFLAGS) -o $(BUILDDIR_NPTM)/libnptm.so $(CXX_NPTM_DYNOBJS)
+
+clean:
+	rm -f $(CXX_NPTM_OBJS) $(CXX_NPTM_DYNOBJS) $(CXX_NPTM_DEBUG)
+
+wipe:
+	#echo "BUILDDIR_NPTM in libnptm is $(BUILDDIR_NPTM)"
+	#echo "LIBNPTM in libnptm is $(LIBNPTM)"
+	rm -f $(BUILDDIR_NPTM)/libnptm.a $(BUILDDIR_NPTM)/libnptm.so $(CXX_NPTM_OBJS) $(CXX_NPTM_DYNOBJS) $(CXX_NPTM_DEBUG)

@@ -1,0 +1,55 @@
+ifndef BUILDDIR
+override BUILDDIR=../../build
+endif
+ifndef BUILDDIR_SPH
+override BUILDDIR_SPH=$(BUILDDIR)/sphere
+endif
+ifndef OBJDIR
+override OBJDIR=./objects
+endif
+ifndef BUILDDIR_NPTM
+override BUILDDIR_NPTM=$(BUILDDIR)/libnptm
+endif
+ifndef LIBNPTM
+# choose one of the two following lines, depending on whether a static or dynamic libnptm is wanted
+override LIBNPTM=$(BUILDDIR_NPTM)/libnptm.a
+#override LIBNPTM=$(BUILDDIR_NPTM)/libnpTm.so
+endif
+
+include ../make.inc
+
+
+F_SPH_OBJS=$(OBJDIR)/edfb_sph.o $(OBJDIR)/sph.o
+
+#CXX_SPH_OBJS=$(OBJDIR)/np_sphere.o $(OBJDIR)/Commons.o $(OBJDIR)/Configuration.o $(OBJDIR)/file_io.o $(OBJDIR)/Parsers.o $(OBJDIR)/sph_subs.o $(OBJDIR)/sphere.o $(OBJDIR)/TransitionMatrix.o
+CXX_SPH_OBJS=$(OBJDIR)/np_sphere.o $(OBJDIR)/sphere.o
+
+CXX_SPH_DEBUG=$(OBJDIR)/np_sphere.g* $(OBJDIR)/sphere.g*
+
+all: $(LIBNPTM) $(BUILDDIR_SPH)/edfb_sph $(BUILDDIR_SPH)/sph $(BUILDDIR_SPH)/np_sphere
+
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
+
+$(LIBNPTM):
+	BUILDDIR=$(BUILDDIR) BUILDDIR_NPTM=$(BUILDDIR_NPTM) LIBNPTM=$(LIBNPTM) $(MAKE) -C ../libnptm $@
+
+$(BUILDDIR_SPH):
+	mkdir -p $(BUILDDIR_SPH)
+
+$(BUILDDIR_SPH)/edfb_sph: $(OBJDIR) $(OBJDIR)/edfb_sph.o $(BUILDDIR_SPH)
+	$(FC) $(FCFLAGS) -o $(BUILDDIR_SPH)/edfb_sph $(OBJDIR)/edfb_sph.o $(LDFLAGS)
+
+$(BUILDDIR_SPH)/sph: $(OBJDIR) $(OBJDIR)/sph.o $(BUILDDIR_SPH)
+	$(FC) $(FCFLAGS) -o $(BUILDDIR_SPH)/sph $(OBJDIR)/sph.o $(LDFLAGS)
+
+# We put $(LIBNPTM) as an object to link in directly, so that it will be found at runtime even if it is a shared object library. May change in the future when we have an install: target
+$(BUILDDIR_SPH)/np_sphere: $(OBJDIR) $(CXX_SPH_OBJS) $(BUILDDIR_SPH) $(LIBNPTM)
+	$(CXX) $(CXXFLAGS) -o $(BUILDDIR_SPH)/np_sphere $(CXX_SPH_OBJS) $(LIBNPTM) $(CXXLDFLAGS) 
+
+clean:
+	rm -f $(F_SPH_OBJS) $(CXX_SPH_OBJS) $(CXX_SPH_DEBUG)
+
+wipe:
+	rm -f $(BUILDDIR_SPH)/edfb_sph $(BUILDDIR_SPH)/sph $(BUILDDIR_SPH)/np_sphere $(F_SPH_OBJS) $(CXX_SPH_OBJS) $(CXX_SPH_DEBUG)
+

@@ -1,0 +1,785 @@
+# CAPABILITY TESTING MACROS
+m4_define(
+  [M4_DETECT_HDF5],
+  [
+    if test "x${HDF5_INCLUDE}${HDF5_LIB}" = "x"; then
+      pkg-config --version > /dev/null
+      use_pkg_config=$?
+      if test "x$use_pkg_config" = "x0"; then
+        declare -a pkg_array=$(pkg-config --list-all | grep hdf5-serial)
+        for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep hdf5-serial > /dev/null
+        result=$?
+        if test "x$result" = "x0"; then
+          cflags=$(pkg-config --cflags-only-I hdf5-serial)
+          export HDF5_INCLUDE=$(echo "${cflags:2}")
+          ldflags=$(pkg-config --libs-only-L hdf5-serial)
+          export HDF5_LIB=$(echo "${ldflags:2}")
+        else
+          declare -a pkg_array=$(pkg-config --list-all | grep hdf5)
+          for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep hdf5 > /dev/null
+          result=$?
+          if test "x$result" = "x0"; then
+            cflags=$(pkg-config --cflags-only-I hdf5)
+            export HDF5_INCLUDE=$(echo "${cflags:2}")
+            ldflags=$(pkg-config --libs-only-L hdf5)
+            export HDF5_LIB=$(echo "${ldflags:2}")
+          fi
+        fi
+      else
+        export -p | grep HDF5_ROOT > /dev/null
+        result=$?
+        if test "x$result" = "x0"; then
+          if test "x$HDF5_INCLUDE" = "x"; then
+            export HDF5_INCLUDE=${HDF5_ROOT}/include
+          fi
+          if test "x$HDF5_LIB" = "x"; then
+            export HDF5_LIB=${HDF5_ROOT}/lib
+          fi
+        fi
+        export -p | grep HDF5_DIR > /dev/null
+        result=$?
+        if test "x$result" = "x0"; then
+          if test "x$HDF5_INCLUDE" = "x"; then
+            export HDF5_INCLUDE=${HDF5_DIR}/include
+          fi
+          if test "x$HDF5_LIB" = "x"; then
+            export HDF5_LIB=${HDF5_DIR}/lib
+          fi
+        fi
+        if test "x$HDF5_INCLUDE" = "x"; then
+          export HDF5_INCLUDE="/usr/include/hdf5/serial"
+        fi
+        if test "x$HDF5_LIB" = "x"; then
+          export HDF5_LIB="/usr/lib/x86_64-linux-gnu/hdf5/serial"
+        fi
+      fi
+    fi
+  ]
+)
+
+m4_define(
+  [M4_HDF5_LIB],
+  [
+    cat > nptm_test_hdf5.cpp <<EOF
+#include <hdf5.h>
+int main(int argc, char **argv) {
+  hid_t file_id = 0;
+  herr_t status = H5Iis_valid(file_id);
+  return (int)status;
+}
+EOF
+    $CXX -o nptm_test_hdf5 nptm_test_hdf5.cpp -I$HDF5_INCLUDE -L$HDF5_LIB -lhdf5 > /dev/null 2>>error.log
+    export TEST_HDF5_LIB=$?
+    rm nptm_test_hdf5.cpp
+    if test "x$TEST_HDF5_LIB" = "x0"; then
+      rm nptm_test_hdf5
+    fi
+  ]
+)
+
+m4_define(
+  [M4_DETECT_LAPACK],
+  [
+    if test "x$ENABLE_ILP64" = "xyes"; then
+      # 64-bit indices are enabled
+      LAPACK_ILP64_FLAG="-DLAPACK_ILP64 -DUSE_ILP64"
+      LAPACK_ILP64_LDSPEC="_ilp64"
+      LAPACK_LDSPEC="64"
+      MKL_BUILD="mkl-dynamic-ilp64-gomp"
+    else
+      # 64-bit indices are disabled
+      LAPACK_ILP64_FLAG=""
+      LAPACK_ILP64_LDSPEC="_lp64"
+      LAPACK_LDSPEC=""
+      MKL_BUILD="mkl-dynamic-lp64-gomp"
+    fi # end of 64-bit decision tree
+    BLASLDFLAGS=""
+    pkg-config --version > /dev/null
+    use_pkg_config=$?
+    if test "x$use_pkg_config" = "x0"; then
+      # pkg-config is available
+      declare -a pkg_array=$(pkg-config --list-all | grep ${MKL_BUILD})
+      for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep ${MKL_BUILD} > /dev/null
+      result=$?
+      if test "x$result" = "x0"; then
+        # MKL was found
+        MKL_INCLUDE=$(pkg-config --cflags-only-I ${MKL_BUILD})
+        export LAPACKFLAGS="-DUSE_LAPACK -DUSE_MKL ${LAPACK_ILP64_FLAG} ${MKL_INCLUDE}"
+        export LAPACKLDFLAGS=$(pkg-config --libs ${MKL_BUILD})
+      else
+        # MKL was not found, so configuration searches for BLAS
+        declare -a pkg_array=$(pkg-config --list-all | grep blas${LAPACK_LDSPEC})
+        for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep blas${LAPACK_LDSPEC} > /dev/null
+        result=$?
+        if test "x$result" = "x0"; then
+          # BLAS was found
+	  export BLASLDFLAGS=$(pkg-config --libs blas${LAPACK_LDSPEC})
+	else
+          declare -a pkg_array=$(pkg-config --list-all | grep openblas${LAPACK_LDSPEC})
+          for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep openblas${LAPACK_LDSPEC} > /dev/null
+          result=$?
+          if test "x$result" = "x0"; then
+            # OPENBLAS was found
+	    export BLASLDFLAGS=$(pkg-config --libs openblas${LAPACK_LDSPEC})
+	  fi
+        fi # end of BLAS decision tree
+        # search for LAPACKe
+        declare -a pkg_array=$(pkg-config --list-all | grep lapacke${LAPACK_LDSPEC})
+        for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep lapacke${LAPACK_LDSPEC} > /dev/null
+        result=$?
+        if test "x$result" = "x0"; then
+          # LAPACKe was found
+          LAPACK_INCLUDE=$(pkg-config --cflags-only-I lapacke${LAPACK_LDSPEC})
+          export LAPACKFLAGS="-DUSE_LAPACK ${LAPACK_ILP64_FLAG} ${LAPACK_INCLUDE}"
+          export LAPACKLDFLAGS=$(pkg-config --libs lapacke${LAPACK_LDSPEC})
+        fi # end of LAPACKe decision tree
+        if test "x${LAPACKFLAGS}${LAPACKLDFLAGS}" = "x"; then
+          # LAPACKe was not found, so configuration searches for LAPACK
+          declare -a pkg_array=$(pkg-config --list-all | grep lapack${LAPACK_LDSPEC})
+          for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep lapack${LAPACK_LDSPEC} > /dev/null
+          result=$?
+          if test "x$result" = "x0"; then
+            # LAPACK was found
+            LAPACK_INCLUDE=$(pkg-config --cflags-only-I lapack${LAPACK_LDSPEC})
+            export LAPACKFLAGS="-DUSE_LAPACK ${LAPACK_ILP64_FLAG} ${LAPACK_INCLUDE}"
+            export LAPACKLDFLAGS=$(pkg-config --libs lapack${LAPACK_LDSPEC})
+          fi # end of LAPACK decision tree
+        fi # end of LAPACKe decision tree
+      fi # end of MKL decision tree
+    else
+      # pkg-config is not available
+      export -p | grep MKL > /dev/null
+      MKL_DEF=$?
+      if test "x$MKL_DEF" = "x0"; then
+        export LAPACKFLAGS="-DUSE_LAPACK -DUSE_MKL ${LAPACK_ILP64_FLAG} -I{MKLROOT}/include"
+        export LAPACKLDFLAGS="-L${MKLROOT}/lib -Wl,--no-as-needed -lmkl_intel${LAPACK_ILP64_LDSPEC} -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl"
+      else
+        if test -f /usr/include/lapacke.h; then
+          export LAPACKFLAGS="-DUSE_LAPACK ${LAPACK_ILP64_FLAG}"
+          export LAPACKLDFLAGS="-llapacke${LAPACK_LDSPEC}"
+        fi
+      fi
+    fi
+  ]
+)
+
+m4_define(
+  [M4_DETECT_CUBLAS],
+  [
+    pkg-config --version > /dev/null
+    use_pkg_config=$?
+    if test "x${CUDAFLAGS}${CUDALDFLAGS}" = "x"; then
+      if test "x$use_pkg_config" = "x0"; then
+        # pkg-config is available
+        declare -a pkg_array=$(pkg-config --list-all | grep cublas)
+        for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep cublas > /dev/null
+        result=$?
+        if test "x$result" = "x0"; then
+          # CUBLAS detected
+          cuda_pkg=$(for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep cublas)
+    	CUDAFLAGS=$(pkg-config --cflags ${cuda_pkg})
+    	CUDALDFLAGS=$(pkg-config --libs ${cuda_pkg})
+        fi # end of CUBLAS runtime decision tree
+        declare -a pkg_array=$(pkg-config --list-all | grep cudart)
+        for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep cudart > /dev/null
+        result=$?
+        if test "x$result" = "x0"; then
+          # CUDA runtime detected
+          cuda_pkg=$(for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep cudart)
+    	CUDAFLAGS=$(pkg-config --cflags ${cuda_pkg})
+    	CUDALDFLAGS=$(pkg-config --libs ${cuda_pkg})
+        fi # end of CUDA runtime decision tree
+        echo $CUDALDFLAGS | grep cublas > /dev/null
+        cudart_check=$?
+        if test "x${cudart_check}" != "x0"; then
+          CUDALDFLAGS="$CUDALDFLAGS -lcublas"
+        fi
+        echo $CUDALDFLAGS | grep cudart > /dev/null
+        cudart_check=$?
+        if test "x${cudart_check}" != "x0"; then
+          CUDALDFLAGS="$CUDALDFLAGS -lcudart"
+        fi
+      else
+        # pkg-config is not available
+        if test -f /usr/local/cuda/include/cuda.h; then
+          CUDAFLAGS="-I/usr/local/cuda/include"
+          CUDALDFLAGS="-L/usr/local/cuda/lib64 -lcublas -lcudart"
+        elif test -f /usr/include/cuda.h; then
+          CUDAFLAGS="-I/usr/include"
+          CUDALDFLAGS="-lcublas -lcudart"
+        elif test "x$CUDA_HOME" != "x"; then
+          CUDAFLAGS="-I${CUDA_HOME}/include"
+          CUDALDFLAGS="-L${CUDA_HOME}/lib64 -lcublas -lcudart"
+        fi
+      fi # end of pkg-config decision tree
+    fi # end of CUDAFLAGS user override protection
+    if test "x $CUDAFLAGS $CUDALDFLAGS" != "x"; then
+      # somehow CUDAFLAGS or CUDALDFLAGS was defined
+      export CUDAFLAGS
+      export CUBLASFLAGS="-DUSE_CUBLAS ${CUDAFLAGS}"
+      export CUDALDFLAGS
+      export CUBLASLDFLAGS="${CUDALDFLAGS}"
+    fi
+  ]
+)
+
+m4_define(
+  [M4_DETECT_MAGMA],
+  [
+    if test "x$ENABLE_ILP64" = "xyes"; then
+      # 64-bit indices are enabled
+      MAGMA_ILP64_FLAG="-DMAGMA_ILP64"
+      MAGMA_LD_SPEC="64"
+    else
+      # 64-bit indices are disabled
+      MAGMA_ILP64_FLAG=""
+      MAGMA_LD_SPEC=""
+    fi # end of 64-bit decision tree
+    pkg-config --version > /dev/null
+    use_pkg_config=$?
+    if test "x${CUDAFLAGS}" = "x"; then
+      if test "x$use_pkg_config" = "x0"; then
+        # pkg-config is available
+        declare -a pkg_array=$(pkg-config --list-all | grep cudart)
+        for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep cudart > /dev/null
+        result=$?
+        if test "x$result" = "x0"; then
+          # CUDA runtime detected
+          cuda_pkg=$(for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep cudart)
+    	CUDAFLAGS=$(pkg-config --cflags ${cuda_pkg})
+        fi # end of CUDA runtime decision tree
+      else
+        # pkg-config is not available
+        if test -f /usr/local/cuda/include/cuda.h; then
+          CUDAFLAGS="-I/usr/local/cuda/include"
+        elif test -f /usr/include/cuda.h; then
+          CUDAFLAGS="-I/usr/include"
+        elif test "x$CUDA_HOME" != "x"; then
+          CUDAFLAGS="-I${CUDA_HOME}/include"
+        fi
+      fi # end of pkg-config decision tree
+    fi # end of CUDAFLAGS user override protection
+    if test "x${MAGMA_ROOT}${MAGMA_HOME}${MAGMA_DIR}" = "x"; then
+      # MAGMA environment is not defined
+      if test "x$use_pkg_config" = "x0"; then
+        # use pkg-config to search for MAGMA
+        declare -a pkg_array=$(pkg-config --list-all | grep magma)
+        for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep magma > /dev/null
+        result=$?
+	if test "x$result" = "x0"; then
+	  # MAGMA was found
+	  magma_pkg=$(for i in "${pkg_array[[@]]}"; do echo "$i" | cut --delimiter=" " -f1; done | grep magma)
+	  MAGMA_INCLUDE=$(pkg-config --cflags-only-I ${magma_pkg})
+	  MAGMA_LIBS_DIR=$(pkg-config --libs-only-L ${magma_pkg})
+          export MAGMAFLAGS="-DUSE_MAGMA ${MAGMA_ILP64_FLAG} $CUDAFLAGS ${MAGMA_INCLUDE}"
+          export MAGMALDFLAGS="${MAGMA_LIBS_DIR} -lmagma"
+	fi # end of MAGMA decision tree
+      else
+        # search for MAGMA in some standard folders
+        if test "x$CUDAFLAGS" != "x"; then
+          if test -f /usr/include/magma_v2.h; then
+            export MAGMAFLAGS="-DUSE_MAGMA ${MAGMA_ILP64_FLAG} $CUDAFLAGS -I/usr/include"
+            export MAGMALDFLAGS="-lmagma"
+          elif test -f /usr/local/include/magma_v2.h; then
+            export MAGMAFLAGS="-DUSE_MAGMA ${MAGMA_ILP64_FLAG} $CUDAFLAGS -I/usr/local/include"
+            export MAGMALDFLAGS="-lmagma"
+          fi
+        fi
+      fi # end of pkg-config decision tree
+    else
+      # MAGMA environment is defined, so configuration makes sure that MAGMA_ROOT is defined too
+      if test "x${MAGMA_HOME}" != "x"; then
+        MAGMA_ROOT="${MAGMA_HOME}"
+      elif test "x${MAGMA_DIR}" != "x"; then
+        MAGMA_ROOT="${MAGMA_DIR}"
+      fi
+      export MAGMAFLAGS="-DUSE_MAGMA -DMAGMA_ILP64 $CUDAFLAGS -I${MAGMA_ROOT}/include"
+      export MAGMALDFLAGS="-L${MAGMA_ROOT}/lib -lmagma"
+    fi
+  ]
+)
+
+m4_define(
+  [M4_TEST_MPI],
+  [
+    cat > np_test_mpi.cpp <<EOF
+#ifndef MPI_VERSION
+#include <mpi.h>
+#endif
+int main(int argc, char** argv) {
+  int ierr = MPI_Init(&argc, &argv);
+  MPI_Finalize();
+  return ierr;
+}
+EOF
+    $CXX -c np_test_mpi.cpp > /dev/null 2>&1
+    export CXX_IS_MPI=$?
+    rm np_test_mpi.cpp
+    if test "x$CXX_IS_MPI" = "x0"; then
+      rm np_test_mpi.o
+    fi
+  ]
+)
+
+m4_define(
+  [M4_TEST_OFFLOAD],
+  [
+    cat > np_test_offload.cpp <<EOF
+#include <omp.h>
+#pragma omp requires unified_shared_memory
+
+#pragma omp begin declare target device_type(any)
+void fill_with_ones(int *array) {
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 1000; i++) {
+    for (int j = 0; j < 1000; j++) {
+      array[[(1000 * i) + j]] = 1;
+    }
+  }
+}
+#pragma omp end declare target
+int main(int argc, char** argv) {
+  int *numbers = new int[[1000000]]();
+  fill_with_ones(numbers);
+  delete[[]] numbers;
+  return 0;
+}
+EOF
+    $CXX -fcf-protection=check -foffload=default -foffload=nvptx-none="-O3 -ggdb -fopt-info -lm -latomic -mgomp" -fopenmp -c np_test_offload.cpp > /dev/null 2>&1
+    export CXX_SUPPORTS_OFFLOAD=$?
+    rm np_test_offload.cpp
+    if test "x$CXX_SUPPORTS_OFFLOAD" = "x0"; then
+      rm np_test_offload.o
+    fi
+  ]
+)
+# END CAPABILITY TESTING MACROS
+
+# autoconf setup initialization
+AC_INIT([np_tmcode],[8.04],[giovanni.lamura@inaf.it])
+
+# Folder structure safety check
+AC_CONFIG_SRCDIR([../src/libnptm/TransitionMatrix.cpp])
+AC_CONFIG_FILES([Makefile])
+
+# Auxiliary build folder
+AC_CONFIG_AUX_DIR([build_aux])
+
+# automake initialization
+AM_INIT_AUTOMAKE([-Wall -Werror foreign subdir-objects])
+
+# Set the default library policy
+AC_DISABLE_SHARED
+AC_DISABLE_SHARED([])
+AC_ENABLE_STATIC
+AC_ENABLE_STATIC([])
+
+# Compiler detection
+AM_PROG_AR
+AC_ARG_ENABLE(
+  [mpi],
+  [AS_HELP_STRING([--enable-mpi], [enable MPI compilation [default=auto]])],
+  [
+    if test "x$enableval" = "xno"; then
+      if test "x$CXX" = "x"; then
+        AC_PROG_CXX([g++ clang++])
+      else
+        AC_PROG_CXX([$CXX])
+      fi
+      AC_MSG_NOTICE([Using $CXX])
+      AC_SUBST([MPIFLAGS], [""])
+    elif test "x$enableval" = "xauto"; then
+      if test "x$CXX" = "x"; then
+        AC_PROG_CXX([mpicxx.openmpi mpicxx.mpich mpic++.openmpi mpiCC.openmpi])
+        if test "x$CXX" != "x"; then
+          AC_SUBST([MPIFLAGS], [-DUSE_MPI])
+        else
+          AC_PROG_CXX([g++ clang++])
+          AC_SUBST([MPIFLAGS], [""])
+        fi
+      else
+        # Test if given CXX defines mpi.h
+        M4_TEST_MPI
+      fi
+    elif test "x$enableval" = "xyes"; then
+      if test "x$CXX" = "x"; then
+        AC_PROG_CXX([mpicxx.openmpi mpicxx.mpich mpic++.openmpi mpiCC.openmpi])
+        if test "x$CXX" != "x"; then
+          AC_SUBST([MPIFLAGS], [-DUSE_MPI])
+        else
+          AC_MSG_ERROR([MPI was requested, but no MPI compiler detected!])
+        fi
+      else
+        # Test if given CXX defines mpi.h
+        M4_TEST_MPI
+        if test "x$CXX_IS_MPI" != "x0"; then
+          AC_MSG_ERROR([MPI was requested, but $CXX is not a MPI compiler!])
+        fi
+      fi
+    fi
+  ],
+  [
+    if test "x$CXX" = "x"; then
+      AC_PROG_CXX([mpicxx.openmpi mpicxx.mpich mpic++.openmpi mpiCC.openmpi])
+      if test "x$CXX" != "x"; then
+        AC_SUBST([MPIFLAGS], [-DUSE_MPI])
+      else
+        AC_PROG_CXX([g++ clang++])
+        AC_SUBST([MPIFLAGS], [""])
+        AC_MSG_NOTICE([Using $CXX])
+      fi
+    else
+      AC_PROG_CXX([$CXX])
+      M4_TEST_MPI
+      if test "x$CXX_IS_MPI" = "x0"; then
+        AC_SUBST([MPIFLAGS], [-DUSE_MPI])
+      fi
+    fi
+  ]
+)
+AC_PROG_CXX([$CXX])
+AC_PROG_F77([$F77 gfortran f77])
+# Check whether the compiler is clang++ (needs additional flags)
+CXX_IS_CLANG=$($CXX --version | grep clang)
+AS_IF(
+  [test "x$CXX_IS_CLANG" = "x0"],
+  [AC_SUBST([CLANGFLAGS], [-stdlib=libstdc++])],
+  [AC_SUBST([CLANGFLAGS], [""])]
+)
+
+# Libtool initialization
+LT_INIT
+
+# Environment setup
+M4_DETECT_HDF5
+
+AS_IF(
+  [test "x${HDF5_INCLUDE}" != "x"],
+  [AC_MSG_NOTICE([HDF5 headers found in ${HDF5_INCLUDE}])],
+  [AC_MSG_ERROR([HDF5 headers not found!])]
+)
+AS_IF(
+  [test "x${HDF5_LIB}" != "x"],
+  [AC_MSG_NOTICE([HDF5 libraries found in ${HDF5_LIB}])],
+  [AC_MSG_ERROR([HDF5 libraries not found!])]
+)
+
+# Check for required libraries
+M4_HDF5_LIB
+AS_IF(
+  [test "x$TEST_HDF5_LIB" = "x0"],
+  [AC_SUBST([HDF5_LDFLAGS], ["-L${HDF5_LIB} -lhdf5"])],
+  [AC_MSG_ERROR(["HDF5 library not working!"])]
+)
+
+# Configure the optional features
+AC_ARG_ENABLE(
+  [debug],
+  [AS_HELP_STRING([--enable-debug=FEATURE], [enable debug of FEATURE [default=no]])],
+  [
+    if test "x$enableval" = "xAM"; then
+      AC_SUBST([DEBUGFLAGS], ["-DDEBUG_AM"])
+    fi
+  ],
+  [
+    AC_SUBST([DEBUGFLAGS], [""])
+  ]
+)
+
+AC_ARG_ENABLE(
+  [ilp64],
+  [AS_HELP_STRING([--enable-ilp64], [enable 64-bit indexing [default=yes]])],
+  [
+    if test "x$enableval" = "xno"; then
+      AC_SUBST([ENABLE_ILP64], [""])
+    else
+      AC_SUBST([ENABLE_ILP64], ["yes"])
+    fi
+  ],
+  [
+    AC_SUBST([ENABLE_ILP64], ["yes"])
+  ]
+)
+
+AC_ARG_ENABLE(
+  [fortran],
+  [AS_HELP_STRING([--enable-fortran], [enable legacy FORTRAN compilation [default=auto]])],
+  [
+    if test "x$enableval" = "xno"; then
+      export BUILDF="false"
+      AC_MSG_NOTICE([Disabling FORTRAN compilation])
+    elif test "x$enableval" = "xyes"; then
+      if test "x$F77" != "x"; then
+        export BUILDF="true"
+        AC_MSG_NOTICE([Enabling FORTRAN compilation])
+      else
+        AC_MSG_ERROR([FORTRAN was requested, but no FORTRAN compiler was found!])
+      fi
+    elif test "x$enableval" = "xauto"; then
+      if test "x$F77" != "x"; then
+        export BUILDF="true"
+        AC_MSG_NOTICE([Enabling FORTRAN compilation])
+      else
+        export BUILDF="false"
+        AC_MSG_NOTICE([Disabling FORTRAN compilation])
+      fi
+    fi
+  ],
+  [
+    if test "x$F77" != "x"; then
+      export BUILDF="true"
+      AC_MSG_NOTICE([Enabling FORTRAN compilation])
+    else
+      export BUILDF="false"
+      AC_MSG_NOTICE([Disabling FORTRAN compilation])
+    fi
+  ]
+)
+AM_CONDITIONAL([BUILDFORTRAN], [test "x$BUILDF" = "xtrue"])
+
+AC_ARG_ENABLE(
+  [offload],
+  [AS_HELP_STRING([--enable-offload], [enable target offloading (requires g++ version >= 13) [default=auto]])],
+  [
+    if test "x$enableval" != "xno"; then
+      M4_TEST_OFFLOAD
+      if test "x$CXX_SUPPORTS_OFFLOAD" = "x0"; then
+        AC_MSG_NOTICE([Enabling offload.])
+        AC_SUBST([OFFLOADFLAGS], ["-fcf-protection=check -foffload=default -foffload=nvptx-none=\"-O3 -ggdb -fopt-info -lm -latomic -mgomp\" -fopenmp -DUSE_TARGET_OFFLOAD "])
+      else
+        AC_MSG_ERROR([Target offload was requested, but it is not supported!])
+      fi
+    else
+      AC_MSG_NOTICE([Disabling offload.])
+      AC_SUBST([OFFLOADFLAGS], [""])
+    fi
+  ],
+  [
+    M4_TEST_OFFLOAD
+    if test "x$CXX_SUPPORTS_OFFLOAD" = "x0"; then
+      AC_MSG_NOTICE([Enabling offload.])
+      AC_SUBST([OFFLOADFLAGS], ["-fcf-protection=check -foffload=default -foffload=nvptx-none=\"-O3 -ggdb -fopt-info -lm -latomic -mgomp\" -fopenmp -DUSE_TARGET_OFFLOAD "])
+    else
+      AC_MSG_NOTICE([Disabling offload.])
+      AC_SUBST([OFFLOADFLAGS], [""])
+    fi
+  ]
+)
+
+AC_ARG_ENABLE(
+  [openmp],
+  [AS_HELP_STRING([--enable-openmp], [enable OpneMP multi-threading [default=yes]])],
+  [
+    if test "x$enableval" != "xno"; then
+      AC_SUBST([OMPFLAGS], ["-fopenmp"])
+    fi
+  ],
+  [
+    AC_SUBST([OMPFLAGS], ["-fopenmp"])
+  ]
+)
+
+AC_ARG_ENABLE(
+  [optimize],
+  [AS_HELP_STRING([--enable-optimize=LEVEL], [use optimization level LEVEL [default=3]])],
+  [
+    if test "x$enableval" = "x0"; then
+      AC_SUBST([OPTFLAGS], ["-O0"])
+    elif test "x$enableval" = "x1"; then
+      AC_SUBST([OPTFLAGS], ["-O1"])
+    elif test "x$enableval" = "x2"; then
+      AC_SUBST([OPTFLAGS], ["-O2"])
+    elif test "x$enableval" = "x3"; then
+      AC_SUBST([OPTFLAGS], ["-O3"])
+    else
+      AC_MSG_ERROR([Invalid optimization flag!])
+    fi
+  ],
+  [AC_SUBST([OPTFLAGS], ["-O3"])]
+)
+
+AC_ARG_WITH(
+  [lapack],
+  [AS_HELP_STRING([--with-lapack], [use LAPACK @<:@default=auto@:>@])],
+  [
+    if test "x$withval" = "xno"; then
+      AC_SUBST([LAPACKFLAGS], [""])
+      AC_SUBST([LAPACKLDFLAGS], [""])
+      AC_SUBST([BLASLDFLAGS], [""])
+    else
+      M4_DETECT_LAPACK
+      AS_IF(
+        [test "x$LAPACKLDFLAGS" != "x"],
+        [AC_MSG_NOTICE([LAPACK detected.])],
+        [AC_MSG_NOTICE([No LAPACK found.])]
+      )
+      AC_SUBST([LAPACKFLAGS], [${LAPACKFLAGS}])
+      AC_SUBST([LAPACKLDFLAGS], [${LAPACKLDFLAGS}])
+      AS_IF(
+        [test "x$BLASLDFLAGS" != "x"]
+      )
+      AC_SUBST([BLASFLAGS], [${BLASFLAGS}])
+      AC_SUBST([BLASLDFLAGS], [${BLASLDFLAGS}])
+    fi
+  ],
+  [
+    M4_DETECT_LAPACK
+    AS_IF(
+      [test "x$LAPACKLDFLAGS" != "x"],
+      [AC_MSG_NOTICE([LAPACK detected. Activating by default (use --without-lapack to disable).])],
+      [AC_MSG_NOTICE([No LAPACK found.])]
+    )
+    AC_SUBST([LAPACKFLAGS], [${LAPACKFLAGS}])
+    AC_SUBST([LAPACKLDFLAGS], [${LAPACKLDFLAGS}])
+    AS_IF(
+      [test "x$BLASLDFLAGS" != "x"]
+    )
+    AC_SUBST([BLASFLAGS], [${BLASFLAGS}])
+    AC_SUBST([BLASLDFLAGS], [${BLASLDFLAGS}])
+  ]
+)
+
+AC_ARG_ENABLE(
+  [refinement],
+  [AS_HELP_STRING([--enable-refinement], [use iterative refinement for matrix inversion @<:@default=no@:>@])],
+  [
+    if test "x$enableval" = "xno"; then
+      AC_SUBST([REFINEFLAGS], [""])
+    else
+      AC_SUBST([REFINEFLAGS], ["-DUSE_REFINEMENT"])
+    fi
+  ],
+  [
+    AC_SUBST([REFINEFLAGS], [""])
+  ]
+)
+
+AC_ARG_WITH(
+  [cublas],
+  [AS_HELP_STRING([--with-cublas], [use CUBLAS @<:@default=auto@:>@])],
+  [
+    if test "x$withval" = "xno"; then
+      AC_SUBST([CUBLASFLAGS], [""])
+      AC_SUBST([CUBLASLDFLAGS], [""])
+    else
+      M4_DETECT_CUBLAS
+      AS_IF(
+        [test "x$CUBLASLDFLAGS" != "x"],
+        [AC_MSG_NOTICE([CUBLAS detected.])],
+        [AC_MSG_NOTICE([CUBLAS not found.])]
+      )
+      AC_SUBST([CUBLASFLAGS], [${CUBLASFLAGS}])
+      AC_SUBST([CUBLASLDFLAGS], [${CUBLASLDFLAGS}])
+    fi
+  ],
+  [
+    M4_DETECT_CUBLAS
+    AS_IF(
+      [test "x$CUBLASLDFLAGS" != "x"],
+      [AC_MSG_NOTICE([CUBLAS detected. Activating by default (use --without-cublas to disable).])],
+      [AC_MSG_NOTICE([CUBLAS not found.])]
+    )
+    AC_SUBST([CUBLASFLAGS], [${CUBLASFLAGS}])
+    AC_SUBST([CUBLASLDFLAGS], [${CUBLASLDFLAGS}])
+  ]
+)
+
+AC_ARG_WITH(
+  [magma],
+  [AS_HELP_STRING([--with-magma[[=MAGMA_DIR]]], [use MAGMA @<:@default=auto@:>@])],
+  [
+    if test "x$withval" = "xno"; then
+      AC_SUBST([MAGMAFLAGS], [""])
+      AC_SUBST([MAGMALDFLAGS], [""])
+    else
+      if test "x$withval" != "xyes"; then
+        if test "x$withval" != "xauto"; then
+          export MAGMA_HOME=$withval
+	fi
+      fi
+      M4_DETECT_MAGMA
+      AS_IF(
+        [test "x$MAGMALDFLAGS" != "x"],
+        [AC_MSG_NOTICE([MAGMA detected.])],
+        [AC_MSG_NOTICE([MAGMA not found.])]
+      )
+      AC_SUBST([MAGMAFLAGS], [${MAGMAFLAGS}])
+      AC_SUBST([MAGMALDFLAGS], [${MAGMALDFLAGS}])
+    fi
+  ],
+  [
+    M4_DETECT_MAGMA
+    AS_IF(
+      [test "x$MAGMALDFLAGS" != "x"],
+      [AC_MSG_NOTICE([MAGMA detected. Activating by default (use --without-magma to disable).])],
+      [AC_MSG_NOTICE([MAGMA not found.])]
+    )
+    AC_SUBST([MAGMAFLAGS], [${MAGMAFLAGS}])
+    AC_SUBST([MAGMALDFLAGS], [${MAGMALDFLAGS}])
+  ]
+)
+
+AC_ARG_ENABLE(
+  [nvtx],
+  [AS_HELP_STRING([--enable-nvtx], [use NVTX profiling @<:@default=no@:>@])],
+  [
+    if test "x$enableval" = "xyes"; then
+      AC_SUBST([NVTXFLAGS], ["-DUSE_NVTX"])
+    fi
+  ],
+  [
+    AC_SUBST([NVTXFLAGS], [""])
+  ]
+)
+
+# Test for additional user configurations
+# Test for specific include folders
+AC_ARG_WITH(
+  [include],
+  [AS_HELP_STRING([--with-include], [additional include folders @<:@default=none@:>@])],
+  [
+    if test "x$with_val" != "x"; then
+      AC_SUBST([USER_INCLUDE], [$with_val])
+    fi
+  ],
+  [AC_SUBST([USER_INCLUDE], [""])]
+)
+
+# Test for special FORTRAN compiler flags
+AC_ARG_WITH(
+  [fflags],
+  [AS_HELP_STRING([--with-fflags=flags], [FORTRAN compiler flags @<:@default="-std=legacy -O3"@:>@])],
+  [
+    if test "x$with_val" != "x"; then
+      AC_SUBST([FFLAGS], [$with_val])
+    fi
+  ],
+  [
+    AC_SUBST([FFLAGS], ["-std=legacy -O3"])
+  ]
+)
+
+# Test for special linker flags
+AC_ARG_WITH(
+  [ldflags],
+  [AS_HELP_STRING([--with-ldflags=flags], [custom linker flags @<:@default=none@:>@])],
+  [
+    if test "x$with_val" != "x"; then
+      AC_SUBST([USER_LDFLAGS], [$with_val])
+    fi
+  ],
+  [
+    AC_SUBST([USER_LDFLAGS], [""])
+  ]
+)
+
+AS_IF(
+  [test "x$OFFLOADFLAGS" != "x"],
+  [AC_SUBST([OMPFLAGS], [""])],
+  [AC_SUBST([OMPFLAGS], [$OMPFLAGS])]
+)
+CXXFLAGS="$CLANGFLAGS $OPTFLAGS -ggdb $DEBUGFLAGS $OFFLOADFLAGS $USER_INCLUDE -I$HDF5_INCLUDE $OMPFLAGS $MPIFLAGS $LAPACKFLAGS $CUBLASFLAGS $MAGMAFLAGS $NVTXFLAGS $REFINEFLAGS"
+SUBDIRS="cluster inclusion libnptm sphere testing trapping"
+
+# Generate the output
+AC_OUTPUT

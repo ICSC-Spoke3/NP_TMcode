@@ -1,0 +1,54 @@
+ifndef BUILDDIR
+override BUILDDIR=../../build
+endif
+ifndef BUILDDIR_TRA
+override BUILDDIR_TRA=$(BUILDDIR)/trapping
+endif
+ifndef OBJDIR
+override OBJDIR=./objects
+endif
+ifndef BUILDDIR_NPTM
+override BUILDDIR_NPTM=$(BUILDDIR)/libnptm
+endif
+ifndef LIBNPTM
+# choose one of the two following lines, depending on whether a static or dynamic libnptm is wanted
+override LIBNPTM=$(BUILDDIR_NPTM)/libnptm.a
+#override LIBNPTM=$(BUILDDIR_NPTM)/libnpTm.so
+endif
+
+include ../make.inc
+
+
+F_TRAP_OBJS=$(OBJDIR)/frfme.o $(OBJDIR)/lffft.o
+
+CXX_TRAP_OBJS=$(OBJDIR)/np_trapping.o $(OBJDIR)/cfrfme.o $(OBJDIR)/clffft.o
+
+CXX_TRAP_DEBUG=$(OBJDIR)/np_trapping.g* $(OBJDIR)/cfrfme.g* $(OBJDIR)/clffft.g*
+
+all: $(LIBNPTM) $(BUILDDIR_TRA)/frfme $(BUILDDIR_TRA)/lffft $(BUILDDIR_TRA)/np_trapping
+
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
+
+$(LIBNPTM):
+	BUILDDIR=$(BUILDDIR) BUILDDIR_NPTM=$(BUILDDIR_NPTM) LIBNPTM=$(LIBNPTM) $(MAKE) -C ../libnptm $@
+
+$(BUILDDIR_TRA):
+	mkdir -p $(BUILDDIR_TRA)
+
+$(BUILDDIR_TRA)/frfme: $(OBJDIR) $(OBJDIR)/frfme.o $(BUILDDIR_TRA)
+	$(FC) $(FCFLAGS) -o $(BUILDDIR_TRA)/frfme $(OBJDIR)/frfme.o $(LDFLAGS)
+
+$(BUILDDIR_TRA)/lffft: $(OBJDIR) $(OBJDIR)/lffft.o $(BUILDDIR_TRA)
+	$(FC) $(FCFLAGS) -o $(BUILDDIR_TRA)/lffft $(OBJDIR)/lffft.o $(LDFLAGS)
+
+# We put $(LIBNPTM) as an object to link in directly, so that it will be found at runtime even if it is a shared object library. May change in the future when we have an install: target
+$(BUILDDIR_TRA)/np_trapping: $(OBJDIR) $(CXX_TRAP_OBJS) $(BUILDDIR_TRA) $(LIBNPTM)
+	$(CXX) $(CXXFLAGS) -o $(BUILDDIR_TRA)/np_trapping $(CXX_TRAP_OBJS) $(LIBNPTM) $(CXXLDFLAGS) 
+
+clean:
+	rm -f $(F_TRAP_OBJS) $(CXX_TRAP_OBJS) $(CXX_TRAP_DEBUG)
+
+wipe:
+	rm -f $(BUILDDIR_TRA)/frfme $(BUILDDIR_TRA)/lffft $(BUILDDIR_TRA)/np_trapping $(F_TRAP_OBJS) $(CXX_TRAP_OBJS) $(CXX_TRAP_DEBUG)
+

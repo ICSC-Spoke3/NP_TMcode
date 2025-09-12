@@ -1,0 +1,56 @@
+ifndef BUILDDIR
+override BUILDDIR=../../build
+endif
+ifndef BUILDDIR_CLU
+override BUILDDIR_CLU=$(BUILDDIR)/cluster
+endif
+ifndef OBJDIR
+override OBJDIR=./objects
+endif
+ifndef BUILDDIR_NPTM
+override BUILDDIR_NPTM=$(BUILDDIR)/libnptm
+endif
+ifndef LIBNPTM
+# choose one of the two following lines, depending on whether a static or dynamic libnptm is wanted
+#override LIBNPTM=$(BUILDDIR_NPTM)/libnptm.a
+override LIBNPTM=$(BUILDDIR_NPTM)/libnptm.so
+endif
+
+include ../make.inc
+
+
+F_CLU_OBJS=$(OBJDIR)/clu.o $(OBJDIR)/edfb_clu.o
+
+#CXX_CLU_OBJS=$(OBJDIR)/np_cluster.o $(OBJDIR)/Commons.o $(OBJDIR)/Configuration.o $(OBJDIR)/file_io.o $(OBJDIR)/Parsers.o $(OBJDIR)/sph_subs.o $(OBJDIR)/clu_subs.o $(OBJDIR)/cluster.o $(OBJDIR)/TransitionMatrix.o
+CXX_CLU_OBJS=$(OBJDIR)/np_cluster.o $(OBJDIR)/cluster.o $(LIBNPTM)
+
+CXX_CLU_DEBUG=$(OBJDIR)/np_cluster.g* $(OBJDIR)/cluster.g*
+
+
+all: $(LIBNPTM) $(BUILDDIR_CLU)/clu $(BUILDDIR_CLU)/edfb_clu $(BUILDDIR_CLU)/np_cluster
+
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
+
+$(LIBNPTM):
+	BUILDDIR=$(BUILDDIR) BUILDDIR_NPTM=$(BUILDDIR_NPTM) LIBNPTM=$(LIBNPTM) $(MAKE) -C ../libnptm $@
+
+$(BUILDDIR_CLU):
+	mkdir -p $(BUILDDIR_CLU)
+
+$(BUILDDIR_CLU)/clu: $(OBJDIR) $(OBJDIR)/clu.o $(BUILDDIR_CLU)
+	$(FC) $(FCFLAGS) -o $(BUILDDIR_CLU)/clu $(OBJDIR)/clu.o $(LDFLAGS)
+
+$(BUILDDIR_CLU)/edfb_clu: $(OBJDIR) $(OBJDIR)/edfb_clu.o $(BUILDDIR_CLU)
+	$(FC) $(FCFLAGS) -o $(BUILDDIR_CLU)/edfb_clu $(OBJDIR)/edfb_clu.o $(LDFLAGS)
+
+# We put $(LIBNPTM) as an object to link in directly, so that it will be found at runtime even if it is a shared object library. May change in the future when we have an install: target
+$(BUILDDIR_CLU)/np_cluster: $(OBJDIR) $(CXX_CLU_OBJS) $(BUILDDIR_CLU) $(LIBNPTM)
+	$(CXX) $(CXXFLAGS) -o $(BUILDDIR_CLU)/np_cluster $(CXX_CLU_OBJS) $(LIBNPTM) $(CXXLDFLAGS)
+
+clean:
+	rm -f $(F_CLU_OBJS) $(CXX_CLU_OBJS) $(CXX_CLU_DEBUG)
+
+wipe:
+	rm -f $(BUILDDIR_CLU)/clu $(BUILDDIR_CLU)/edfb_clu $(BUILDDIR_CLU)/np_cluster $(F_CLU_OBJS) $(CXX_CLU_OBJS) $(CXX_CLU_DEBUG)
+

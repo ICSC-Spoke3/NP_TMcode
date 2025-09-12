@@ -1,0 +1,40 @@
+LDADD=libnptm/libnptm.la -L/usr/lib64 ${USER_LDFLAGS} ${HDF5_LDFLAGS} ${LAPACKLDFLAGS} ${BLASLDFLAGS} ${CUBLASLDFLAGS} ${MAGMALDFLAGS}
+lib_LTLIBRARIES=libnptm/libnptm.la
+libnptm_libnptm_la_SOURCES=../src/libnptm/algebraic.cpp ../src/libnptm/clu_subs.cpp ../src/libnptm/Commons.cpp ../src/libnptm/Configuration.cpp ../src/libnptm/file_io.cpp ../src/libnptm/inclu_subs.cpp ../src/libnptm/lapack_calls.cpp ../src/libnptm/logging.cpp ../src/libnptm/magma_calls.cpp ../src/libnptm/cublas_calls.cpp ../src/libnptm/Parsers.cpp ../src/libnptm/sph_subs.cpp ../src/libnptm/utils.cpp ../src/libnptm/tfrfme.cpp ../src/libnptm/TransitionMatrix.cpp ../src/libnptm/tra_subs.cpp
+if BUILDFORTRAN
+PROGS=cluster/edfb_clu cluster/clu cluster/np_cluster inclusion/edfb_inclu inclusion/inclu inclusion/np_inclusion sphere/edfb_sph sphere/sph sphere/np_sphere trapping/frfme trapping/lffft trapping/np_trapping testing/test_ParticleDescriptor testing/test_TEDF testing/test_TTMS
+bin_PROGRAMS=$(PROGS)
+EDFBCLUSOURCES=../src/cluster/edfb_clu.f
+CLUSOURCES=../src/cluster/clu.f
+EDFBINCLUSOURCES=../src/inclusion/edfb_inclu.f
+INCLUSOURCES=../src/inclusion/inclu.f
+EDFBSPHSOURCES=../src/sphere/edfb_sph.f
+SPHSOURCES=../src/sphere/sph.f
+FRFMESOURCES=../src/trapping/frfme.f
+LFFFTSOURCES=../src/trapping/lffft.f
+cluster_edfb_clu_SOURCES=$(EDFBCLUSOURCES)
+cluster_clu_SOURCES=$(CLUSOURCES)
+inclusion_edfb_inclu_SOURCES=$(EDFBINCLUSOURCES)
+inclusion_inclu_SOURCES=$(INCLUSOURCES)
+sphere_edfb_sph_SOURCES=$(EDFBSPHSOURCES)
+sphere_sph_SOURCES=$(SPHSOURCES)
+trapping_frfme_SOURCES=$(FRFMESOURCES)
+trapping_lffft_SOURCES=$(LFFFTSOURCES)
+cluster_np_cluster_SOURCES=../src/cluster/np_cluster.cpp ../src/cluster/cluster.cpp
+inclusion_np_inclusion_SOURCES=../src/inclusion/np_inclusion.cpp ../src/inclusion/inclusion.cpp
+sphere_np_sphere_SOURCES=../src/sphere/np_sphere.cpp ../src/sphere/sphere.cpp
+trapping_np_trapping_SOURCES=../src/trapping/np_trapping.cpp ../src/trapping/cfrfme.cpp ../src/trapping/clffft.cpp
+testing_test_ParticleDescriptor_SOURCES=../src/testing/test_ParticleDescriptor.cpp
+testing_test_TEDF_SOURCES=../src/testing/test_TEDF.cpp
+testing_test_TTMS_SOURCES=../src/testing/test_TTMS.cpp
+else
+PROGS=cluster/np_cluster inclusion/np_inclusion sphere/np_sphere trapping/np_trapping testing/test_ParticleDescriptor testing/test_TEDF testing/test_TTMS
+bin_PROGRAMS=$(PROGS)
+cluster_np_cluster_SOURCES=../src/cluster/np_cluster.cpp ../src/cluster/cluster.cpp
+inclusion_np_inclusion_SOURCES=../src/inclusion/np_inclusion.cpp ../src/inclusion/inclusion.cpp
+sphere_np_sphere_SOURCES=../src/sphere/np_sphere.cpp ../src/sphere/sphere.cpp
+trapping_np_trapping_SOURCES=../src/trapping/np_trapping.cpp ../src/trapping/cfrfme.cpp ../src/trapping/clffft.cpp
+testing_test_ParticleDescriptor_SOURCES=../src/testing/test_ParticleDescriptor.cpp
+testing_test_TEDF_SOURCES=../src/testing/test_TEDF.cpp
+testing_test_TTMS_SOURCES=../src/testing/test_TTMS.cpp
+endif

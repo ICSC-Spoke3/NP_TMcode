@@ -1,0 +1,206 @@
+# FC defines the fortran compiler to use. If undefined, GNU Make tries to use `f77`
+ifndef FC
+  override FC=gfortran
+endif
+
+# FCFLAGS defines the compilation options for the fortran compiler
+ifndef FCFLAGS
+  override FCFLAGS=-std=legacy -O3
+endif
+
+# AR defines the command to create static library files
+ifndef AR
+  override AR=ar
+endif
+
+# ARFLAGS defines the flags for AR to create static library files
+ifndef ARFLAGS
+  override ARFLAGS=-rs
+endif
+
+# PICFLAGS defines the additional flags for the c++ compiler to create objects suitable for shared library creation
+ifndef PICFLAGS
+  override PICFLAGS=-fPIC
+endif
+
+# LDFLAGS defines the default linker flags
+ifndef LDFLAGS
+  override LDFLAGS=
+endif
+
+# CXX defines the default C++ compiler to use. If undefined, GNU Make tries to use g++
+ifndef CXX
+  ifdef USE_MPI
+    override CXX=mpicxx
+  else
+    override CXX=g++
+  endif
+endif
+
+ifdef USE_MPI
+  override MPI_CXXFLAGS+=-DUSE_MPI
+endif
+
+# HDF5_INCLUDE defines the default path to the HDF5 include files to use
+ifndef HDF5_INCLUDE
+  override HDF5_INCLUDE=/usr/include/hdf5/serial
+endif
+
+# define (outside) USE_LAPACK for lapacke support, LAPACK_ILP64 for ilp64 interface, MKL_ILP64 the same if using MKL implementation
+ifdef USE_LAPACK
+# define (outside) USE_ILP64 for long long int support in lapack/mkl/magma interfaces
+  ifdef USE_ILP64
+    ifndef LAPACK_ILP64
+      override LAPACK_ILP64=1
+    endif #LAPACK_ILP64
+  endif
+# define (outside) USE_MKL to use the MKL implementation of lapacke
+  ifdef USE_MKL
+# define (outside) USE_ILP64 for long long int support in lapack/mkl/magma interfaces
+    ifdef USE_ILP64
+      ifndef MKL_ILP64
+        override MKL_ILP64=1
+      endif #MKL_ILP64
+    endif #USE_ILP64
+    ifndef LAPACK_INCLUDE
+# this is for the MKL implementation
+      override LAPACK_INCLUDE=$(MKLROOT)/include
+    endif #LAPACK_INCLUDE
+    ifndef LAPACK_LDFLAGS
+# this is for the MKL implementation
+# define (outside) USE_ILP64 for long long int support in lapack/mkl/magma interfaces
+      ifdef USE_ILP64
+        override LAPACK_LDFLAGS=-L$(MKLROOT)/lib -Wl,--no-as-needed -lmkl_intel_ilp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl
+else
+        override LAPACK_LDFLAGS=-L$(MKLROOT)/lib -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl
+      endif #USE_ILP64
+    endif #LAPACK_LDFLAGS
+# the next else refers to USE_MKL
+  else #this is for when USE_MKL is _not_ defined
+    ifndef LAPACK_INCLUDE
+# this is for standard "vanilla" lapacke64
+      override LAPACK_INCLUDE=/usr/include
+    endif # LAPACK_INCLUDE
+    ifndef LAPACK_LDFLAGS
+      ifdef USE_ILP64
+# this is for standard "vanilla" lapacke64
+        override LAPACK_LDFLAGS=-llapacke64
+      else
+        override LAPACK_LDFLAGS=-llapacke
+      endif #USE_ILP64
+    endif #LAPACK_LDFLAGS
+# the next endif is for USE_MKL
+  endif
+#the next endif is for USE_LAPACK
+endif
+
+# define (outside) USE_MAGMA for magma support
+ifdef USE_MAGMA
+  ifndef MAGMA_LDFLAGS
+    ifdef MAGMA_LIB
+      override MAGMA_LDFLAGS= -L$(MAGMA_LIB)
+    endif
+    ifdef CUDA_HOME
+      override MAGMA_LDFLAGS+= -L$(CUDA_HOME)/lib64
+    endif
+    override MAGMA_LDFLAGS+= -lmagma -lcudart
+#the next endif is for MAGMA_LDFLAGS
+  endif
+#the next endif is for USE_MAGMA
+endif
+
+# define (outside) USE_NVTX for NVIDIA profiling
+ifdef USE_NVTX
+  ifndef NVTX_CXXFLAGS
+    override NVTX_CXXFLAGS= -DUSE_NVTX
+    ifdef CUDA_HOME
+      override NVTX_CXXFLAGS+= -I$(CUDA_HOME)/include
+# closes CUDA_HOME
+    endif
+# closes NVTX_CXXFLAGS
+  endif
+# closes USE_NVTX
+endif
+
+# CXXFLAGS defines the default compilation options for the C++ compiler
+ifndef CXXFLAGS
+  override CXXFLAGS=-O3 -ggdb -Wno-format-contains-nul -foffload=default -foffload=nvptx-none="-O3 -ggdb -fopt-info -lm -latomic -mgomp" -I$(HDF5_INCLUDE) $(MPI_CXXFLAGS) $(NVTX_CXXFLAGS)
+  ifdef USE_OPENMP
+    override CXXFLAGS+= -fopenmp
+# closes USE_OPENMP
+  endif
+  ifdef USE_ILP64
+    override CXXFLAGS+= -DUSE_ILP64
+  endif
+  ifdef USE_LAPACK
+    override CXXFLAGS+= -DUSE_LAPACK
+    ifdef USE_ILP64
+      override CXXFLAGS+= -DLAPACK_ILP64
+    endif
+# closes USE_LAPACK
+  endif
+  ifdef USE_MKL
+    override CXXFLAGS+= -DUSE_MKL -I$(MKLROOT)/include
+    ifdef USE_ILP64
+      override CXXFLAGS+= -DMKL_ILP64
+    endif
+# closes USE_MKL
+  endif
+  ifdef USE_OPENMP
+    override CXXFLAGS+= -fopenmp
+# closes USE_OPENMP
+  endif
+  ifdef USE_MAGMA
+    override CXXFLAGS+= -DUSE_MAGMA
+    ifdef CUDA_HOME
+      override CXXFLAGS+= -I$(CUDA_HOME)/include
+    endif
+    ifdef MAGMA_INCLUDE
+      override CXXFLAGS+= -I$(MAGMA_INCLUDE)
+    endif
+    ifdef USE_ILP64
+      override CXXFLAGS+= -DMAGMA_ILP64
+    endif
+# closes USE_MAGMA
+  endif
+#closes CXXFLAGS
+endif
+
+# HDF5_LIB defines the default path to the HDF5 libraries to use
+# CXXLDFLAGS defines the default linker flags to use for C++ codes
+ifndef CXXLDFLAGS
+  ifndef HDF5_LIB
+    override HDF5_LIB=/usr/lib/x86_64-linux-gnu/hdf5/serial
+  endif
+  override CXXLDFLAGS=-L/usr/lib64 -L$(HDF5_LIB) -lhdf5 $(STATICFLAG)
+  ifdef USE_LAPACK
+    override CXXLDFLAGS+= $(LAPACK_LDFLAGS)
+  endif
+  ifdef USE_MAGMA
+    override CXXLDFLAGS+= $(MAGMA_LDFLAGS)
+  endif
+  override CXXLDFLAGS+= $(LDFLAGS)
+endif
+
+#SOFLAGS defines the additional flags for the c++ compiler to create a shared object file
+ifndef SOFLAGS
+  override SOFLAGS=-shared
+endif
+
+%.o : %.f
+	$(FC) $(FCFLAGS) -c -o $@ $<
+
+%.o : %.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJDIR)/%.o : %.f
+	$(FC) $(FCFLAGS) -c -o $@ $<
+
+$(OBJDIR)/%.o : %.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(DYNOBJDIR)/%.o : %.cpp
+	$(CXX) $(CXXFLAGS) $(PICFLAGS) -c -o $@ $<
+
+$(OBJDIR)/%.o : ../libnptm/%.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<

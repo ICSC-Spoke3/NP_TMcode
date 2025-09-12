@@ -1,0 +1,51 @@
+ifndef BUILDDIR
+override BUILDDIR=../../build
+endif
+ifndef BUILDDIR_TEST
+override BUILDDIR_TEST=$(BUILDDIR)/testing
+endif
+ifndef OBJDIR
+override OBJDIR=./objects
+endif
+ifndef BUILDDIR_NPTM
+override BUILDDIR_NPTM=$(BUILDDIR)/libnptm
+endif
+ifndef LIBNPTM
+# choose one of the two following lines, depending on whether a static or dynamic libnptm is wanted
+override LIBNPTM=$(BUILDDIR_NPTM)/libnptm.a
+#override LIBNPTM=$(BUILDDIR_NPTM)/libnpTm.so
+endif
+
+include ../make.inc
+
+
+CXX_TEDF_OBJS=$(OBJDIR)/test_TEDF.o 
+
+CXX_TTMS_OBJS=$(OBJDIR)/test_TTMS.o
+
+CXX_TESTING_DEBUG=$(OBJDIR)/test_TEDF.g* $(OBJDIR)/test_TTMS.g*
+
+all: $(LIBNPTM) $(BUILDDIR_TEST)/test_TEDF $(BUILDDIR_TEST)/test_TTMS
+
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
+
+$(LIBNPTM):
+	BUILDDIR=$(BUILDDIR) BUILDDIR_NPTM=$(BUILDDIR_NPTM) LIBNPTM=$(LIBNPTM) $(MAKE) -C ../libnptm $@
+
+$(BUILDDIR_TEST):
+	mkdir -p $(BUILDDIR_TEST)
+
+# We put $(LIBNPTM) as an object to link in directly, so that it will be found at runtime even if it is a shared object library. May change in the future when we have an install: target
+$(BUILDDIR_TEST)/test_TEDF: $(OBJDIR) $(CXX_TEDF_OBJS) $(BUILDDIR_TEST) $(LIBNPTM)
+	$(CXX) $(CXXFLAGS) -o $(BUILDDIR_TEST)/test_TEDF $(CXX_TEDF_OBJS) $(LIBNPTM) $(CXXLDFLAGS) 
+
+# We put $(LIBNPTM) as an object to link in directly, so that it will be found at runtime even if it is a shared object library. May change in the future when we have an install: target
+$(BUILDDIR_TEST)/test_TTMS: $(OBJDIR) $(CXX_TTMS_OBJS) $(BUILDDIR_TEST) $(LIBNPTM)
+	$(CXX) $(CXXFLAGS) -o $(BUILDDIR_TEST)/test_TTMS $(CXX_TTMS_OBJS) $(LIBNPTM) $(CXXLDFLAGS) 
+
+clean:
+	rm -f $(CXX_TEDF_OBJS) $(CXX_TTMS_OBJS) $(CXX_TESTING_DEBUG)
+
+wipe:
+	rm -f $(BUILDDIR_TEST)/test_TEDF $(BUILDDIR_TEST)/test_TTMS $(CXX_TEDF_OBJS) $(CXX_TTMS_OBJS) $(CXX_TESTING_DEBUG)

@@ -1,0 +1,28 @@
+authors:
+  - family-names: La Mura, Mulas, Saija
+    given-names: Giovanni, Giacomo, Rosalba
+cff-version: 1.2.0
+license: GNU GPLv3
+message: "If you use this software, please cite the references below."
+repository-code: "https://www.ict.inaf.it/gitlab/giacomo.mulas/np_tmcode"
+title: "Nano-particle Transition Matrix code"
+version: 8.3
+references:
+  - authors:
+    - family-names: Saija, Iatì, Borghese
+      given-names: Rosalba, Maria Antonia, Ferdinando
+    doi: 10.1086/322350
+    issue: 1
+    journal: "The Astrophysical Journal"
+    title: "Beyond Mie Theory: The Transition Matrix Approach in Interstellar Dust Modeling"
+    type: article
+    volume: 599
+    page: 993
+    year: 2001
+  - authors:
+    - family-names: Borghese, Denti, Saija
+      given-names: Ferdinando, Paolo, Rosalba
+    doi: 10.1007/978-3-540-37414-5
+    title: "Scattering from Model Nonspherical Particles"
+    type: book
+    year: 2007

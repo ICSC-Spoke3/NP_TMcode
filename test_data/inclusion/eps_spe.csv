@@ -1,0 +1,7 @@
+# Dielectric constants of EXTERNAL SPHERE for INCLUSION
+#
+# Wavelengths are in meters.
+#
+#Wavelength,Re(EPS),Im(EPS)
+1.0000000e-07,1.690000e00,0.000000e-01
+1.5000000e-07,2.000000e00,0.000000e-01

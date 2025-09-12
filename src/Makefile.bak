@@ -1,0 +1,53 @@
+SUBDIRS := cluster sphere testing trapping
+SRCDIR=$(PWD)
+OBJDIR=$(SRCDIR)/objects
+ifndef BUILDDIR
+override BUILDDIR=$(SRCDIR)/../build
+endif
+ifndef BUILDDIR_NPTM
+override BUILDDIR_NPTM=$(BUILDDIR)/libnptm
+endif
+ifndef LIBNPTM
+ifdef STATIC_NPTM
+override LIBNPTM=$(BUILDDIR_NPTM)/libnptm.a
+override STATICFLAG="-lsz -lz -laec -static"
+else
+override LIBNPTM=$(BUILDDIR_NPTM)/libnptm.so
+override STATICFLAG=""
+endif
+endif
+DOCSDIR=$(SRCDIR)/../doc
+
+all: $(BUILDDIR) $(SUBDIRS) 
+
+docs:
+	cd $(DOCSDIR)/src; doxygen config.dox
+
+$(BUILDDIR):
+	mkdir -p $(BUILDDIR)
+
+$(LIBNPTM):
+	#echo "BUILDDIR_NPTM in libnptm is $(BUILDDIR_NPTM)"
+	#echo "LIBNPTM in libnptm is $(LIBNPTM)"
+	BUILDDIR=$(BUILDDIR) BUILDDIR_NPTM=$(BUILDDIR_NPTM) LIBNPTM=$(LIBNPTM) $(MAKE) -C libnptm $@
+
+$(SUBDIRS): $(BUILDDIR) $(LIBNPTM)
+	BUILDDIR=$(BUILDDIR) BUILDDIR_NPTM=$(BUILDDIR_NPTM) LIBNPTM=$(LIBNPTM) STATICFLAG=$(STATICFLAG) $(MAKE) -C $@
+
+clean: $(BUILDDIR)
+	BUILDDIR=$(BUILDDIR) $(MAKE) -C cluster clean
+	BUILDDIR=$(BUILDDIR) $(MAKE) -C sphere clean
+	BUILDDIR=$(BUILDDIR) $(MAKE) -C trapping clean
+	BUILDDIR=$(BUILDDIR) $(MAKE) -C testing clean
+	BUILDDIR=$(BUILDDIR) BUILDDIR_NPTM=$(BUILDDIR_NPTM) $(MAKE) -C libnptm clean
+
+wipe: $(BUILDDIR)
+	BUILDDIR=$(BUILDDIR) $(MAKE) -C cluster wipe
+	BUILDDIR=$(BUILDDIR) $(MAKE) -C sphere wipe
+	BUILDDIR=$(BUILDDIR) $(MAKE) -C trapping wipe
+	BUILDDIR=$(BUILDDIR) $(MAKE) -C testing wipe
+	BUILDDIR=$(BUILDDIR) BUILDDIR_NPTM=$(BUILDDIR_NPTM) $(MAKE) -C libnptm wipe
+	if [ -d $(DOCSDIR)/build/html ]; then rm -r $(DOCSDIR)/build/html; fi
+	if [ -d $(DOCSDIR)/build/latex ]; then rm -r $(DOCSDIR)/build/latex; fi
+
+.PHONY: all $(SUBDIRS)
