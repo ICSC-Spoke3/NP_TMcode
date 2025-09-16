@@ -17,3 +17,4 @@ src/libnptm/*.lo
 src/*/.deps
 src/*/.dirstamp
 src/*/*.o
+syncer.sh
