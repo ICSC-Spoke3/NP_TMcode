@@ -149,9 +149,9 @@ def parse_legacy_oclu(config):
             out40.write("Wavelength,CosAv,RaPr\n")
         if ('ALL' in config['selection'] or 'DRP' in config['selection']):
             out51 = open(root_name + "_drp1.csv", "w") # open a file for differential radiation pressure forces in state -1
-            out51.write("Wavelength,THi,THs,PHi,PHs,CosAv,RaPr\n")
-            out52 = open(root_name + "_drp1.csv", "w") # open a file for differential radiation pressure forces in state +1
-            out52.write("Wavelength,THi,THs,PHi,PHs,CosAv,RaPr\n")
+            out51.write("Wavelength,THi,THs,PHi,PHs,CosAv,RaPr,Fl,Fr,Fk,Fx,Fy,Fz,TQEl,TQEr,TQEk,TQEx,TQEy,TQEz,TQSl,TQSr,TQSk,TQSx,TQSy,TQSz\n")
+            out52 = open(root_name + "_drp2.csv", "w") # open a file for differential radiation pressure forces in state +1
+            out52.write("Wavelength,THi,THs,PHi,PHs,CosAv,RaPr,Fl,Fr,Fk,Fx,Fy,Fz,TQEl,TQEr,TQEk,TQEx,TQEy,TQEz,TQSl,TQSr,TQSk,TQSx,TQSy,TQSz\n")
 
         # Define the quantities that you need to extract
         alam = 0.0
@@ -269,12 +269,37 @@ def parse_legacy_oclu(config):
                                     file_line = oclu_file.readline()
                             cosav = float(file_line[8:23].replace("D", "E"))
                             rapr = float(file_line[31:46].replace("D", "E"))
+                            # we read the forces and torques
+                            file_line = oclu_file.readline()
+                            fl = float(file_line[5:20].replace("D", "E"))
+                            fr = float(file_line[25:40].replace("D", "E"))
+                            fk = float(file_line[45:60].replace("D", "E"))
+                            file_line = oclu_file.readline()
+                            fx = float(file_line[5:20].replace("D", "E"))
+                            fy = float(file_line[25:40].replace("D", "E"))
+                            fz = float(file_line[45:60].replace("D", "E"))
+                            file_line = oclu_file.readline()
+                            TQEl = float(file_line[8:23].replace("D", "E"))
+                            TQEr = float(file_line[31:46].replace("D", "E"))
+                            TQEk = float(file_line[54:69].replace("D", "E"))
+                            file_line = oclu_file.readline()
+                            TQSl = float(file_line[8:23].replace("D", "E"))
+                            TQSr = float(file_line[31:46].replace("D", "E"))
+                            TQSk = float(file_line[54:69].replace("D", "E"))
+                            file_line = oclu_file.readline()
+                            TQEx = float(file_line[8:23].replace("D", "E"))
+                            TQEy = float(file_line[31:46].replace("D", "E"))
+                            TQEz = float(file_line[54:69].replace("D", "E"))
+                            file_line = oclu_file.readline()
+                            TQSx = float(file_line[8:23].replace("D", "E"))
+                            TQSy = float(file_line[31:46].replace("D", "E"))
+                            TQSz = float(file_line[54:69].replace("D", "E"))
                             # we can write the RAPRS values
-                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, cosav, rapr)
+                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E},{8:.7E},{9:.7E},{10:.7E},{11:.7E},{12:.7E},{13:.7E},{14:.7E},{15:.7E},{16:.7E},{17:.7E},{18:.7E},{19:.7E},{20:.7E},{21:.7E},{22:.7E},{23:.7E},{24:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, cosav, rapr, fl, fr, fk, fx, fy, fx, TQEl, TQEr, TQEk, TQEx, TQEy, TQEz, TQSl, TQSr, TQSk, TQSx, TQSy, TQSz)
                             if (out51 is not None): out51.write(output_line)
                             # we know the differential values for polarization
-                            # state 1 are after 9 more lines
-                            for i in range(9):
+                            # state 1 are after 3 more lines
+                            for i in range(3):
                                 file_line = oclu_file.readline()
                                 # the following check is needed to parse C++ output
                                 if ("INSERTION" in file_line):
@@ -294,8 +319,33 @@ def parse_legacy_oclu(config):
                                     file_line = oclu_file.readline()
                             cosav = float(file_line[8:23].replace("D", "E"))
                             rapr = float(file_line[31:46].replace("D", "E"))
+                            # we read the forces and torques
+                            file_line = oclu_file.readline()
+                            fl = float(file_line[5:20].replace("D", "E"))
+                            fr = float(file_line[25:40].replace("D", "E"))
+                            fk = float(file_line[45:60].replace("D", "E"))
+                            file_line = oclu_file.readline()
+                            fx = float(file_line[5:20].replace("D", "E"))
+                            fy = float(file_line[25:40].replace("D", "E"))
+                            fz = float(file_line[45:60].replace("D", "E"))
+                            file_line = oclu_file.readline()
+                            TQEl = float(file_line[8:23].replace("D", "E"))
+                            TQEr = float(file_line[31:46].replace("D", "E"))
+                            TQEk = float(file_line[54:69].replace("D", "E"))
+                            file_line = oclu_file.readline()
+                            TQSl = float(file_line[8:23].replace("D", "E"))
+                            TQSr = float(file_line[31:46].replace("D", "E"))
+                            TQSk = float(file_line[54:69].replace("D", "E"))
+                            file_line = oclu_file.readline()
+                            TQEx = float(file_line[8:23].replace("D", "E"))
+                            TQEy = float(file_line[31:46].replace("D", "E"))
+                            TQEz = float(file_line[54:69].replace("D", "E"))
+                            file_line = oclu_file.readline()
+                            TQSx = float(file_line[8:23].replace("D", "E"))
+                            TQSy = float(file_line[31:46].replace("D", "E"))
+                            TQSz = float(file_line[54:69].replace("D", "E"))
                             # we can write the RAPRS values
-                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, cosav, rapr)
+                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E},{8:.7E},{9:.7E},{10:.7E},{11:.7E},{12:.7E},{13:.7E},{14:.7E},{15:.7E},{16:.7E},{17:.7E},{18:.7E},{19:.7E},{20:.7E},{21:.7E},{22:.7E},{23:.7E},{24:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, cosav, rapr, fl, fr, fk, fx, fy, fx, TQEl, TQEr, TQEk, TQEx, TQEy, TQEz, TQSl, TQSr, TQSk, TQSx, TQSy, TQSz)
                             if (out52 is not None): out52.write(output_line)
                     found_differentials = True # terminate the inner loop
             # The parsing loop ends here

@@ -879,10 +879,14 @@ def write_legacy_gconf(conf):
     output.write(str_line)
     if (conf['use_refinement']):
         str_line = "USE_REFINEMENT=1\n"
-        output.write(str_line)
+    else:
+        str_line = "USE_REFINEMENT=0\n"
+    output.write(str_line)
     if (not conf['dyn_orders']):
         str_line = "USE_DYN_ORDER=0\n"
-        output.write(str_line)
+    else:
+        str_line = "USE_DYN_ORDER=1\n"
+    output.write(str_line)
     output.close()
     return result
 

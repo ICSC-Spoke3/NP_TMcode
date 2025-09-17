@@ -245,7 +245,7 @@ def print_help():
     print("                                                                        ")
     print("Get the dynamic range of a complex matrix.                              ")
     print("                                                                        ")
-    print("Usage: \"./pydynrange.py FILE_NAME [OPTIONS]\"                            ")
+    print("Usage: \"./pydynrange.py FILE_NAME [OPTIONS]\"                          ")
     print("                                                                        ")
     print("Valid options are:                                                      ")
     print("--help                                         Print this help and exit.")

@@ -1867,12 +1867,12 @@ int ClusterOutputInfo::write_legacy(const std::string &output) {
 		real(vec_fsas[jxi * configurations + si]),
 		imag(vec_fsas[jxi * configurations + si])
         );
-	fprintf(
-		p_outfile, "INSERTION: CS_SPHERE  %15.7lE%15.7lE%15.7lE%15.7lE\n",
-		alamb, vec_sphere_scs[jxi * configurations + si],
-		vec_sphere_abs[jxi * configurations + si],
-		vec_sphere_exs[jxi * configurations + si]
-        );
+	// fprintf(
+	// 	p_outfile, "INSERTION: CS_SPHERE  %15.7lE%15.7lE%15.7lE%15.7lE\n",
+	// 	alamb, vec_sphere_scs[jxi * configurations + si],
+	// 	vec_sphere_abs[jxi * configurations + si],
+	// 	vec_sphere_exs[jxi * configurations + si]
+        // );
 	fprintf(
 		p_outfile, "  QSCHU=%15.7lE, PSCHU=%15.7lE, S0MAG=%15.7lE\n",
 		vec_qschus[jxi * configurations + si],
@@ -1943,10 +1943,10 @@ int ClusterOutputInfo::write_legacy(const std::string &output) {
 	      vec_cosavc1[jxi], vec_raprc1[jxi]
       );
       fprintf(p_outfile, "  Fk=%15.7lE\n", vec_fkc1[jxi]);
-      fprintf(
-	      p_outfile, "INSERTION: CSM_CLUSTER  %15.7lE%15.7lE%15.7lE%15.7lE\n",
-	      alamb, vec_scc1[jxi], vec_abc1[jxi], vec_exc1[jxi]
-      );
+      // fprintf(
+      // 	      p_outfile, "INSERTION: CSM_CLUSTER  %15.7lE%15.7lE%15.7lE%15.7lE\n",
+      // 	      alamb, vec_scc1[jxi], vec_abc1[jxi], vec_exc1[jxi]
+      // );
       // Perpendicular polarization cluster average section
       if (inpol == 0)
 	fprintf(p_outfile, "   LIN  1\n");
@@ -2148,13 +2148,13 @@ int ClusterOutputInfo::write_legacy(const std::string &output) {
 		      vec_dir_pschuc1[sat_dir_index],
 		      vec_dir_s0magc1[sat_dir_index]
 	      );
-	      fprintf(
-		      p_outfile, "INSERTION: CS1_CLUSTER  %13.5le%10.3le%10.3le%15.7le%15.7le%15.7le\n",
-		      alamb, th + jth * thstp, ths + jths * thsstp,
-		      vec_dir_scc1[sat_dir_index],
-		      vec_dir_abc1[sat_dir_index],
-		      vec_dir_exc1[sat_dir_index]
-	      );
+	      // fprintf(
+	      // 	      p_outfile, "INSERTION: CS1_CLUSTER  %13.5le%10.3le%10.3le%15.7le%15.7le%15.7le\n",
+	      // 	      alamb, th + jth * thstp, ths + jths * thsstp,
+	      // 	      vec_dir_scc1[sat_dir_index],
+	      // 	      vec_dir_abc1[sat_dir_index],
+	      // 	      vec_dir_exc1[sat_dir_index]
+	      // );
 	      if (!goto190) {
 		fprintf(
 			p_outfile, "  COSAV=%15.7lE, RAPRS=%15.7lE\n",
@@ -2249,13 +2249,13 @@ int ClusterOutputInfo::write_legacy(const std::string &output) {
 		      vec_dir_pschuc2[sat_dir_index],
 		      vec_dir_s0magc2[sat_dir_index]
 	      );
-	      fprintf(
-		      p_outfile, "INSERTION: CS2_CLUSTER  %13.5le%10.3le%10.3le%15.7le%15.7le%15.7le\n",
-		      alamb, th + jth * thstp, ths + jths * thsstp,
-		      vec_dir_scc2[sat_dir_index],
-		      vec_dir_abc2[sat_dir_index],
-		      vec_dir_exc2[sat_dir_index]
-	      );
+	      // fprintf(
+	      // 	      p_outfile, "INSERTION: CS2_CLUSTER  %13.5le%10.3le%10.3le%15.7le%15.7le%15.7le\n",
+	      // 	      alamb, th + jth * thstp, ths + jths * thsstp,
+	      // 	      vec_dir_scc2[sat_dir_index],
+	      // 	      vec_dir_abc2[sat_dir_index],
+	      // 	      vec_dir_exc2[sat_dir_index]
+	      // );
 	      if (!goto190) {
 		fprintf(
 			p_outfile, "  COSAV=%15.7lE, RAPRS=%15.7lE\n",
@@ -4196,9 +4196,9 @@ int InclusionOutputInfo::write_legacy(const std::string &output) {
 	  p_outfile, " %14.7lE%15.7lE%15.7lE%15.7lE\n",
 	  vec_scs1[jxi], vec_abs1[jxi], vec_exs1[jxi], vec_albeds1[jxi]
 	);
-	fprintf(p_outfile, "INSERTION: SCASECM %5d%15.7E%15.7E%15.7E%15.7E\n",
-		-1, alamb, vec_scs1[jxi], vec_abs1[jxi], vec_exs1[jxi]
-	);
+	// fprintf(p_outfile, "INSERTION: SCASECM %5d%15.7E%15.7E%15.7E%15.7E\n",
+	// 	-1, alamb, vec_scs1[jxi], vec_abs1[jxi], vec_exs1[jxi]
+	// );
 	fprintf(p_outfile, " ---- SCS/GS -- ABC/GS -- EXS/GS ---\n");
 	fprintf(
 	  p_outfile, " %14.7lE%15.7lE%15.7lE\n",
@@ -4225,9 +4225,9 @@ int InclusionOutputInfo::write_legacy(const std::string &output) {
 	  p_outfile, " %14.7lE%15.7lE%15.7lE%15.7lE\n",
 	  vec_scs2[jxi], vec_abs2[jxi], vec_exs2[jxi], vec_albeds2[jxi]
 	);
-	fprintf(p_outfile, "INSERTION: SCASECM %5d%15.7E%15.7E%15.7E%15.7E\n",
-		1, alamb, vec_scs2[jxi], vec_abs2[jxi], vec_exs2[jxi]
-	);
+	// fprintf(p_outfile, "INSERTION: SCASECM %5d%15.7E%15.7E%15.7E%15.7E\n",
+	// 	1, alamb, vec_scs2[jxi], vec_abs2[jxi], vec_exs2[jxi]
+	// );
 	fprintf(p_outfile, " ---- SCS/GS -- ABC/GS -- EXS/GS ---\n");
 	fprintf(
 	  p_outfile, " %14.7lE%15.7lE%15.7lE\n",
@@ -4314,11 +4314,11 @@ int InclusionOutputInfo::write_legacy(const std::string &output) {
 		  vec_dir_exs1[dir_index],
 		  vec_dir_albeds1[dir_index]
 		);
-		fprintf(
-		  p_outfile, "INSERTION: SCASEC %5d%14.7lE%14.7lE%14.7lE%14.7lE\n",
-		  -1, alamb, vec_dir_scs1[dir_index], vec_dir_abs1[dir_index],
-		  vec_dir_exs1[dir_index]
-		);
+		// fprintf(
+		//   p_outfile, "INSERTION: SCASEC %5d%14.7lE%14.7lE%14.7lE%14.7lE\n",
+		//   -1, alamb, vec_dir_scs1[dir_index], vec_dir_abs1[dir_index],
+		//   vec_dir_exs1[dir_index]
+		// );
 		fprintf(p_outfile, " ---- SCS/GS -- ABS/GS -- EXS/GS ---\n");
 		fprintf(
 		  p_outfile, " %14.7lE%15.7lE%15.7lE\n",
@@ -4392,11 +4392,11 @@ int InclusionOutputInfo::write_legacy(const std::string &output) {
 		  vec_dir_exs2[dir_index],
 		  vec_dir_albeds2[dir_index]
 		);
-		fprintf(
-		  p_outfile, "INSERTION: SCASEC %5d%14.7lE%14.7lE%14.7lE%14.7lE\n",
-		  1, alamb, vec_dir_scs2[dir_index], vec_dir_abs2[dir_index],
-		  vec_dir_exs2[dir_index]
-		);
+		// fprintf(
+		//   p_outfile, "INSERTION: SCASEC %5d%14.7lE%14.7lE%14.7lE%14.7lE\n",
+		//   1, alamb, vec_dir_scs2[dir_index], vec_dir_abs2[dir_index],
+		//   vec_dir_exs2[dir_index]
+		// );
 		fprintf(p_outfile, " ---- SCS/GS -- ABS/GS -- EXS/GS ---\n");
 		fprintf(
 		  p_outfile, " %14.7lE%15.7lE%15.7lE\n",

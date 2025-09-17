@@ -101,10 +101,12 @@ ParticleDescriptor::ParticleDescriptor(GeometryConfiguration *gconf, ScattererCo
     rmi[ri] = vec_rmi + (_nsph * ri);
     rei[ri] = vec_rei + (_nsph * ri);
   }
-  int nllt = (_nlemt == 0) ? 2 * _nsph * _li * (_li + 2) : _nlemt;
-  vec_w = new dcomplex[nllt * 4]();
-  w = new dcomplex*[nllt];
-  for (int wi = 0; wi < nllt; wi++) w[wi] = vec_w + (4 * wi);
+  // int nllt = (_nlemt == 0) ? 2 * _nsph * _li * (_li + 2) : _nlemt;
+  // vec_w = new dcomplex[nllt * 4]();
+  // w = new dcomplex*[nllt];
+  // for (int wi = 0; wi < nllt; wi++) w[wi] = vec_w + (4 * wi);
+  vec_w = NULL;
+  w = NULL;
   vec_rc = new double[num_layers]();
   rc = new double*[num_configurations];
   int last_layer_index = 0, cur_layer_index = 0;
@@ -688,6 +690,10 @@ ParticleDescriptorCluster::ParticleDescriptorCluster(GeometryConfiguration *gcon
   _nv3j = (_lm * (_lm + 1) * (2 * _lm + 7)) / 6;
   _ndi = _nsph * _nlim;
   _ndit = 2 * _nsph * _nlim;
+  int nllt = (_nlemt == 0) ? 2 * _nsph * _li * (_li + 2) : _nlemt;
+  vec_w = new dcomplex[nllt * 4]();
+  w = new dcomplex*[nllt];
+  for (int wi = 0; wi < nllt; wi++) w[wi] = vec_w + (4 * wi);
   vec_am0m = new dcomplex[_nlemt * _nlemt]();
   vec_fsac = new dcomplex[4]();
   vec_sac = new dcomplex[4]();
@@ -1086,6 +1092,10 @@ ParticleDescriptorInclusion::ParticleDescriptorInclusion(GeometryConfiguration *
   _nv3j = (_lm * (_lm + 1) * (2 * _lm + 7)) / 6;
   _ndi = _nsph * _nlim;
   _ndit = 2 * _nsph * _nlim;
+  int nllt = (_nlemt == 0) ? 2 * _nsph * _li * (_li + 2) : _nlemt;
+  vec_w = new dcomplex[nllt * 4]();
+  w = new dcomplex*[nllt];
+  for (int wi = 0; wi < nllt; wi++) w[wi] = vec_w + (4 * wi);
   vec_am0m = new dcomplex[_nlemt * _nlemt]();
   vec_fsac = new dcomplex[4]();
   vec_sac = new dcomplex[4]();
@@ -1399,6 +1409,10 @@ ParticleDescriptorSphere::ParticleDescriptorSphere(GeometryConfiguration *gconf,
   vec_sas = new dcomplex[4 * _nsph]();
   vec_vints = new dcomplex[16 * _nsph]();
 
+  int nllt = (_nlemt == 0) ? 2 * _nsph * _li * (_li + 2) : _nlemt;
+  vec_w = new dcomplex[nllt * 4]();
+  w = new dcomplex*[nllt];
+  for (int wi = 0; wi < nllt; wi++) w[wi] = vec_w + (4 * wi);
   fsas = new dcomplex[_nsph];
   sscs = new double[_nsph]();
   sexs = new double[_nsph]();
