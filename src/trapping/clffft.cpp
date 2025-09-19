@@ -19,6 +19,7 @@
  * \brief C++ implementation of LFFFT functions.
  */
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <exception>
 #include <fstream>
@@ -269,6 +270,8 @@ void lffft(string data_file, string output_path) {
 	      string tlfft_name = output_path + "/c_TLFFT";
 	      tlfft.open(tlfft_name.c_str(), ios::out | ios::binary);
 	      if (tlfft.is_open()) {
+		string outgrid_name = output_path + "/c_grid_scale.txt";
+		FILE *outgrid = fopen(outgrid_name.c_str(), "w");
 		tlfft.write(reinterpret_cast<char *>(&lmode), sizeof(int));
 		tlfft.write(reinterpret_cast<char *>(&le), sizeof(int));
 		tlfft.write(reinterpret_cast<char *>(&nkv), sizeof(int));
@@ -285,7 +288,18 @@ void lffft(string data_file, string output_path) {
 		tlfft.write(reinterpret_cast<char *>(&exril), sizeof(double));
 		for (int i = 0; i < nxv; i++) {
 		  double x = _xv[i];
+		  if (nxv - i == i + 1) {
+		    double ximo = _xv[i - 1];
+		    double xipo = _xv[i + 1];
+		    if (ximo < 0.0 && xipo > 0.0) {
+		      double limo = log10(-ximo);
+		      double lipo = log10(xipo);
+		      double logi = (x > 0.0) ? log10(x) : log10(-x);
+		      if (logi < (limo + lipo) / 2.0 - 10.0) x = 0.0;
+		    }
+		  }
 		  tlfft.write(reinterpret_cast<char *>(&x), sizeof(double));
+		  fprintf(outgrid, "  %24.16lE\n", x);
 		}
 		for (int i = 0; i < nyv; i++) {
 		  double y = _yv[i];
@@ -295,6 +309,7 @@ void lffft(string data_file, string output_path) {
 		  double z = _zv[i];
 		  tlfft.write(reinterpret_cast<char *>(&z), sizeof(double));
 		}
+		fclose(outgrid);
 	      } else { // Should never happen.
 		printf("ERROR: could not open TLFFT file.\n");
 	      }
