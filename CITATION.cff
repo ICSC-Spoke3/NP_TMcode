@@ -1,7 +1,17 @@
-authors:
-  - family-names: La Mura, Mulas, Saija
-  - given-names: Giovanni, Giacomo, Rosalba
 cff-version: 1.2.0
+authors:
+  - family-names: "La Mura"
+    given-names: "Giovanni"
+    orcid: "0000-0001-8553-499X"
+    affiliation: "INAF - Osservatorio Astronomico di Cagliari"
+  - family-names: "Mulas"
+    given-names: "Giacomo"
+    orcid: "0000-0003-0602-6669"
+    affiliation: "INAF - Osservatorio Astronomico di Cagliari"
+  - family-names: "Saija"
+    given-names: "Rosalba"
+    orcid: "0000-0002-5823-9749"
+    affiliation: "Università degli Studi di Messina"
 license: GNU GPLv3
 message: "If you use this software, please cite the references below."
 repository-code: "https://www.ict.inaf.it/gitlab/giacomo.mulas/np_tmcode"
@@ -9,8 +19,17 @@ title: "Nano-particle Transition Matrix code"
 version: 8.3
 references:
   - authors:
-    - family-names: Saija, Iatì, Borghese
-    - given-names: Rosalba, Maria Antonia, Ferdinando
+    - family-names: "Saija"
+      given-names: "Rosalba"
+      orcid: "0000-0002-5823-9749"
+      affiliation: "Università degli Studi di Messina"
+    - family-names: "Iatì"
+      given-names: "Maria Antonia"
+      orcid: "0000-0002-3576-8656"
+      affiliation: "CNR - Istituto per i Processi Chimico-Fisici"
+    - family-names: "Borghese"
+      given-names: "Ferdinando"
+      affiliation: "Università degli Studi di Messina"
     doi: 10.1086/322350
     issue: 1
     journal: "The Astrophysical Journal"
@@ -20,8 +39,16 @@ references:
     page: 993
     year: 2001
   - authors:
-    - family-names: Borghese, Denti, Saija
-    - given-names: Ferdinando, Paolo, Rosalba
+    - family-names: "Borghese"
+      given-names: "Ferdinando"
+      affiliation: "Università degli Studi di Messina"
+    - family-names: "Denti"
+      given-names: "Paolo"
+      affiliation: "Università degli Studi di Messina"
+    - family-names: "Saija"
+      given-names: "Rosalba"
+      orcid: "0000-0002-5823-9749"
+      affiliation: "Università degli Studi di Messina"
     doi: 10.1007/978-3-540-37414-5
     title: "Scattering from Model Nonspherical Particles"
     type: book
