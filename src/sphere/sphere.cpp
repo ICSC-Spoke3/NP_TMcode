@@ -200,26 +200,7 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	p_output->vec_vk[0] = sid->vk;
       }
 
-      // Do the first wavelength iteration
-      // int jxi488 = 1;
-      // Use pragmas to put OMP parallelism to second level.
       int jer = 0;
-// #pragma omp parallel
-//       {
-// #pragma omp single
-// 	{
-// 	  jer = sphere_jxi488_cycle(jxi488 - 1, sconf, gconf, p_sa, sid, p_output, output_path, vtppoanp);
-// 	} // OMP single
-//       } // OMP parallel
-//       if (jer != 0) { // First iteration failed. Halt the calculation.
-// 	delete p_output;
-// 	delete p_sa;
-// 	delete sid;
-// 	delete logger;
-// 	delete sconf;
-// 	delete gconf;
-// 	return;
-//       }
 
       //==================================================
       // do the first outputs here, so that I open here the new files, afterwards I only append
@@ -587,12 +568,7 @@ int sphere_jxi488_cycle(
   double size_par_lm = 2.0 * pi * sqrt(exdc) * sconf->get_max_radius() / alamb;
   int recommended_lm = 4 + (int)ceil(size_par_lm + 4.05 * pow(size_par_lm, 1.0 / 3.0));
   if (recommended_lm != l_max) {
-    if (recommended_lm > max_lm) {
-      message = "WARNING: internal order " + to_string(max_lm) + " for scale iteration "
-	+ to_string(jxi488) + " too low (recommended order is " + to_string(recommended_lm)
-	+ ").\n";
-      logger->log(message, LOG_WARN);
-    } else if (recommended_lm < max_lm) {
+    if (recommended_lm < max_lm) {
       if (gconf->dyn_order_flag > 0) {
 	int new_lm = recommended_lm;
 	message = "INFO: lowering internal order from " + to_string(max_lm) + " to "

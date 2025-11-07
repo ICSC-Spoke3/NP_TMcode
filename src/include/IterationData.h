@@ -181,6 +181,14 @@ public:
    */
   ~ClusterIterationData();
 
+  /*! \brief Compute the memory requirements of an instance.
+   *
+   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \return result: `long` Estimated size in bytes.
+   */
+  static long get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
+
   /*! \brief Update field expansion orders.
    *
    * \param rcf: `double **` Matrix of sphere fractional radii.
@@ -358,6 +366,14 @@ public:
   /*! \brief `InclusionIterationData` instance destroyer.
    */
   ~InclusionIterationData();
+
+  /*! \brief Compute the memory requirements of an instance.
+   *
+   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \return result: `long` Estimated size in bytes.
+   */
+  static long get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
 
   /*! \brief Update field expansion orders.
    *

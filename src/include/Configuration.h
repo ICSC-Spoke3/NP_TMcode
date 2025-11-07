@@ -113,6 +113,10 @@ protected:
   short _refine_flag;
   //! \brief Flag for dynamic order management.
   short _dyn_order_flag;
+  //! \brief Host RAM in GB
+  double _host_ram_gb;
+  //! \brief GPU RAM in GB
+  double _gpu_ram_gb;
 
 public:
   //! \brief Read-only view on number of spherical components.
@@ -165,6 +169,10 @@ public:
   const short& refine_flag = _refine_flag;
   //! \brief Read-only view on flag for dynamic order management.
   const short& dyn_order_flag = _dyn_order_flag;
+  //! \brief Read-only view on host RAM in GB
+  const double& host_ram_gb = _host_ram_gb;
+  //! \brief Read-only view on GPU RAM in GB
+  const double& gpu_ram_gb = _gpu_ram_gb;
   
   /*! \brief Build a scattering geometry configuration structure.
    *

@@ -57,7 +57,10 @@ def main():
         sconf, gconf = load_model(config['yml_file_name'])
         if (sconf is not None) and (gconf is not None):
             result = write_legacy_sconf(sconf)
-            if (result == 0): result += write_legacy_gconf(gconf)
+            if (result == 0):
+                result += write_legacy_gconf(gconf)
+            if (result == 0):
+                print_model_summary(sconf, gconf)
         else:
             print("ERROR: could not create configuration.")
             result = 1
@@ -328,14 +331,14 @@ def load_model(model_file):
                     for j in range(expected_radii):
                         sconf['rcf'][i][j] = float(model['particle_settings']['rad_frac'][i][j])
         # Create the gconf dict
-        use_refinement = False
+        use_refinement = True
         dyn_orders = True
         try:
-            use_refinement = False if model['system_settings']['refinement'] == "0" else True
+            use_refinement = False if int(model['runtime']['refinement']) == 0 else True
         except KeyError:
-            use_refinement = False
+            use_refinement = True
         try:
-            dyn_orders = False if model['radiation_settings']['dyn_orders'] == "0" else True
+            dyn_orders = False if int(model['runtime']['dyn_orders']) == 0 else True
         except KeyError:
             dyn_orders = True
         str_polar = model['radiation_settings']['polarization']
@@ -350,6 +353,16 @@ def load_model(model_file):
         }
         gconf['use_refinement'] = use_refinement
         gconf['dyn_orders'] = dyn_orders
+        gconf['max_host_ram_gb'] = 0
+        try:
+            gconf['max_host_ram_gb'] = float(model['system_settings']['max_host_ram'])
+        except KeyError as ex:
+            print("WARNING: no host RAM declared. Cannot estimate recommended execution.")
+        gconf['max_gpu_ram_gb'] = 0
+        try:
+            gconf['max_gpu_ram_gb'] = float(model['system_settings']['max_gpu_ram'])
+        except KeyError as ex:
+            print("WARNING: no GPU RAM declared.")
         gconf['nsph'] = sconf['nsph']
         gconf['application'] = model['particle_settings']['application']
         gconf['li'] = int(model['geometry_settings']['li'])
@@ -438,39 +451,7 @@ def load_model(model_file):
             if (max_rad == 0.0):
                 max_rad = 20.0 * max(sconf['ros'])
             write_obj(sconf, gconf, max_rad)
-        try:
-            max_gpu_ram = int(model['system_settings']['max_gpu_ram'])
-            matrix_dim = 2 * gconf['nsph'] * gconf['li'] * (gconf['li'] + 2)
-            matrix_size_bytes = 16 * matrix_dim * matrix_dim
-            matrix_size_Gb = float(matrix_size_bytes) / 1024.0 / 1024.0 / 1024.0
-            print("INFO: estimated matrix size is {0:.3g} Gb.".format(matrix_size_Gb))
-            if (max_gpu_ram > 0):
-                max_gpu_ram_bytes = max_gpu_ram * 1024 * 1024 * 1024
-                if (matrix_size_bytes < max_gpu_ram_bytes):
-                    max_gpu_processes = int(max_gpu_ram_bytes / matrix_size_bytes)
-                    print("INFO: system supports up to %d simultaneous processes on GPU."%max_gpu_processes)
-                    print("INFO: only %d GPU processes allowed, if using refinement."%(max_gpu_processes / 3))
-                else:
-                    print("WARNING: estimated matrix size is larger than available GPU memory!")
-            else:
-                print("INFO: no GPU RAM declared.")
-            max_host_ram = int(model['system_settings']['max_host_ram'])
-            if (max_host_ram > 0):
-                max_host_ram_bytes = max_host_ram * 1024 * 1024 * 1024
-                matrix_dim = 2 * gconf['nsph'] * gconf['li'] * (gconf['li'] + 2)
-                matrix_size_bytes = 16 * matrix_dim * matrix_dim
-                if (matrix_size_bytes < max_host_ram_bytes):
-                    max_host_processes = int(max_host_ram_bytes / matrix_size_bytes / 2)
-                    print("INFO: system supports up to %d simultaneous processes."%max_host_processes)
-                else:
-                    print("WARNING: estimated matrix size is larger than available host memory!")
-            else:
-                print("WARNING: no host RAM declared!")
-        except KeyError as ex:
-            print(ex)
-            print("WARNING: missing system description! Cannot estimate recommended execution.")
-        cpu_count = multiprocessing.cpu_count()
-        print("INFO: the number of detected CPUs is %d."%cpu_count)
+        test_system_resources(model, gconf, sconf)
     else: # model is None
         print("ERROR: could not parse " + model_file + "!")
     return (sconf, gconf)
@@ -604,6 +585,56 @@ def print_help():
     print("--help                Print this help and exit.")
     print("                                               ")
 
+## \brief Print a summary of model properties.
+#
+#  This function provides a summary of useful information concerning the
+#  radii of the particle monomers and of the equivalent mass sphere, to
+#  assist in the selection of the proper starting orders.
+#
+#  \parameter scatterer: `dict` A dictionary for the scatterer configuration.
+#  \parameter geometry: `dict` A dictionary for the geometry configuration.
+def print_model_summary(scatterer, geometry):
+    avgX = 0.0
+    avgY = 0.0
+    avgZ = 0.0
+    Rmin = 0.0
+    Rmax = 0.0
+    Reqm = 0.0
+    R3tot = 0.0
+    Rcirc = 0.0
+    square_farthest = 0.0
+    for i in range(scatterer['nsph']):
+        avgX += geometry['vec_sph_x'][i]
+        avgY += geometry['vec_sph_y'][i]
+        avgZ += geometry['vec_sph_z'][i]
+        sph_type_index = scatterer['vec_types'][i] - 1
+        ros = scatterer['ros'][sph_type_index]
+        R3tot += math.pow(ros, 3.0)
+        if (ros > Rmax):
+            Rmax = ros
+        if (Rmin == 0.0 or ros < Rmin):
+            Rmin = ros
+    Reqm = math.pow(R3tot, 1.0 / 3.0)
+    avgX /= scatterer['nsph']
+    avgY /= scatterer['nsph']
+    avgZ /= scatterer['nsph']
+    for i in range(scatterer['nsph']):
+        sph_type_index = scatterer['vec_types'][i] - 1
+        ros = scatterer['ros'][sph_type_index]
+        dX = geometry['vec_sph_x'][i] - avgX
+        dY = geometry['vec_sph_y'][i] - avgY
+        dZ = geometry['vec_sph_z'][i] - avgZ
+        square_range = dX * dX + dY * dY + dZ * dZ + ros * ros
+        if (square_range > square_farthest):
+            square_farthest = square_range
+    Rcirc = math.sqrt(square_farthest)
+    if (Rmax == Rmin):
+        print("INFO: monomer radius is Rsph = %.5em"%Rmin)
+    else:
+        print("INFO: smallest monomer radius is Rmin = %.5em"%Rmin)
+        print("INFO: largest monomer radius is Rmax = %.5em"%Rmax)
+    print("INFO: equivalent mass radius is Reqm = %.5em"%Reqm)
+    print("INFO: minimum encircling radius is Rcirc = %.5em"%Rcirc)
 
 ## \brief Generate a random cluster aggregate from YAML configuration options.
 #
@@ -715,6 +746,8 @@ def random_aggregate(scatterer, geometry, seed, max_rad, max_attempts=100):
             placed_spheres += 1
             vec_types.append(sph_type_index + 1)
             attempts = 0
+        # end while loop
+    # end for i loop
     scatterer['vec_types'] = vec_types
     sph_index = 0
     for sphere in sorted(vec_spheres, key=lambda item: item['itype']):
@@ -836,6 +869,112 @@ def random_compact(scatterer, geometry, seed, max_rad):
             geometry['vec_sph_z'][sph_index] = sphere['z']
             sph_index += 1
     return current_n
+
+def test_system_resources(model, gconf, sconf):
+    le = gconf['le'] if (gconf['application'] != "SPH") else 0
+    li = gconf['li']
+    lm = le if le > li else li
+    nsph = gconf['nsph']
+    nlim = li * (li + 2)
+    nlem = le * (le + 2)
+    nlemt = 2 * nlem
+    ncou = nsph * nsph - 1
+    litpo = li + li + 1
+    litpos = litpo * litpo
+    lmpo = lm + 1
+    lmtpo = li + le + 1
+    lmtpos = lmtpo * lmtpo
+    nv3j = (lm * (lm + 1) * (2 * lm + 7)) / 6;
+    ndi = nsph * nlim
+    ndit = 2 * ndi
+    nllt = 2 * nsph * li * (li + 2) if nlemt == 0 else nlemt
+    npnt = gconf['npnt']
+    npntts = gconf['npntts']
+    max_n = npnt if npnt > npntts else npntts
+    nhspo = 2 * max_n - 1
+    configurations = sconf['configurations']
+    num_layers = 0
+    max_layers = 1
+    for nli in range(configurations):
+        nl = sconf['nshl'][nli]
+        if (nli == 0 and gconf['application'] == "INCLU"): nl += 1
+        num_layers += nl
+        if (nl > max_layers): max_layers = nl
+    try:
+        max_gpu_ram = int(model['system_settings']['max_gpu_ram'])
+        matrix_dim = 2 * gconf['nsph'] * gconf['li'] * (gconf['li'] + 2)
+        matrix_size_bytes = 16 * matrix_dim * matrix_dim
+        matrix_size_Gb = float(matrix_size_bytes) / 1024.0 / 1024.0 / 1024.0
+        print("INFO: estimated matrix size is {0:.3g} Gb.".format(matrix_size_Gb))
+        if (max_gpu_ram > 0):
+            max_gpu_ram_bytes = max_gpu_ram * 1024 * 1024 * 1024
+            if (matrix_size_bytes < max_gpu_ram_bytes):
+                max_gpu_processes = int(max_gpu_ram_bytes / matrix_size_bytes)
+                print("INFO: system supports up to %d simultaneous processes on GPU."%max_gpu_processes)
+                print("INFO: only %d GPU processes allowed, if using refinement."%(max_gpu_processes / 3))
+            else:
+                print("WARNING: estimated matrix size is larger than available GPU memory!")
+        else:
+            print("INFO: no GPU RAM declared.")
+        max_host_ram = int(model['system_settings']['max_host_ram'])
+        max_host_ram_bytes = max_host_ram * 1024 * 1024 * 1024
+        if (max_host_ram > 0):
+            required_ram_bytes = 0
+            if (gconf['application'] == "CLUSTER"):
+                # ClusterIterationData section
+                required_ram_bytes += 8 * 37
+                required_ram_bytes += 8 * 10
+                required_ram_bytes += 16
+                required_ram_bytes += 4 * 7
+                required_ram_bytes += 1
+                required_ram_bytes += 8 * (44 + 6 * lm + ndit)
+                required_ram_bytes += 8 * (132 + 5 * nsph + 12 * lm)
+                required_ram_bytes += 16 * (24 + 4 * nsph + ndit * ndit)
+                # ParticleDescriptorCluster section
+                required_ram_bytes += 2 * 2
+                required_ram_bytes += 4 * 16
+                required_ram_bytes += 8 * 20
+                required_ram_bytes += 8
+                required_ram_bytes += 16 * (2 * li * nsph + 16 + 2 * nhspo + nsph + max_layers + 1)
+                required_ram_bytes += 16 * (2 * li + configurations)
+                required_ram_bytes += 8 * (num_layers + configurations + 4 * nsph)
+                required_ram_bytes += 4 * (nsph + configurations)
+                required_ram_bytes += 8 * 12
+                required_ram_bytes += 16 * 22 * nsph
+                required_ram_bytes += 8 * 7 * nsph
+                required_ram_bytes += 8 * 4 * nsph
+                required_ram_bytes += 8 * 9
+                required_ram_bytes += 16
+                required_ram_bytes += 8 * 3
+                required_ram_bytes += 16 * (20 + 2 * ndi * nlem + ndit * nlemt)
+                required_ram_bytes += 8 * (2 + 2 * ndit)
+                required_ram_bytes += 4 * 29
+                required_ram_bytes += 8 * 31
+                required_ram_bytes += 16
+                required_ram_bytes += 16 * (
+                    4 * nllt + nlemt * nlemt + 36 + ncou * litpo + nsph * lmtpo
+                    + ncou * litpos + nsph * lmtpos
+                )
+                required_ram_bytes += 4 * ((lm + 1) * lm)
+                required_ram_bytes += 8 * (8 + nv3j + lmtpo)
+            else:
+                print("ERROR: unrecognized application name \"%s\""%gconf['application'])
+                raise KeyError("unrecognized application name \"{0:s}\"".format(gconf['application']))
+            required_ram_gb = required_ram_bytes / 1024.0 / 1024.0 / 1024.0
+            print("INFO: model requires %.5gGiB of host RAM."%required_ram_gb)
+            if (required_ram_bytes < max_host_ram_bytes):
+                max_host_processes = int(max_host_ram_bytes / required_ram_bytes)
+                print("INFO: system supports up to %d simultaneous processes"%max_host_processes)
+                print("      (N.B.: not including overheads!)")
+            else:
+                print("WARNING: estimated matrix size is larger than available host memory!")
+        else:
+            print("WARNING: no host RAM declared!")
+    except KeyError as ex:
+        print(ex)
+        print("WARNING: missing system description! Cannot estimate recommended execution.")
+    cpu_count = multiprocessing.cpu_count()
+    print("INFO: the number of detected CPUs is %d."%cpu_count)
     
 ## \brief Write the geometry configuration dictionary to legacy format.
 #
@@ -882,11 +1021,19 @@ def write_legacy_gconf(conf):
     else:
         str_line = "USE_REFINEMENT=0\n"
     output.write(str_line)
-    if (not conf['dyn_orders']):
-        str_line = "USE_DYN_ORDER=0\n"
+    if (conf['dyn_orders']):
+        str_line = "USE_DYN_ORDERS=1\n"
     else:
-        str_line = "USE_DYN_ORDER=1\n"
+        str_line = "USE_DYN_ORDERS=0\n"
     output.write(str_line)
+    max_host_ram_gb = conf['max_host_ram_gb']
+    if (max_host_ram_gb > 0.0):
+        str_line = "HOST_RAM_GB={0:.3f}\n".format(max_host_ram_gb)
+        output.write(str_line)
+    max_gpu_ram_gb = conf['max_gpu_ram_gb']
+    if (max_gpu_ram_gb > 0.0):
+        str_line = "GPU_RAM_GB={0:.3f}\n".format(max_gpu_ram_gb)
+        output.write(str_line)
     output.close()
     return result
 
@@ -1011,14 +1158,30 @@ def write_obj(scatterer, geometry, max_rad):
     out_dir = scatterer['out_file'].absolute().parent
     out_model_path = Path(str(geometry['out_file']) + ".obj")
     out_material_path = Path(str(geometry['out_file']) + ".mtl")
+    # The following color scale is obtained from the normalized
+    # RGB values of colors divided by 2.
     color_strings = [
-        "0.5 0.5 0.5\n", # white
-        "0.3 0.0 0.0\n", # red
-        "0.0 0.0 0.3\n", # blue
-        "0.0 0.3 0.0\n", # green
+        "0.50 0.50 0.50\n", # white
+        "0.30 0.00 0.00\n", # red
+        "0.00 0.00 0.30\n", # blue
+        "0.00 0.30 0.00\n", # green
+        "0.35 0.35 0.00\n", # yellow
+        "0.21 0.03 0.34\n", # purple
+        "0.00 0.49 0.49\n", # cyan
+        "0.27 0.16 0.08\n", # brown
+        "0.19 0.21 0.09\n", # olive
+        "0.50 0.00 0.50\n", # magenta
+        "0.16 0.38 0.37\n", # turquoise
+        "0.25 0.25 0.25\n", # gray
+        "0.50 0.36 0.38\n", # pink
+        "0.50 0.32 0.00\n", # orange
+        "0.48 0.45 0.34\n", # vanilla
+        "0.16 0.39 0.24\n", # emerald
     ]
     color_names = [
-        "white", "red", "blue", "green"
+        "white", "red", "blue", "green", "yellow", "purple", "cyan", "brown",
+        "olive", "magenta", "turquoise", "gray", "pink", "orange", "vanilla",
+        "emerald"
     ]
     mtl_file = open(str(out_material_path), "w")
     for mi in range(len(color_strings)):
@@ -1062,8 +1225,8 @@ def write_obj(scatterer, geometry, max_rad):
                 str_line = tmp_model_file.readline()
             else:
                 old_sph_type_index = sph_type_index
-                color_index = sph_type_index % (len(color_names) - 1)
-                str_line = "g grp{0:04d}\n".format(sph_type_index)
+                color_index = 1 + (sph_type_index - 1) % (len(color_names) - 1)
+                str_line = "g grp{0:04d}\n".format(sph_type_index - 1)
                 out_model_file.write(str_line)
                 str_line = tmp_model_file.readline()
                 str_line = "usemtl {0:s}\n".format(color_names[color_index])

@@ -409,6 +409,14 @@ public:
    * \return descriptor_type: `string` The descriptor type name.
    */
   virtual std::string get_descriptor_type() { return "base descriptor"; }
+
+  /*! \brief Compute the memory requirements of an instance.
+   *
+   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \return result: `long` Estimated size in bytes.
+   */
+  static long get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
 };
 
 /*! \brief The data structure describing a particle model made by a cluster of spheres.
@@ -451,6 +459,14 @@ public:
    * \return descriptor_type: `string` The descriptor type name.
    */
   std::string get_descriptor_type() override { return "cluster descriptor"; }
+
+  /*! \brief Compute the memory requirements of an instance.
+   *
+   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \return result: `long` Estimated size in bytes.
+   */
+  static long get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
   
   /*! \brief Update the field expansion orders.
    *
@@ -501,6 +517,14 @@ public:
    * \return descriptor_type: `string` The descriptor type name.
    */
   std::string get_descriptor_type() override { return "inclusion descriptor"; }
+
+  /*! \brief Compute the memory requirements of an instance.
+   *
+   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \return result: `long` Estimated size in bytes.
+   */
+  static long get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
   
   /*! \brief Update the field expansion orders.
    *
@@ -551,6 +575,14 @@ public:
    * \return descriptor_type: `string` The descriptor type name.
    */
   std::string get_descriptor_type() override { return "sphere descriptor"; }
+
+  /*! \brief Compute the memory requirements of an instance.
+   *
+   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \return result: `long` Estimated size in bytes.
+   */
+  static long get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
   
   /*! \brief Update the field expansion order.
    *
