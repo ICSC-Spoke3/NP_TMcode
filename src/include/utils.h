@@ -22,6 +22,19 @@
 #ifndef INCLUDE_UTILS_H_
 #define INCLUDE_UTILS_H_
 
+/*! \brief Obtain an estimate of the RAM overhead factor for optimization.
+ *
+ * Code speed-up optimization usually comes at the cost of increased memory
+ * requirements. While this should not generally be a serious issue, it can
+ * become such in case of models that require large amounts of memory to be
+ * handled. This function tests the code build configuration to provide an
+ * zero-order estimate of the weight of these overheads to protect the host
+ * system from saturating the RAM.
+ *
+ * \return factor: `double` The multiplicative factor to be applied to data size.
+ */
+double get_ram_overhead();
+
 /*! \brief Write a double complex matrix to a text file.
  *
  * \param af: `VirtualAsciiFile *` Pointer to an existing VirtualAsciiFile.

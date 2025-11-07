@@ -99,6 +99,8 @@ GeometryConfiguration::GeometryConfiguration(
   _sph_z = z;
   _refine_flag = 0;
   _dyn_order_flag = 1;
+  _host_ram_gb = 0.0;
+  _gpu_ram_gb = 0.0;
 }
 
 GeometryConfiguration::GeometryConfiguration(const GeometryConfiguration& rhs)
@@ -136,6 +138,8 @@ GeometryConfiguration::GeometryConfiguration(const GeometryConfiguration& rhs)
   }
   _refine_flag = rhs._refine_flag;
   _dyn_order_flag = rhs._dyn_order_flag;
+  _host_ram_gb = rhs._host_ram_gb;
+  _gpu_ram_gb = rhs._gpu_ram_gb;
 }
 
 #ifdef MPI_VERSION
@@ -173,6 +177,8 @@ GeometryConfiguration::GeometryConfiguration(const mixMPI *mpidata) {
   MPI_Bcast(_sph_z, _number_of_spheres, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_refine_flag, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_dyn_order_flag, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_host_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_gpu_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 
 void GeometryConfiguration::mpibcast(const mixMPI *mpidata) {
@@ -206,6 +212,8 @@ void GeometryConfiguration::mpibcast(const mixMPI *mpidata) {
   MPI_Bcast(_sph_z, _number_of_spheres, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_refine_flag, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_dyn_order_flag, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_host_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_gpu_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 #endif
 
@@ -342,16 +350,28 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
     str_target = file_lines[last_read_line++];
     if (str_target.size() > 15) {
       if (str_target.substr(0, 15).compare("USE_REFINEMENT=") == 0) {
+	re = regex("[0-9]+");
 	regex_search(str_target, m, re);
 	short refine_flag = (short)stoi(m.str());
 	conf->_refine_flag = refine_flag;
       }
-    }
-    if (str_target.size() > 14) {
-      if (str_target.substr(0, 14).compare("USE_DYN_ORDER=") == 0) {
+      if (str_target.substr(0, 15).compare("USE_DYN_ORDERS=") == 0) {
+	re = regex("[0-9]+");
 	regex_search(str_target, m, re);
 	short dyn_order_flag = (short)stoi(m.str());
 	conf->_dyn_order_flag = dyn_order_flag;
+      }
+    }
+    if (str_target.size() > 12) {
+      if (str_target.substr(0, 12).compare("HOST_RAM_GB=") == 0) {
+	double ram_gb = (double)stod(str_target.substr(12, str_target.length()));
+	conf->_host_ram_gb = ram_gb;
+      }
+    }
+    if (str_target.size() > 11) {
+      if (str_target.substr(0, 11).compare("GPU_RAM_GB=") == 0) {
+	double ram_gb = (double)stod(str_target.substr(11, str_target.length()));
+	conf->_gpu_ram_gb = ram_gb;
       }
     }
   }
@@ -362,22 +382,12 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
 }
 
 ScattererConfiguration::ScattererConfiguration(
-					       int nsph,
-					       int configs, 
-					       double *scale_vector,
-					       int nxi,
-					       const std::string& variable_name,
-					       int *iog_vector,
-					       double *ros_vector,
-					       int *nshl_vector,
-					       double **rcf_vector,
-					       int dielectric_func_type,
-					       dcomplex ***dc_matrix,
-					       bool is_external,
-					       double ex,
-					       double w,
-					       double x
-					       ) {
+  int nsph, int configs, double *scale_vector, int nxi,
+  const std::string& variable_name, int *iog_vector,
+  double *ros_vector, int *nshl_vector, double **rcf_vector,
+  int dielectric_func_type, dcomplex ***dc_matrix, bool is_external,
+  double ex, double w, double x
+) {
   _number_of_spheres = nsph;
   _configurations = configs;
   _number_of_scales = nxi;
@@ -1014,22 +1024,33 @@ double ScattererConfiguration::get_particle_radius(GeometryConfiguration *gc) {
   if (_use_external_sphere) {
     result = _radii_of_spheres[0] * _rcf[0][_nshl_vec[0] - 1];
   } else {
-    double x, y, z;
-    int far_index = -1;
     double dist2, max_dist;
     double max_dist2 = 0.0;
+    double avgX = 0.0, avgY = 0.0, avgZ = 0.0;
+#pragma omp parallel for reduction(+: avgX, avgY, avgZ)
     for (int si = 0; si < _number_of_spheres; si++) {
-      x = gc->get_sph_x(si);
-      y = gc->get_sph_y(si);
-      z = gc->get_sph_z(si);
-      dist2 = x * x + y * y + z * z;
+      avgX += gc->get_sph_x(si);
+      avgY += gc->get_sph_y(si);
+      avgZ += gc->get_sph_z(si);
+    }
+    avgX /= _number_of_spheres;
+    avgY /= _number_of_spheres;
+    avgZ /= _number_of_spheres;
+    int configuration = 0;
+    for (int si = 0; si < _number_of_spheres; si++) {
+      int iogi = _iog_vec[si];
+      if (iogi >= si + 1) configuration++;
+      double dX = gc->get_sph_x(si) - avgX;
+      double dY = gc->get_sph_y(si) - avgY;
+      double dZ = gc->get_sph_z(si) - avgZ;
+      double radius = _radii_of_spheres[configuration - 1];
+      dist2 = dX * dX + dY * dY + dZ * dZ + radius * radius;
       if (dist2 > max_dist2) {
 	max_dist2 = dist2;
-	far_index = si;
       }
     }
     max_dist = sqrt(max_dist2);
-    result = max_dist + _radii_of_spheres[far_index];
+    result = max_dist;
   }
   return result;
 }

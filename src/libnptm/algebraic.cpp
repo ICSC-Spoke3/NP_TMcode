@@ -86,6 +86,6 @@ void invert_matrix(dcomplex **mat, np_int size, int &ier, int &maxrefiters, doub
   zinvert(mat, size, ier);
 #endif
 #else
-  lucin(mat, max_size, size, ier);
+  lucin(mat, size, size, ier);
 #endif
 }

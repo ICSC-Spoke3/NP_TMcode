@@ -41,32 +41,31 @@ def main():
     errors = 0
     try:
         config = parse_arguments()
+        if config['help_mode']:
+            print_help()
+        else:
+            if (config['mode'] == ''):
+                print("ERROR: no calculation mode chosen (must be either \"--li\" or \"--le\").")
+                errors += 1
+            if (config['wavelength'] == 0.0):
+                print("ERROR: no wavelength specified (missing \"--wave=WAVELENGTH\" option).")
+                errors += 1
+            if (config['radius'] <= 0.0):
+                print("ERROR: invalid particle radius (must be \"--rad=RADIUS\" with RADIUS > 0).")
+                errors += 1
+            if (errors == 0):
+                epsilon = math.sqrt(config['refraction'])
+                x = 2 * math.pi * epsilon * config['radius'] / config['wavelength']
+                lmax = 0
+                if (config['mode'] == 'LI'):
+                    lmax = 2 + int(math.ceil(x + 4.05 * math.pow(x, 1.0 / 3.0)))
+                elif (config['mode'] == 'LE'):
+                    lmax = 1 + int(math.ceil(x + 11.0 * math.pow(x, 1.0 / 3.0)))
+                print("Suggested truncation order is Lmax = %d"%lmax)
     except ValueError as ex:
         print(ex)
         print("\nRun \"pywiscombe.py --help\" to get more detailed help.")
         errors = 1
-    if config['help_mode']:
-        config['help_mode'] = True
-        print_help()
-    else:
-        if (config['mode'] == ''):
-            print("ERROR: no calculation mode chosen (must be either \"--li\" or \"--le\").") 
-            errors += 1
-        if (config['wavelength'] == 0.0):
-            print("ERROR: no wavelength specified (missing \"--wave=WAVELENGTH\" option).")
-            errors += 1
-        if (config['radius'] <= 0.0):
-            print("ERROR: invalid particle radius (must be \"--rad=RADIUS\" with RADIUS > 0).")
-            errors += 1
-        if (errors == 0):
-            epsilon = math.sqrt(config['refraction'])
-            x = 2 * math.pi * epsilon * config['radius'] / config['wavelength']
-            lmax = 0
-            if (config['mode'] == 'LI'):
-                lmax = 2 + int(math.ceil(x + 4.05 * math.pow(x, 1.0 / 3.0)))
-            elif (config['mode'] == 'LE'):
-                lmax = 1 + int(math.ceil(x + 11.0 * math.pow(x, 1.0 / 3.0)))
-            print("Suggested truncation order is Lmax = %d"%lmax)
     return errors
 
 ## \brief Parse the command line arguments.

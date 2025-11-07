@@ -42,9 +42,21 @@
 
 using namespace std;
 
+double get_ram_overhead() {
+  double result = 1.0;
+#ifdef USE_MAGMA
+  if (result < 15.0) result = 15.0;
+#endif //USE_MAGMA
+#ifdef USE_LAPACK
+  if (result < 2.0) result = 2.0;
+#endif //USE_MAGMA
+  return result;
+}
+
+
 int write_dcomplex_matrix(
-			  VirtualAsciiFile *af, dcomplex **mat, int rows, int columns,
-			  const std::string& format, int first_index
+  VirtualAsciiFile *af, dcomplex **mat, int rows, int columns,
+  const std::string& format, int first_index
 ) {
   int result = 0;
   char virtual_line[256];

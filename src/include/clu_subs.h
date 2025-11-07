@@ -79,8 +79,9 @@ void apcra(
  * \param jf: `int`
  * \param k: `int`
  * \param nj: `int`
+ * \param istep: `np_int` Size of rows in the matrix.
  */
-dcomplex cdtp(dcomplex z, dcomplex **am, int i, int jf, int k, int nj);
+dcomplex cdtp(dcomplex z, dcomplex *vec_am, int i, int jf, int k, int nj, np_int istep);
 
 /*! \brief C++ porting of CGEV. QUESTION: description?
  *

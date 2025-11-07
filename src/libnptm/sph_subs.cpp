@@ -223,11 +223,19 @@ void dme(
   const int lipt = li + 2;
   double *rfj = new double[lipt];
   double *rfn = new double[lipt];
-  dcomplex cfj[lipt], fbi[lipt], fb[lipt], fn[lipt];
-  dcomplex rmf[li], drmf[li], ref[li], dref[li];
+  // dcomplex cfj[lipt], fbi[lipt], fb[lipt], fn[lipt];
+  // dcomplex rmf[li], drmf[li], ref[li], dref[li];
   dcomplex dfbi, dfb, dfn, ccna, ccnb, ccnc, ccnd;
   dcomplex y1, dy1, y2, dy2, arin, cri;
   const dcomplex uim = 1.0 * I;
+  dcomplex *cfj = new dcomplex[lipt];
+  dcomplex *fbi = new dcomplex[lipt];
+  dcomplex *fb = new dcomplex[lipt];
+  dcomplex *fn = new dcomplex[lipt];
+  dcomplex *rmf = new dcomplex[li];
+  dcomplex *drmf = new dcomplex[li];
+  dcomplex *ref = new dcomplex[li];
+  dcomplex *dref = new dcomplex[li];
   int sph_index = (last_conf == 0) ? i : last_conf;
   jer = 0;
   int nstp = npnt - 1;
@@ -246,6 +254,14 @@ void dme(
       jer = 5;
       delete[] rfj;
       delete[] rfn;
+      delete[] cfj;
+      delete[] fbi;
+      delete[] fb;
+      delete[] fn;
+      delete[] rmf;
+      delete[] drmf;
+      delete[] ref;
+      delete[] dref;
       return;
     }
     for (int j24 = 1; j24 <= lipt; j24++) fbi[j24 - 1] = cfj[j24 - 1];
@@ -257,6 +273,14 @@ void dme(
       jer = 5;
       delete[] rfj;
       delete[] rfn;
+      delete[] cfj;
+      delete[] fbi;
+      delete[] fb;
+      delete[] fn;
+      delete[] rmf;
+      delete[] drmf;
+      delete[] ref;
+      delete[] dref;
       return;
     }
     for (int j30 = 1; j30 <= lipt; j30++) fbi[j30 - 1] = rfj[j30 - 1];
@@ -268,6 +292,14 @@ void dme(
     jer = 7;
     delete[] rfj;
     delete[] rfn;
+    delete[] cfj;
+    delete[] fbi;
+    delete[] fb;
+    delete[] fn;
+    delete[] rmf;
+    delete[] drmf;
+    delete[] ref;
+    delete[] dref;
     return;
   }
   rnf(lipo, arex, lcalc, rfn);
@@ -275,6 +307,14 @@ void dme(
     jer = 8;
     delete[] rfj;
     delete[] rfn;
+    delete[] cfj;
+    delete[] fbi;
+    delete[] fb;
+    delete[] fn;
+    delete[] rmf;
+    delete[] drmf;
+    delete[] ref;
+    delete[] dref;
     return;
   }
   for (int j43 = 1; j43 <= lipt; j43++) {
@@ -352,6 +392,14 @@ void dme(
   } // nsh <= 1 ?
   delete[] rfj;
   delete[] rfn;
+  delete[] cfj;
+  delete[] fbi;
+  delete[] fb;
+  delete[] fn;
+  delete[] rmf;
+  delete[] drmf;
+  delete[] ref;
+  delete[] dref;
   return;
 }
 
@@ -820,11 +868,14 @@ void sphar(
 ) {
   const int rmp_size = ll;
   const int plegn_size = (ll + 1) * ll / 2 + ll + 1;
-  double sinrmp[rmp_size], cosrmp[rmp_size], plegn[plegn_size];
+  // double sinrmp[rmp_size], cosrmp[rmp_size], plegn[plegn_size];
   double four_pi = 8.0 * acos(0.0);
   double pi4irs = 1.0 / sqrt(four_pi);
   double x = cosrth;
   double y = sinrth;
+  double *sinrmp = new double[rmp_size];
+  double *cosrmp = new double[rmp_size];
+  double *plegn = new double[plegn_size];
   if (y < 0.0) y *= -1.0;
   double cllmo = 3.0;
   double cll = 1.5;
@@ -888,9 +939,14 @@ void sphar(
   m += 1;
   goto label44;
  label47:
-  if (l >= ll) return;
+  if (l >= ll) goto labelend;
   l += 1;
   goto label40;
+ labelend:
+  delete[] sinrmp;
+  delete[] cosrmp;
+  delete[] plegn;
+  return;
 }
 
 void sscr0(dcomplex &tfsas, int nsph, int lm, double vk, double exri, ParticleDescriptor *c1) {

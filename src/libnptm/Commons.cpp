@@ -642,6 +642,9 @@ ParticleDescriptor::~ParticleDescriptor() {
   }
 }
 
+long ParticleDescriptor::get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf) {
+  return 0;
+}
 // >>> End of ParticleDescriptor class implementation. <<< //
 
 // >>> ParticleDescriptorCluster class implementation. <<< //
@@ -1072,6 +1075,184 @@ int ParticleDescriptorCluster::update_orders(int inner_order, int outer_order) {
   }
   return result;
 }
+
+long ParticleDescriptorCluster::get_size(GeometryConfiguration* gconf, ScattererConfiguration *sconf) {
+  /*
+  // >>> COMMON TO ALL DESCRIPTOR TYPES <<< //
+  short _class_type; const short& class_type = _class_type;
+  2 short values
+  
+  int _nsph; int _li; int _max_layers; int _num_configurations; int _num_layers;
+  int _nhspo; int _npnt; int _npntts; int &nsph = _nsph; int &li = _li;
+  int &max_layers = _max_layers; int &num_configurations = _num_configurations;
+  int &num_layers = _num_layers; int &nhspo = _nhspo; int &npnt = _npnt;
+  int &npntts = _npntts;
+  16 int values
+  
+  dcomplex *vec_rmi; dcomplex *vec_rei; dcomplex *vec_w; double *vec_rc; dcomplex **rmi;
+  dcomplex **rei; dcomplex **w; dcomplex *vint; double *rxx; double *ryy; double *rzz;
+  double *ros; double **rc; int *iog; int *nshl; dcomplex *ris; dcomplex *dlri; dcomplex *dc0;
+  dcomplex *vkt; double *vsz;
+  20 root pointers
+  
+  double gcs;
+  1 double value
+
+  vec_rmi = new dcomplex[_li * _nsph]; vec_rei = new dcomplex[_li * _nsph]();
+  vint = new dcomplex[16](); ris = new dcomplex[_nhspo]();
+  dlri = new dcomplex[_nhspo](); vkt = new dcomplex[_nsph]();
+  dc0 = new dcomplex[_max_layers + 1]();
+  (2 * LI * NSPH + 16 + 2 * NHSPO + NSPH + MAX_LAYERS + 1) dcomplex values
+
+  rmi = new dcomplex*[_li]; rei = new dcomplex*[_li]; rc = new double*[num_configurations];
+  (2 * LI + NUM_CONF) long values
+
+  vec_rc = new double[num_layers](); rxx = new double[nsph](); ryy = new double[nsph]();
+  rzz = new double[nsph](); ros = new double[num_configurations](); vsz = new double[_nsph]();
+  (NUM_LAYERS + NUM_CONF + 4 * NSPH) double values
+  
+  iog = new int[nsph](); nshl = new int[num_configurations]();
+  (NSPH + NUM_CONF) int values
+  // >>> END OF SECTION COMMON TO ALL DESCRIPTOR TYPES <<< //
+
+  // >>> NEEDED BY SPHERE AND CLUSTER <<< //
+  dcomplex *vec_sas; dcomplex *vec_vints; dcomplex ***sas; dcomplex **vints; dcomplex *fsas;
+  double *sscs; double *sexs; double *sabs; double *sqscs; double *sqexs; double *sqabs;
+  double *gcsv;
+  12 root pointers
+
+  vec_sas = new dcomplex[4 * _nsph](); vec_vints = new dcomplex[16 * _nsph]();
+  fsas = new dcomplex[_nsph];
+  (22 * NSPH) dcomplex values
+  
+  sscs = new double[_nsph](); sexs = new double[_nsph](); sabs = new double[_nsph]();
+  sqscs = new double[_nsph](); sqexs = new double[_nsph](); sqabs = new double[_nsph]();
+  gcsv = new double[_nsph]();
+  (7 * NSPH) double values
+
+  sas = new dcomplex**[_nsph]; vints = new dcomplex*[_nsph]; sas[vi] = new dcomplex*[2 * NSPH];
+  (4 * NSPH) long values
+  // >>> END OF SECTION NEEDED BY SPHERE AND CLUSTER <<< //
+
+  // >>> NEEDED BY CLUSTER <<< //
+  dcomplex *vec_tsas; dcomplex *vec_gis; dcomplex *vec_gls; dcomplex *vec_sam; dcomplex *vintt;
+  dcomplex **tsas; dcomplex **gis; dcomplex **gls; dcomplex **sam;
+  9 root pointers
+
+  dcomplex tfsas;
+  1 dcomplex value
+  
+  double scs; double ecs; double acs;
+  3 double values
+
+  vintt = new dcomplex[16](); vec_tsas = new dcomplex[4]();
+  vec_gis = new dcomplex[_ndi * _nlem](); vec_gls = new dcomplex[_ndi * _nlem]();
+  vec_sam = new dcomplex[_ndit * _nlemt]();
+  (20 + 2 * NDI * NLEM + NDIT * NLEMT) dcomplex values
+  
+  tsas = new dcomplex*[2]; gis = new dcomplex*[_ndi]; gls = new dcomplex*[_ndi];
+  sam = new dcomplex*[_ndit];
+  (2 + 2 * NDIT) long values
+  // >>> END OF SECTION NEEDED BY CLUSTER <<< //
+  
+  // >>> NEEDED BY CLUSTER AND INCLU <<<
+  int _le; int _lm; int _nlim; int _nlem; int _nlemt; int _ncou; int _litpo; int _litpos;
+  int _lmpo; int _lmtpo; int _lmtpos; int _nv3j; int _ndi; int _ndit; int& le = _le;
+  int& lm = _lm; int& nlim = _nlim; int& nlem = _nlem; int& nlemt = _nlemt; int& ncou = _ncou;
+  int& litpo = _litpo; int& litpos = _litpos; int& lmpo = _lmpo; int& lmtpo = _lmtpo;
+  int& lmtpos = _lmtpos; int& nv3j = _nv3j; int& ndi = _ndi; int& ndit = _ndit; int& ndm = _ndm;
+  29 int values
+
+  dcomplex *vec_am0m; dcomplex *vec_fsac; dcomplex *vec_sac; dcomplex *vec_fsacm; int *vec_ind3j;
+  dcomplex *vh; dcomplex *vj0; dcomplex *vyhj; dcomplex *vyj0; dcomplex **am0m; dcomplex **fsac;
+  dcomplex **sac; dcomplex **fsacm; dcomplex *vintm; dcomplex *scscp; dcomplex *ecscp; dcomplex *scscpm;
+  dcomplex *ecscpm; double *v3j0; double *scsc; double *ecsc; double *scscm; double *ecscm; int **ind3j;
+  double *rac3j; dcomplex *w; dcomplex *am0m; dcomplex *sac; dcomplex *fsac; dcomplex *fsacm; int *ind3j;
+  31 root pointers
+
+  dcomplex vj;
+  1 dcomplex value
+
+  vec_w = new dcomplex[nllt * 4](); vec_am0m = new dcomplex[_nlemt * _nlemt]();
+  vec_fsac = new dcomplex[4](); vec_sac = new dcomplex[4]();
+  vec_fsacm = new dcomplex[4](); vh = new dcomplex[_ncou * _litpo]();
+  vj0 = new dcomplex[_nsph * _lmtpo](); vyhj = new dcomplex[_ncou * _litpos]();
+  vyj0 = new dcomplex[_nsph * _lmtpos](); vintm = new dcomplex[16]();
+  scscp = new dcomplex[2](); ecscp = new dcomplex[2](); scscpm = new dcomplex[2]();
+  ecscpm = new dcomplex[2]();
+  (4 * NLLT + NLEMT * NLEMT + 36 + NCOU * LITPO + NSPH * LMTPO
+  + NCOU * LITPOS + NSPH * LMTPOS) dcomplex values
+
+  vec_ind3j = new int[(_lm + 1) * _lm]();
+  ((LM + 1) * LM) int values
+
+  v3j0 = new double[_nv3j](); scsc = new double[2](); ecsc = new double[2]();
+  scscm = new double[2](); ecscm = new double[2](); rac3j = new double[_lmtpo]();
+  (8 + NV3J + LMTPO) double values
+  // >>> END OF SECTION NEEDED BY CLUSTER AND INCLU <<< //
+  */
+  const int nsph = gconf->number_of_spheres;
+  const int npnt = gconf->npnt;
+  const int npntts = gconf->npntts;
+  const int max_n = (npnt > npntts) ? npnt : npntts;
+  const int nhspo = 2 * max_n - 1;
+  const int num_configurations = sconf->configurations;
+  int num_layers = 0;
+  int max_layers = 1;
+  for (int nli = 0; nli < num_configurations; nli++) {
+    int nl = sconf->get_nshl(nli);
+    if (nli == 0 && sconf->use_external_sphere) nl++;
+    num_layers += nl;
+    if (nl >  max_layers) max_layers = nl;
+  }
+  // >>> COMMON TO ALL DESCRIPTOR TYPES <<< //
+  const int li = gconf->li;
+  const int le = gconf->le;
+  const int lm = (li > le) ? li : le;
+  const int nlim = li * (li + 2);
+  const int nlem = le * (le + 2);
+  const int nlemt = 2 * nlem;
+  const int ncou = nsph * nsph - 1;
+  const int litpo = li + li + 1;
+  const int litpos = litpo * litpo;
+  const int lmpo = lm + 1;
+  const int lmtpo = li + le + 1;
+  const int lmtpos = lmtpo * lmtpo;
+  const int nv3j = (lm * (lm + 1) * (2 * lm + 7)) / 6;
+  const int ndi = nsph * nlim;
+  const int ndit = 2 * nsph * nlim;
+  const int nllt = (nlemt == 0) ? 2 * nsph * li * (li + 2) : nlemt;
+  long result = sizeof(short) * 2;
+  result += sizeof(int) * 16;
+  result += sizeof(long) * 20;
+  result += sizeof(double);
+  result += sizeof(dcomplex) * (2 * li * nsph + 16 + 2 * nhspo + nsph + max_layers + 1);
+  result += sizeof(dcomplex) * (2 * li + num_configurations);
+  result += sizeof(double) * (num_layers + num_configurations + 4 * nsph);
+  result += sizeof(int) * (nsph + num_configurations);
+  // >>> NEEDED BY SPHERE AND CLUSTER <<< //
+  result += sizeof(long) * 12;
+  result += sizeof(dcomplex) * (22 * nsph);
+  result += sizeof(double) * (7 * nsph);
+  result += sizeof(long) * (4 * nsph);
+  // >>> NEEDED BY CLUSTER <<< //
+  result += sizeof(long) * 9;
+  result += sizeof(dcomplex);
+  result += sizeof(double) * 3;
+  result += sizeof(dcomplex) * (20 + 2 * ndi * nlem + ndit * nlemt);
+  result += sizeof(long) * (2 + 2 * ndit);
+  // >>> NEEDED BY CLUSTER AND INCLU <<< //
+  result += sizeof(int) * 29;
+  result += sizeof(long) * 31;
+  result += sizeof(dcomplex);
+  result += sizeof(dcomplex) * (
+    4 * nllt + nlemt * nlemt + 36 + ncou * litpo + nsph * lmtpo
+    + ncou * litpos + nsph * lmtpos
+  );
+  result += sizeof(int) * ((lm + 1) * lm);
+  result += sizeof(double) * (8 + nv3j + lmtpo);
+  return result;
+}
 // >>> End of ParticleDescriptorCluster class implementation. <<< //
 
 // >>> ParticleDescriptorInclusion class implementation. <<< //
@@ -1312,6 +1493,149 @@ ParticleDescriptorInclusion::ParticleDescriptorInclusion(const mixMPI *mpidata) 
 }
 #endif // MPI_VERSION
 
+long ParticleDescriptorInclusion::get_size(GeometryConfiguration* gconf, ScattererConfiguration* sconf) {
+  /*
+  // >>> COMMON TO ALL DESCRIPTOR TYPES <<< //
+  short _class_type; const short& class_type = _class_type;
+  2 short values
+  
+  int _nsph; int _li; int _max_layers; int _num_configurations; int _num_layers;
+  int _nhspo; int _npnt; int _npntts; int &nsph = _nsph; int &li = _li;
+  int &max_layers = _max_layers; int &num_configurations = _num_configurations;
+  int &num_layers = _num_layers; int &nhspo = _nhspo; int &npnt = _npnt;
+  int &npntts = _npntts;
+  16 int values
+  
+  dcomplex *vec_rmi; dcomplex *vec_rei; dcomplex *vec_w; double *vec_rc; dcomplex **rmi;
+  dcomplex **rei; dcomplex **w; dcomplex *vint; double *rxx; double *ryy; double *rzz;
+  double *ros; double **rc; int *iog; int *nshl; dcomplex *ris; dcomplex *dlri; dcomplex *dc0;
+  dcomplex *vkt; double *vsz;
+  20 root pointers
+  
+  double gcs;
+  1 double value
+
+  vec_rmi = new dcomplex[_li * _nsph]; vec_rei = new dcomplex[_li * _nsph]();
+  vint = new dcomplex[16](); ris = new dcomplex[_nhspo]();
+  dlri = new dcomplex[_nhspo](); vkt = new dcomplex[_nsph]();
+  dc0 = new dcomplex[_max_layers + 1]();
+  (2 * LI * NSPH + 16 + 2 * NHSPO + NSPH + MAX_LAYERS + 1) dcomplex values
+
+  rmi = new dcomplex*[_li]; rei = new dcomplex*[_li]; rc = new double*[num_configurations];
+  (2 * LI + NUM_CONF) long values
+
+  vec_rc = new double[num_layers](); rxx = new double[nsph](); ryy = new double[nsph]();
+  rzz = new double[nsph](); ros = new double[num_configurations](); vsz = new double[_nsph]();
+  (NUM_LAYERS + NUM_CONF + 4 * NSPH) double values
+  
+  iog = new int[nsph](); nshl = new int[num_configurations]();
+  (NSPH + NUM_CONF) int values
+  // >>> END OF SECTION COMMON TO ALL DESCRIPTOR TYPES <<< //
+
+  // >>> NEEDED BY CLUSTER AND INCLU <<<
+  int _le; int _lm; int _nlim; int _nlem; int _nlemt; int _ncou; int _litpo; int _litpos;
+  int _lmpo; int _lmtpo; int _lmtpos; int _nv3j; int _ndi; int _ndit; int& le = _le;
+  int& lm = _lm; int& nlim = _nlim; int& nlem = _nlem; int& nlemt = _nlemt; int& ncou = _ncou;
+  int& litpo = _litpo; int& litpos = _litpos; int& lmpo = _lmpo; int& lmtpo = _lmtpo;
+  int& lmtpos = _lmtpos; int& nv3j = _nv3j; int& ndi = _ndi; int& ndit = _ndit; int& ndm = _ndm;
+  29 int values
+
+  dcomplex *vec_am0m; dcomplex *vec_fsac; dcomplex *vec_sac; dcomplex *vec_fsacm; int *vec_ind3j;
+  dcomplex *vh; dcomplex *vj0; dcomplex *vyhj; dcomplex *vyj0; dcomplex **am0m; dcomplex **fsac;
+  dcomplex **sac; dcomplex **fsacm; dcomplex *vintm; dcomplex *scscp; dcomplex *ecscp; dcomplex *scscpm;
+  dcomplex *ecscpm; double *v3j0; double *scsc; double *ecsc; double *scscm; double *ecscm; int **ind3j;
+  double *rac3j; dcomplex* w; dcomplex *am0m; dcomplex *sac; dcomplex *fsac; dcomplex *fsacm; int *ind3j;
+  31 root pointers
+
+  dcomplex vj;
+  1 dcomplex value
+
+  vec_w = new dcomplex[nllt * 4](); vec_am0m = new dcomplex[_nlemt * _nlemt]();
+  vec_fsac = new dcomplex[4](); vec_sac = new dcomplex[4]();
+  vec_fsacm = new dcomplex[4](); vh = new dcomplex[_ncou * _litpo]();
+  vj0 = new dcomplex[_nsph * _lmtpo](); vyhj = new dcomplex[_ncou * _litpos]();
+  vyj0 = new dcomplex[_nsph * _lmtpos](); vintm = new dcomplex[16]();
+  scscp = new dcomplex[2](); ecscp = new dcomplex[2](); scscpm = new dcomplex[2]();
+  ecscpm = new dcomplex[2]();
+  (4 * NLLT + NLEMT * NLEMT + 36 + NCOU * LITPO + NSPH * LMTPO
+  + NCOU * LITPOS + NSPH * LMTPOS) dcomplex values
+  
+  vec_ind3j = new int[(_lm + 1) * _lm]();
+  ((LM + 1) * LM) int values
+
+  v3j0 = new double[_nv3j](); scsc = new double[2](); ecsc = new double[2]();
+  scscm = new double[2](); ecscm = new double[2](); rac3j = new double[_lmtpo]();
+  (8 + NV3J + LMTPO) double values
+  // >>> END OF SECTION NEEDED BY CLUSTER AND INCLU <<< //
+
+  // >>> NEEDED BY INCLU <<< //
+  rm0 = new dcomplex[_le]; re0 = new dcomplex[_le]; rmw = new dcomplex[_le];
+  rew = new dcomplex[_le]; tm = new dcomplex[_le]; te = new dcomplex[_le];
+  tm0 = new dcomplex[_le]; te0 = new dcomplex[_le]; vec_at = new dcomplex[_nlemt * _ndm];
+  (8 * LE + NLEMT * NDM) dcomplex values
+  
+  at = new dcomplex*[_nlemt];
+  (NLEMT) long values
+  
+  // >>> END OF SECTION NEEDED BY INCLU <<< //
+
+  */
+  const int nsph = gconf->number_of_spheres;
+  const int npnt = gconf->npnt;
+  const int npntts = gconf->npntts;
+  const int max_n = (npnt > npntts) ? npnt : npntts;
+  const int nhspo = 2 * max_n - 1;
+  const int num_configurations = sconf->configurations;
+  int num_layers = 0;
+  int max_layers = 1;
+  for (int nli = 0; nli < num_configurations; nli++) {
+    int nl = sconf->get_nshl(nli);
+    if (nli == 0 && sconf->use_external_sphere) nl++;
+    num_layers += nl;
+    if (nl >  max_layers) max_layers = nl;
+  }
+  // >>> COMMON TO ALL DESCRIPTOR TYPES <<< //
+  const int li = gconf->li;
+  const int le = gconf->le;
+  const int lm = (li > le) ? li : le;
+  const int nlim = li * (li + 2);
+  const int nlem = le * (le + 2);
+  const int nlemt = 2 * nlem;
+  const int ncou = nsph * nsph - 1;
+  const int litpo = li + li + 1;
+  const int litpos = litpo * litpo;
+  const int lmpo = lm + 1;
+  const int lmtpo = li + le + 1;
+  const int lmtpos = lmtpo * lmtpo;
+  const int nv3j = (lm * (lm + 1) * (2 * lm + 7)) / 6;
+  const int ndi = nsph * nlim;
+  const int ndit = 2 * nsph * nlim;
+  const int nllt = (nlemt == 0) ? 2 * nsph * li * (li + 2) : nlemt;
+  const int ndm = 2 * (nsph * nlim + nlem);
+  long result = sizeof(short) * 2;
+  result += sizeof(int) * 16;
+  result += sizeof(long) * 20;
+  result += sizeof(double);
+  result += sizeof(dcomplex) * (2 * li * nsph + 16 + 2 * nhspo + nsph + max_layers + 1);
+  result += sizeof(dcomplex) * (2 * li + num_configurations);
+  result += sizeof(double) * (num_layers + num_configurations + 4 * nsph);
+  result += sizeof(int) * (nsph + num_configurations);
+  // >>> NEEDED BY CLUSTER AND INCLU <<< //
+  result += sizeof(int) * 29;
+  result += sizeof(long) * 25;
+  result += sizeof(dcomplex);
+  result += sizeof(dcomplex) * (
+    4 * nllt + nlemt * nlemt + 36 + ncou * litpo + nsph * lmtpo
+    + ncou * litpos + nsph * lmtpos
+  );
+  result += sizeof(int) * ((lm + 1) * lm);
+  result += sizeof(double) * (8 + nv3j + lmtpo);
+  // >>> NEEDED BY INCLU <<< //
+  result += sizeof(dcomplex) * (8 * le + nlemt * ndm);
+  result += sizeof(long) * nlemt;
+  return result;
+}
+
 int ParticleDescriptorInclusion::update_orders(int inner_order, int outer_order) {
   int result = 0;
   bool changed_li = false;
@@ -1500,6 +1824,10 @@ ParticleDescriptorSphere::ParticleDescriptorSphere(const mixMPI *mpidata) : Part
   }
 }
 #endif // MPI_VERSION
+
+long ParticleDescriptorSphere::get_size(GeometryConfiguration * gconf, ScattererConfiguration* sconf) {
+  return 0;
+}
 
 int ParticleDescriptorSphere::update_order(int order) {
   int result = 0;

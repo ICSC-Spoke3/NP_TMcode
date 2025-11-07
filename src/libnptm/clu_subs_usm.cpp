@@ -47,35 +47,46 @@
 #include <omp.h>
 #endif
 
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp requires unified_shared_memory
+#endif
+
 using namespace std;
 
 void apc(
-  double ****zpv, int le, dcomplex **am0m, dcomplex **w,
-  double sqk, double **gapr, dcomplex **gapp
+	 double ****zpv, int le, dcomplex **am0m, dcomplex **w,
+	 double sqk, double **gapr, dcomplex **gapp
 ) {
-  dcomplex *vec_ac, *vec_gap;
+  dcomplex **ac, **gap;
   const dcomplex cc0 = 0.0 + 0.0 * I;
   const dcomplex uim = 0.0 + 1.0 * I;
-  // dcomplex uimmp, summ, sume, suem, suee, summp, sumep;
-  // dcomplex suemp, sueep;
+  dcomplex uimmp, summ, sume, suem, suee, summp, sumep;
+  dcomplex suemp, sueep;
   double cof = 1.0 / sqk;
   double cimu = cof / sqrt(2.0);
   int nlem = le * (le + 2);
   const int nlemt = nlem + nlem;
-  vec_ac = new dcomplex[2 * nlemt]();
-  vec_gap = new dcomplex[6]();
-#pragma omp parallel for simd
-  for (int j45 = 0; j45 < nlemt; j45++) {
-    for (int i45 = 0; i45 < nlemt; i45++) {
-      vec_ac[2 * j45] += (am0m[j45][i45] * w[i45][0]);
-      vec_ac[2 * j45 + 1] += (am0m[j45][i45] * w[i45][1]);
+  ac = new dcomplex*[nlemt];
+  gap = new dcomplex*[3];
+  for (int ai = 0; ai < nlemt; ai++) ac[ai] = new dcomplex[2]();
+  for (int gi = 0; gi < 3; gi++) gap[gi] = new dcomplex[2]();
+  for (int j45 = 1; j45 <= nlemt; j45++) {
+    int j = j45 - 1;
+    ac[j][0] = cc0;
+    ac[j][1] = cc0;
+    for (int i45 = 1; i45 <= nlemt; i45++) {
+      int i = i45 - 1;
+      ac[j][0] += (am0m[j][i] * w[i][0]);
+      ac[j][1] += (am0m[j][i] * w[i][1]);
     } //i45 loop
   } //j45 loop
   for (int imu90 = 1; imu90 <=3; imu90++) {
     int mu = imu90 - 2;
+    gap[imu90 - 1][0] = cc0;
+    gap[imu90 - 1][1] = cc0;
     gapp[imu90 - 1][0] = cc0;
     gapp[imu90 - 1][1] = cc0;
-    for (int l80 = 1; l80 <= le; l80++) {
+    for (int l80 =1; l80 <= le; l80++) {
       int lpo = l80 + 1;
       int ltpo = lpo + l80;
       int imm = l80 * lpo;
@@ -83,7 +94,7 @@ void apc(
 	if ((l80 == 1 && ilmp == 1) || (l80 == le && ilmp == 3)) continue; // ilmp loop
 	int lmpml = ilmp - 2;
 	int lmp = l80 + lmpml;
-	dcomplex uimmp = (-1.0 * lmpml) * uim;
+	uimmp = (-1.0 * lmpml) * uim;
 	int impmmmp = lmp * (lmp + 1);
 	for (int im70 = 1; im70 <= ltpo; im70++) {
 	  int m = im70 - lpo;
@@ -97,16 +108,15 @@ void apc(
 	    double cgc = cg1(lmpml, mu, l80, m);
 	    int jpo = 2;
 	    for (int ipo = 1; ipo <= 2; ipo++) {
-	      dcomplex summ, sume, suem, suee, summp, sumep, suemp, sueep;
 	      if (ipo == 2) jpo = 1;
-	      summ = dconjg(vec_ac[2 * (i - 1) + ipo - 1]) * vec_ac[2 * (imp - 1) + ipo - 1];
-	      sume = dconjg(vec_ac[2 * (i - 1) + ipo - 1]) * vec_ac[2 * (impe - 1) + ipo - 1];
-	      suem = dconjg(vec_ac[2 * (ie - 1) + ipo - 1]) * vec_ac[2 * (imp - 1) + ipo - 1];
-	      suee = dconjg(vec_ac[2 * (ie - 1) + ipo - 1]) * vec_ac[2 * (impe - 1) + ipo - 1];
-	      summp = dconjg(vec_ac[2 * (i - 1) + jpo - 1]) * vec_ac[2 * (imp - 1) + ipo - 1];
-	      sumep = dconjg(vec_ac[2 * (i - 1) + jpo - 1]) * vec_ac[2 * (impe - 1) + ipo - 1];
-	      suemp = dconjg(vec_ac[2 * (ie - 1) + jpo - 1]) * vec_ac[2 * (imp - 1) + ipo - 1];
-	      sueep = dconjg(vec_ac[2 * (ie - 1) + jpo - 1]) * vec_ac[2 * (impe - 1) + ipo - 1];
+	      summ = dconjg(ac[i - 1][ipo - 1]) * ac[imp - 1][ipo - 1];
+	      sume = dconjg(ac[i - 1][ipo - 1]) * ac[impe - 1][ipo - 1];
+	      suem = dconjg(ac[ie - 1][ipo - 1]) * ac[imp - 1][ipo - 1];
+	      suee = dconjg(ac[ie - 1][ipo - 1]) * ac[impe - 1][ipo - 1];
+	      summp = dconjg(ac[i - 1][jpo - 1]) * ac[imp - 1][ipo - 1];
+	      sumep = dconjg(ac[i - 1][jpo - 1]) * ac[impe - 1][ipo - 1];
+	      suemp = dconjg(ac[ie - 1][jpo - 1]) * ac[imp - 1][ipo - 1];
+	      sueep = dconjg(ac[ie - 1][jpo - 1]) * ac[impe - 1][ipo - 1];
 	      if (lmpml != 0) {
 		summ *= uimmp;
 		sume *= uimmp;
@@ -118,22 +128,22 @@ void apc(
 		sueep *= uimmp;
 	      }
 	      // label 55
-	      vec_gap[2 * (imu90 - 1) + ipo - 1] += (
-		(
-		  summ * zpv[l80 - 1][ilmp - 1][0][0]
-		  + sume * zpv[l80 - 1][ilmp - 1][0][1]
-		  + suem * zpv[l80 - 1][ilmp - 1][1][0]
-		  + suee * zpv[l80 - 1][ilmp - 1][1][1]
-		) * cgc
-	      );
+	      gap[imu90 - 1][ipo - 1] += (
+					  (
+					   summ * zpv[l80 - 1][ilmp - 1][0][0]
+					   + sume * zpv[l80 - 1][ilmp - 1][0][1]
+					   + suem * zpv[l80 - 1][ilmp - 1][1][0]
+					   + suee * zpv[l80 - 1][ilmp - 1][1][1]
+					   ) * cgc
+					  );
 	      gapp[imu90 - 1][ipo - 1] += (
-		(
-		  summp * zpv[l80 - 1][ilmp - 1][0][0]
-		  + sumep * zpv[l80 - 1][ilmp - 1][0][1]
-		  + suemp * zpv[l80 - 1][ilmp - 1][1][0]
-		  + sueep * zpv[l80 - 1][ilmp - 1][1][1]
-		) * cgc
-	      );
+					   (
+					    summp * zpv[l80 - 1][ilmp - 1][0][0]
+					    + sumep * zpv[l80 - 1][ilmp - 1][0][1]
+					    + suemp * zpv[l80 - 1][ilmp - 1][1][0]
+					    + sueep * zpv[l80 - 1][ilmp - 1][1][1]
+					    ) * cgc
+					   );
 	    } // ipo loop
 	  } // ends im70 loop
 	} // im70 loop
@@ -141,10 +151,9 @@ void apc(
     } // l80 loop
   } // imu90 loop
   for (int ipo95 = 1; ipo95 <= 2; ipo95++) {
-    dcomplex sume, suee, suem, sumep, sueep, suemp;
-    sume = vec_gap[ipo95 - 1] * cimu;
-    suee = vec_gap[2 + ipo95 - 1] * cof;
-    suem = vec_gap[4 + ipo95 - 1] * cimu;
+    sume = gap[0][ipo95 - 1] * cimu;
+    suee = gap[1][ipo95 - 1] * cof;
+    suem = gap[2][ipo95 - 1] * cimu;
     gapr[0][ipo95 - 1] = real(sume - suem);
     gapr[1][ipo95 - 1] = real((sume + suem) * uim);
     gapr[2][ipo95 - 1] = real(suee);
@@ -156,8 +165,10 @@ void apc(
     gapp[2][ipo95 - 1] = sueep;
   } // ipo95 loop
   // Clean memory
-  delete[] vec_ac;
-  delete[] vec_gap;
+  for (int ai = nlemt - 1; ai > -1; ai--) delete[] ac[ai];
+  for (int gi = 2; gi > -1; gi--) delete[] gap[gi];
+  delete[] ac;
+  delete[] gap;
 }
 
 void apcra(
@@ -392,9 +403,9 @@ dcomplex cdtp(dcomplex z, dcomplex *vec_am, int i, int jf, int k, int nj, np_int
   return result;
 }
 
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp begin declare target device_type(any)
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp begin declare target device_type(any)
+#endif
 double cgev(int ipamo, int mu, int l, int m) {
   double result = 0.0;
   double xd = 0.0, xn = 0.0;
@@ -428,22 +439,22 @@ double cgev(int ipamo, int mu, int l, int m) {
   }
   return result;
 }
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp end declare target
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp end declare target
+#endif
 
 void cms(dcomplex **am, ParticleDescriptor *c1) {
+  dcomplex dm, de, cgh, cgk;
   const dcomplex cc0 = 0.0 + 0.0 * I;
   int ndi = c1->nsph * c1->nlim;
-  // int nbl = 0;
+  int nbl = 0;
   int nsphmo = c1->nsph - 1;
   for (int n1 = 1; n1 <= nsphmo; n1++) { // GPU portable?
     int in1 = (n1 - 1) * c1->nlim;
     int n1po = n1 + 1;
     for (int n2 = n1po; n2 <= c1->nsph; n2++) {
       int in2 = (n2 - 1) * c1->nlim;
-      // nbl++;
-      int nbl = ((n1 - 1) * (2 * c1->nsph - n1)) / 2 + n2 - n1;
+      nbl++;
       for (int l1 = 1; l1 <= c1->li; l1++) {
 	int l1po = l1 + 1;
 	int il1 = l1po * l1;
@@ -470,8 +481,8 @@ void cms(dcomplex **am, ParticleDescriptor *c1) {
 	      int i2e = in2 + ilm2e;
 	      int j2 = in1 + ilm2;
 	      int j2e = in1 + ilm2e;
-	      dcomplex cgh = ghit(0, 0, nbl, l1, m1, l2, m2, c1);
-	      dcomplex cgk = ghit(0, 1, nbl, l1, m1, l2, m2, c1);
+	      cgh = ghit(0, 0, nbl, l1, m1, l2, m2, c1);
+	      cgk = ghit(0, 1, nbl, l1, m1, l2, m2, c1);
 	      am[i1 - 1][i2 - 1] = cgh;
 	      am[i1 - 1][i2e - 1] = cgk;
 	      am[i1e - 1][i2 - 1] = cgk;
@@ -486,12 +497,11 @@ void cms(dcomplex **am, ParticleDescriptor *c1) {
       } // l1 loop
     } // n2 loop
   } // n1 loop
-#pragma omp parallel for
   for (int n1 = 1; n1 <= c1->nsph; n1++) { // GPU portable?
     int in1 = (n1 - 1) * c1->nlim;
     for (int l1 = 1; l1 <= c1->li; l1++) {
-      dcomplex dm = c1->rmi[l1 - 1][n1 - 1];
-      dcomplex de = c1->rei[l1 - 1][n1 - 1];
+      dm = c1->rmi[l1 - 1][n1 - 1];
+      de = c1->rei[l1 - 1][n1 - 1];
       int l1po = l1 + 1;
       int il1 = l1po * l1;
       int l1tpo = l1po + l1;
@@ -635,9 +645,9 @@ void crsm1(double vk, double exri, ParticleDescriptor *c1) {
   delete[] svs;
 }
 
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp begin declare target device_type(any)
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp begin declare target device_type(any)
+#endif
 dcomplex ghit_d(
 	      int ihi, int ipamo, int nbl, int l1, int m1, int l2, int m2,
 	      ParticleDescriptor *c1, double *rac3j
@@ -848,13 +858,13 @@ dcomplex ghit_d(
   }
   return result;
 }
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp end declare target
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp end declare target
+#endif
 
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp begin declare target device_type(any)
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp begin declare target device_type(any)
+#endif
 dcomplex ghit(
 	      int ihi, int ipamo, int nbl, int l1, int m1, int l2, int m2,
 	      ParticleDescriptor *c1
@@ -1065,9 +1075,9 @@ dcomplex ghit(
   }
   return result;
 }
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp end declare target
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp end declare target
+#endif
 
 void hjv(
 	 double exri, double vk, int &jer, int &lcalc, dcomplex &arg,
@@ -1332,12 +1342,11 @@ void pcros(double vk, double exri, ParticleDescriptor *c1) {
 #ifdef USE_NVTX
   nvtxRangePush("pcros intermediate loop 1");
 #endif
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd reduction(+:sum, sump, sum1, sum2, sum3, sum4)
-// #else
-// #pragma omp parallel for simd reduction(+:sum, sump, sum1, sum2, sum3, sum4)
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd reduction(+:sum, sump, sum1, sum2, sum3, sum4)
+#else
 #pragma omp parallel for simd reduction(+:sum, sump, sum1, sum2, sum3, sum4)
+#endif
   for (int i12 = 0; i12 < nlemt; i12++) {
       // int i = i12 - 1;
       dcomplex am = cc0;
@@ -1402,12 +1411,11 @@ void pcrsm0(double vk, double exri, int inpol, ParticleDescriptor *c1) {
   csam = -(ccs / (exri * vk)) * 0.5 * I;
   sum2 = cc0;
   sum3 = cc0;
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd reduction(+:sum2,sum3)
-// #else
-// #pragma omp parallel for simd reduction(+:sum2,sum3)
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd reduction(+:sum2,sum3)
+#else
 #pragma omp parallel for simd reduction(+:sum2,sum3)
+#endif
   for (int i14 = 0; i14 < c1->nlem; i14++) { 
     int ie = i14 + c1->nlem;
     sum2 += (vec_am0m[nlemt*i14 + i14] + vec_am0m[nlemt*ie + ie]);
@@ -1415,12 +1423,11 @@ void pcrsm0(double vk, double exri, int inpol, ParticleDescriptor *c1) {
   } // i14 loop
   double sumpi = 0.0;
   dcomplex sumpd = cc0;
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd collapse(2) reduction(+:sumpi,sumpd)
-// #else
-// #pragma omp parallel for simd collapse(2) reduction(+:sumpi,sumpd)
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd collapse(2) reduction(+:sumpi,sumpd)
+#else
 #pragma omp parallel for simd collapse(2) reduction(+:sumpi,sumpd)
+#endif
   for (int i16 = 0; i16 < nlemt; i16++) {
     for (int j16 = 0; j16 < c1->nlem; j16++) {
       int je = j16 + c1->nlem;
@@ -1624,9 +1631,9 @@ void r3j000(int j2, int j3, double *rac3j) {
   }
 }
 
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp begin declare target device_type(any)
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp begin declare target device_type(any)
+#endif
 void r3jjr(int j2, int j3, int m2, int m3, double *rac3j) {
   int jmx = j3 + j2;
   int jdf = j3 - j2;
@@ -1744,13 +1751,13 @@ void r3jjr(int j2, int j3, int m2, int m3, double *rac3j) {
     }
   }
 }
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp end declare target
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp end declare target
+#endif
 
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp begin declare target device_type(any)
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp begin declare target device_type(any)
+#endif
 void r3jjr_d(int j2, int j3, int m2, int m3, double *rac3j) {
   int jmx = j3 + j2;
   int jdf = j3 - j2;
@@ -1868,9 +1875,9 @@ void r3jjr_d(int j2, int j3, int m2, int m3, double *rac3j) {
     }
   }
 }
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp end declare target
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp end declare target
+#endif
 
 void r3jmr(int j1, int j2, int j3, int m1, double *rac3j) {
   int mmx = (j2 < j3 - m1) ? j2 : j3 - m1;
@@ -2001,12 +2008,11 @@ void raba(
 #ifdef USE_NVTX
   nvtxRangePush("raba inner loop 1");
 #endif
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd reduction(+:c1, c2)
-// #else
-// #pragma omp parallel for simd reduction(+:c1, c2)
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd reduction(+:c1, c2)
+#else
 #pragma omp parallel for simd reduction(+:c1, c2)
+#endif
   for (int j10 = 1; j10 <= nlemt; j10++) {
       int j = j10 - 1;
       c1 += (vec_am0m[i*nlemt+j] * vec_w[4*j]);
@@ -2024,12 +2030,11 @@ void raba(
 #ifdef USE_NVTX
   nvtxRangePush("raba outer loop 2");
 #endif
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp teams distribute parallel for
-// #else
-// #pragma omp parallel for
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp teams distribute parallel for
+#else
 #pragma omp parallel for
+#endif
   for (int ipo = 0; ipo < 2; ipo++) {
     int jpo = 1 - ipo;
     ctqce[ipo][0] = cc0;
@@ -2061,12 +2066,11 @@ void raba(
 #ifdef USE_NVTX
     nvtxRangePush("raba inner loop 2");
 #endif
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd reduction(+:ctqce0, ctqce1, ctqce2, ctqcs0, ctqcs1, ctqcs2, tqcpe0, tqcpe1, tqcpe2, tqcps0, tqcps1, tqcps2)
-// #else
-// #pragma omp parallel for simd reduction(+:ctqce0, ctqce1, ctqce2, ctqcs0, ctqcs1, ctqcs2, tqcpe0, tqcpe1, tqcpe2, tqcps0, tqcps1, tqcps2)
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd reduction(+:ctqce0, ctqce1, ctqce2, ctqcs0, ctqcs1, ctqcs2, tqcpe0, tqcpe1, tqcpe2, tqcps0, tqcps1, tqcps2)
+#else
 #pragma omp parallel for simd reduction(+:ctqce0, ctqce1, ctqce2, ctqcs0, ctqcs1, ctqcs2, tqcpe0, tqcpe1, tqcpe2, tqcps0, tqcps1, tqcps2)
+#endif
     for (int k = 1; k<=kmax; k++) {
       int l60 = (int) sqrt(k+1);
       int im60 = k - (l60*l60) + 1;
@@ -2139,12 +2143,11 @@ void raba(
 #ifdef USE_NVTX
   nvtxRangePush("raba loop 3");
 #endif
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd
-// #else
-// #pragma omp parallel for simd
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp teams distribute parallel for simd
+#else
 #pragma omp parallel for simd
+#endif
   for (int ipo78 = 1; ipo78 <= 2; ipo78++) {
     int ipo = ipo78 - 1;
     tqce[ipo][0] = real(ctqce[ipo][0] - ctqce[ipo][2]) * sq2i;
@@ -2195,16 +2198,17 @@ void rftr(
 
 void scr0(double vk, double exri, ParticleDescriptor *c1) {
   const dcomplex cc0 = 0.0 + 0.0 * I;
-  const double exdc = exri * exri;
-  const double ccs = 4.0 * acos(0.0) / (vk * vk);
-  const double cccs = ccs / exdc;
-  const dcomplex csam = -(ccs / (exri * vk)) * 0.5 * I;
+  double exdc = exri * exri;
+  double ccs = 4.0 * acos(0.0) / (vk * vk);
+  double cccs = ccs / exdc;
+  dcomplex csam = -(ccs / (exri * vk)) * 0.5 * I;
   //double scs = 0.0, ecs = 0.0, acs = 0.0;
   dcomplex *vec_rmi = c1->rmi[0];
   dcomplex *vec_rei = c1->rei[0];
 #ifdef USE_NVTX
   nvtxRangePush("scr0 outer loop 1");
 #endif
+#pragma omp parallel for
   for (int i14 = 1; i14 <= c1->nsph; i14++) {
     int iogi = c1->iog[i14 - 1];
     if (iogi >= i14) {
@@ -2213,12 +2217,16 @@ void scr0(double vk, double exri, ParticleDescriptor *c1) {
 #ifdef USE_NVTX
       nvtxRangePush("scr0 inner loop 1");
 #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd reduction(+:sums, sum21)
+#else
 #pragma omp parallel for simd reduction(+:sums, sum21)
+#endif
       for (int l10 = 1; l10 <= c1->li; l10++) {
 	double fl = 1.0 * (l10 + l10 + 1);
 	// dcomplex rm = 1.0 / c1->rmi[l10 - 1][i14 - 1];
 	// dcomplex re = 1.0 / c1->rei[l10 - 1][i14 - 1];
-	int vecindex = (l10 - 1) * c1->nsph + i14 - 1;
+	int vecindex = (l10 - 1)*c1->nsph + i14 - 1;
 	dcomplex rm = 1.0 / vec_rmi[vecindex];
 	dcomplex re = 1.0 / vec_rei[vecindex];
 	double rvalue = real(dconjg(rm) * rm + dconjg(re) * re) * fl;
@@ -2242,6 +2250,10 @@ void scr0(double vk, double exri, ParticleDescriptor *c1) {
       c1->fsas[i14 - 1] = sum21 * csam;
     }
     // label 12
+    // scs += c1->sscs[iogi - 1];
+    // ecs += c1->sexs[iogi - 1];
+    // acs += c1->sabs[iogi - 1];
+    // tfsas += c1->fsas[iogi - 1];
   } // i14 loop
 #ifdef USE_NVTX
   nvtxRangePop();
@@ -2253,7 +2265,11 @@ void scr0(double vk, double exri, ParticleDescriptor *c1) {
 #ifdef USE_NVTX
   nvtxRangePush("scr0 loop 2");
 #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd reduction(+:scs, ecs, acs, tfsas)
+#else
 #pragma omp parallel for simd reduction(+:scs, ecs, acs, tfsas)
+#endif
   for (int i14 = 1; i14 <= c1->nsph; i14++) {
     int iogi = c1->iog[i14 - 1];
     scs += c1->sscs[iogi - 1];
@@ -2271,83 +2287,190 @@ void scr0(double vk, double exri, ParticleDescriptor *c1) {
 }
 
 void scr2(
-  double vk, double vkarg, double exri, double *duk,
-  ParticleDescriptor *c1
+	  double vk, double vkarg, double exri, double *duk,
+	  ParticleDescriptor *c1
 ) {
+#ifdef USE_NVTX
+  nvtxRangePush("scr2 starts");
+#endif
   const dcomplex cc0 = 0.0 + 0.0 * I;
   const dcomplex uim = 0.0 + 1.0 * I;
-  const double ccs = 1.0 / (vk * vk);
+  dcomplex s11, s21, s12, s22, rm, re, csam, cph, phas, cc;
+  double ccs = 1.0 / (vk * vk);
+  csam = -(ccs / (exri * vk)) * 0.5 * I;
   const double pi4sq = 64.0 * acos(0.0) * acos(0.0);
-  const double cfsq = 4.0 / (pi4sq * ccs * ccs);
-  dcomplex csam = -(ccs / (exri * vk)) * 0.5 * I;
-  dcomplex cph = uim * exri * vkarg;
-  const int ls = (c1->li < c1->le) ? c1->li : c1->le;
-  c1->tsas[0][0] = cc0;
-  c1->tsas[1][0] = cc0;
-  c1->tsas[0][1] = cc0;
-  c1->tsas[1][1] = cc0;
+  double cfsq = 4.0 / (pi4sq * ccs * ccs);
+  cph = uim * exri * vkarg;
+  int ls = (c1->li < c1->le) ? c1->li : c1->le;
+  int kmax = ls*(ls+2);
+  dcomplex *vec_rmi = c1->rmi[0];
+  dcomplex *vec_rei = c1->rei[0];
+  dcomplex *vec_w = c1->w[0];
+  dcomplex *vec_sas = c1->sas[0][0];
+#ifdef USE_NVTX
+  nvtxRangePush("scr2 outer loop 1");
+#endif
+#pragma omp parallel for
   for (int i14 = 1; i14 <= c1->nsph; i14++) {
     int i = i14 - 1;
     int iogi = c1->iog[i14 - 1];
     if (iogi >= i14) {
-      int k = 0;
+      // int k = 0;
       dcomplex s11 = cc0;
       dcomplex s21 = cc0;
       dcomplex s12 = cc0;
       dcomplex s22 = cc0;
-      for (int l10 = 1; l10 <= ls; l10++) {
-	int l = l10 - 1;
-	dcomplex rm = 1.0 / c1->rmi[l][i];
-	dcomplex re = 1.0 / c1->rei[l][i];
-	int ltpo = l10 + l10 + 1;
-	for (int im10 = 1; im10 <= ltpo; im10++) {
-	  k++;
-	  int ke = k + c1->nlem;
-	  s11 -= (c1->w[k - 1][2] * c1->w[k - 1][0] * rm + c1->w[ke - 1][2] * c1->w[ke - 1][0] * re);
-	  s21 -= (c1->w[k - 1][3] * c1->w[k - 1][0] * rm + c1->w[ke - 1][3] * c1->w[ke - 1][0] * re);
-	  s12 -= (c1->w[k - 1][2] * c1->w[k - 1][1] * rm + c1->w[ke - 1][2] * c1->w[ke - 1][1] * re);
-	  s22 -= (c1->w[k - 1][3] * c1->w[k - 1][1] * rm + c1->w[ke - 1][3] * c1->w[ke - 1][1] * re);
-	} // im10 loop
-      } // l10 loop
-      c1->sas[i][0][0] = s11 * csam;
-      c1->sas[i][1][0] = s21 * csam;
-      c1->sas[i][0][1] = s12 * csam;
-      c1->sas[i][1][1] = s22 * csam;
+      // To parallelise, I run a linearised loop directly over k
+      // working out the algebra, it turns out that
+      // k = l10*l10-1+im10
+      // we invert this to find
+      // l10 = (int) sqrt(k+1) and im10 = k - l10*10+1
+      // but if it results im10 = 0, then we set l10 = l10-1 and im10 = 2*l10+1
+      // furthermore if it results im10 > 2*l10+1, then we set
+      // im10 = im10 -(2*l10+1) and l10 = l10+1 (there was a rounding error in a nearly exact root)
+#ifdef USE_NVTX
+      nvtxRangePush("scr2 inner loop 1");
+#endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd reduction(-:s11, s21, s12, s22)
+#else
+#pragma omp parallel for simd reduction(-:s11, s21, s12, s22)
+#endif
+      for (int k = 1; k<=kmax; k++) {
+	int l10 = (int) sqrt(k+1);
+	int im10 = k - (l10*l10) + 1;
+	if (im10 == 0) {
+	  l10--;
+	  im10 = 2*l10+1;
+	}
+	else if (im10 > 2*l10 + 1) {
+	  im10 -= 2*l10 + 1;
+	  l10++;
+	}
+	// I have all the indices in my linearised loop
+	int l =  l10 - 1;
+	int ke = k + c1->nlem;
+	int km1t4 = (k - 1)*4;
+	int kem1t4 = (ke - 1)*4;
+	dcomplex auxrm0 = vec_w[km1t4] / vec_rmi[l*c1->nsph+i];
+	dcomplex auxrm1 = vec_w[km1t4+1] / vec_rmi[l*c1->nsph+i];
+	dcomplex auxre0 = vec_w[kem1t4] / vec_rei[l*c1->nsph+i];
+	dcomplex auxre1 = vec_w[kem1t4+1] / vec_rei[l*c1->nsph+i];
+	s11 -= vec_w[km1t4+2] * auxrm0 + vec_w[kem1t4+2] * auxre0;
+	s21 -= vec_w[km1t4+3] * auxrm0 + vec_w[kem1t4+3] * auxre0;
+	s12 -= vec_w[km1t4+2] * auxrm1 + vec_w[kem1t4+2] * auxre1;
+	s22 -= vec_w[km1t4+3] * auxrm1 + vec_w[kem1t4+3] * auxre1;
+      }
+#ifdef USE_NVTX
+      nvtxRangePop();
+#endif
+      int vecindex = i*4;
+      vec_sas[vecindex] = s11 * csam;
+      vec_sas[vecindex+2] = s21 * csam;
+      vec_sas[vecindex+1] = s12 * csam;
+      vec_sas[vecindex+3] = s22 * csam;
     }
     // label 12
-    dcomplex phas = cexp(cph * (duk[0] * c1->rxx[i] + duk[1] * c1->ryy[i] + duk[2] * c1->rzz[i]));
-    c1->tsas[0][0] += (c1->sas[iogi - 1][0][0] * phas);
-    c1->tsas[1][0] += (c1->sas[iogi - 1][1][0] * phas);
-    c1->tsas[0][1] += (c1->sas[iogi - 1][0][1] * phas);
-    c1->tsas[1][1] += (c1->sas[iogi - 1][1][1] * phas);
+    // dcomplex phas = cexp(cph * (duk[0] * c1->rxx[i] + duk[1] * c1->ryy[i] + duk[2] * c1->rzz[i]));
+    // tsas00 += (c1->sas[iogi - 1][0][0] * phas);
+    // tsas10 += (c1->sas[iogi - 1][1][0] * phas);
+    // tsas01 += (c1->sas[iogi - 1][0][1] * phas);
+    // tsas11 += (c1->sas[iogi - 1][1][1] * phas);
   } // i14 loop
+#ifdef USE_NVTX
+  nvtxRangePop();
+#endif
+  dcomplex tsas00 = cc0;
+  dcomplex tsas10 = cc0;
+  dcomplex tsas01 = cc0;
+  dcomplex tsas11 = cc0;
+#ifdef USE_NVTX
+  nvtxRangePush("scr2 loop 2");
+#endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd reduction(+:tsas00, tsas10, tsas01, tsas11)
+#else
+#pragma omp parallel for simd reduction(+:tsas00, tsas10, tsas01, tsas11)
+#endif
+  for (int i14 = 1; i14 <= c1->nsph; i14++) {
+    int i = i14 - 1;
+    int iogi = c1->iog[i14 - 1];
+    // label 12
+    dcomplex phas = cexp(cph * (duk[0] * c1->rxx[i] + duk[1] * c1->ryy[i] + duk[2] * c1->rzz[i]));
+    tsas00 += (c1->sas[iogi - 1][0][0] * phas);
+    tsas10 += (c1->sas[iogi - 1][1][0] * phas);
+    tsas01 += (c1->sas[iogi - 1][0][1] * phas);
+    tsas11 += (c1->sas[iogi - 1][1][1] * phas);
+  } // i14 loop
+  c1->tsas[0][0] = tsas00;
+  c1->tsas[1][0] = tsas10;
+  c1->tsas[0][1] = tsas01;
+  c1->tsas[1][1] = tsas11;
+#ifdef USE_NVTX
+  nvtxRangePop();
+#endif
+  dcomplex *vec_vints = c1->vints[0];
+#ifdef USE_NVTX
+  nvtxRangePush("scr2 outer loop 3");
+#endif
+#pragma omp parallel for
   for (int i24 = 1; i24 <= c1->nsph; i24++) {
     int iogi = c1->iog[i24 - 1];
     if (iogi >= i24) {
-      int j = 0;
-      for (int ipo1 = 0; ipo1 < 2; ipo1++) {
-	for (int jpo1 = 0; jpo1 < 2; jpo1++) {
-	  dcomplex cc = dconjg(c1->sas[i24 - 1][jpo1][ipo1]);
-	  for (int ipo2 = 0; ipo2 < 2; ipo2++) {
-	    for (int jpo2 = 0; jpo2 < 2; jpo2++) {
-	      c1->vints[i24 - 1][j++] = c1->sas[i24 - 1][jpo2][ipo2] * cc * cfsq;
+      // int j = 0;
+#ifdef USE_NVTX
+      nvtxRangePush("scr2 inner loop 3");
+#endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd collapse(4)
+#else
+#pragma omp parallel for simd collapse(4)
+#endif
+      for (int ipo1 = 1; ipo1 <=2; ipo1++) {
+	for (int jpo1 = 1; jpo1 <= 2; jpo1++) {
+	  for (int ipo2 = 1; ipo2 <= 2; ipo2++) {
+	    for (int jpo2 = 1; jpo2 <= 2; jpo2++) {
+	      // int j = jpo2 + (ipo2-1)*2 + (jpo1-1)*4 + (ipo1-1)*8;
+	      // vec_vints[(i24 - 1)*16+j - 1] = c1->sas[i24 - 1][jpo2 - 1][ipo2 - 1] * dconjg(c1->sas[i24 - 1][jpo1 - 1][ipo1 - 1]) * cfsq;
+	      int j = jpo2 - 1 + (ipo2 - 1) * 2 + (jpo1 - 1) * 4 + (ipo1 - 1) * 8;
+	      c1->vints[i24 - 1][j] = c1->sas[i24 - 1][jpo2 - 1][ipo2 - 1] * dconjg(c1->sas[i24 - 1][jpo1 - 1][ipo1 - 1]) * cfsq;
 	    } // jpo2 loop
 	  } // ipo2 loop
 	} // jpo1 loop
       } // ipo1 loop
+#ifdef USE_NVTX
+      nvtxRangePop();
+#endif
     }
   } // i24 loop
-  int j = 0;
-  for (int ipo1 = 0; ipo1 < 2; ipo1++) {
-    for (int jpo1 = 0; jpo1 < 2; jpo1++) {
-      dcomplex cc = dconjg(c1->tsas[jpo1][ipo1]);
-      for (int ipo2 = 0; ipo2 < 2; ipo2++) {
-	for (int jpo2 = 0; jpo2 < 2; jpo2++) {
-	  c1->vintt[j++] = c1->tsas[jpo2][ipo2] * cc * cfsq;
+#ifdef USE_NVTX
+  nvtxRangePop();
+#endif
+  // int j = 0;
+#ifdef USE_NVTX
+  nvtxRangePush("scr2 loop 4");
+#endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target parallel for collapse(4)
+#else
+#pragma omp parallel for collapse(4)
+#endif
+  for (int ipo1 = 1; ipo1 <=2; ipo1++) {
+    for (int jpo1 = 1; jpo1 <= 2; jpo1++) {
+      for (int ipo2 = 1; ipo2 <= 2; ipo2++) {
+	for (int jpo2 = 1; jpo2 <= 2; jpo2++) {
+	  int j = jpo2-1 + (ipo2-1)*2 + (jpo1-1)*4 + (ipo1-1)*8;
+	  c1->vintt[j] = c1->tsas[jpo2 - 1][ipo2 - 1] * dconjg(c1->tsas[jpo1 - 1][ipo1 - 1]) * cfsq;
 	} // jpo2 loop
       } // ipo2 loop
     } // jpo1 loop
   } // ipo1 loop
+#ifdef USE_NVTX
+  nvtxRangePop();
+#endif
+#ifdef USE_NVTX
+  nvtxRangePop();
+#endif
 }
 
 void str(double **rcf, ParticleDescriptor *c1) {
@@ -2464,12 +2587,11 @@ void ztm(dcomplex **am, ParticleDescriptor *c1) {
   // but if it results im = 0, then we set l = l-1 and im = 2*l+1
   // furthermore if it results im > 2*l+1, then we set
   // im = im -(2*l+1) and l = l+1 (there was a rounding error in a nearly exact root)
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd collapse(3)
-// #else
-// #pragma omp parallel for simd collapse(3)
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd collapse(3)
+#else
 #pragma omp parallel for simd collapse(3)
+#endif
   for (int n2 = 1; n2 <= c1->nsph; n2++) { // GPU portable?
     for (int k2 = 1; k2<=k2max; k2++) {
       for (int k3 = 1; k3<=k3max; k3++) {
@@ -2515,12 +2637,11 @@ void ztm(dcomplex **am, ParticleDescriptor *c1) {
 #endif
   dcomplex *am_v = am[0];
   dcomplex *sam_v = c1->sam[0];
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd collapse(2)
-// #else
-// #pragma omp parallel for simd collapse(2)
-// #endif
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd collapse(2)
+#else
 #pragma omp parallel for simd collapse(2)
+#endif
   for (int i1 = 1; i1 <= c1->ndi; i1++) { // GPU portable?
     for (int i3 = 1; i3 <= c1->nlem; i3++) {
       dcomplex sum1 = cc0;
@@ -2529,6 +2650,7 @@ void ztm(dcomplex **am, ParticleDescriptor *c1) {
       dcomplex sum4 = cc0;
       int i1e = i1 + c1->ndi;
       int i3e = i3 + c1->nlem;
+#pragma parallel for simd reduction(+:sum1,sum2,sum3,sum4)
       for (int i2 = 1; i2 <= c1->ndi; i2++) {
 	int i2e = i2 + c1->ndi;
 	int vecindg_23 = (i2 - 1) * c1->nlem + i3 - 1;
@@ -2564,15 +2686,16 @@ void ztm(dcomplex **am, ParticleDescriptor *c1) {
       int vecindex = (i1 - 1) * c1->nlem + i0 - 1;
       gis_v[vecindex] = dconjg(gis_v[vecindex]);
       gls_v[vecindex] = dconjg(gls_v[vecindex]);
+      // c9->gis[i1 - 1][i0 - 1] = dconjg(c9->gis[i1 - 1][i0 - 1]);
+      // c9->gls[i1 - 1][i0 - 1] = dconjg(c9->gls[i1 - 1][i0 - 1]);
     } // i0 loop
   } // i1 loop
   dcomplex *vec_am0m = c1->am0m[0];
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd collapse(2)
-// #else
-// #pragma omp parallel for simd collapse(2)
-// #endif
-#pragma omp parallel for simd collapse(2)
+#ifdef USE_TARGET_OFFLOAD
+#pragma omp target teams distribute parallel for simd collapse(2)
+#else
+#pragma omp target parallel for simd collapse(2)
+#endif
   for (int i0 = 1; i0 <= c1->nlem; i0++) {
     for (int i3 = 1; i3 <= c1->nlemt; i3++) {
       int i0e = i0 + c1->nlem;

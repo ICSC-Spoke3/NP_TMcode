@@ -146,10 +146,12 @@ void inclusion(const string& config_file, const string& data_file, const string&
   }
   Logger *logger = new Logger(LOG_DEBG);
   int device_count = 0;
+  const double ram_overhead_factor = get_ram_overhead();
+
+#ifdef USE_MAGMA
   //===========
   // Initialise MAGMA
   //===========
-#ifdef USE_MAGMA
   const magma_int_t d_array_max_size = 32; // TEMPORARY: can become configurable parameter
   magma_device_t *device_array = new magma_device_t[d_array_max_size];
   magma_int_t num_devices;
@@ -228,8 +230,64 @@ void inclusion(const string& config_file, const string& data_file, const string&
     int nsph = gconf->number_of_spheres;
     // Sanity check on number of sphere consistency, should always be verified
     if (s_nsph == nsph) {
-      // Shortcuts to variables stored in configuration objects
+      char virtual_line[256];
+      sprintf(virtual_line, "%.5lg.\n", sconf->get_particle_radius(gconf));
+      message = "INFO: particle radius is " + (string)virtual_line;
+      logger->log(message);
+      // Memory requirements test
+      long cid_size_bytes = InclusionIterationData::get_size(gconf, sconf);
+      double cid_size_gb = cid_size_bytes / 1024.0 / 1024.0 / 1024.0;
+      sprintf(virtual_line, "%.5lg", cid_size_gb);
+      message = "INFO: iteration data requires " + (string)virtual_line + "GiB of RAM.\n";
+      logger->log(message);
+      int omp_wavelength_threads = 1;
+#ifdef _OPENMP
+#pragma omp parallel
+      {
+	int threadId = omp_get_thread_num();
+	if (threadId == 0) {
+	  omp_wavelength_threads = omp_get_num_threads();
+	}
+      }
+#endif //_OPENMP
+      double requested_ram_gb = (ram_overhead_factor + omp_wavelength_threads) * cid_size_gb;
+      sprintf(virtual_line, "%.5lg", requested_ram_gb);
+      message = "INFO: code execution needs " + (string)virtual_line + "GiB of RAM.\n";
+      logger->log(message);
+      if (gconf->host_ram_gb > 0.0) {
+	if (requested_ram_gb > gconf->host_ram_gb) {
+	  // ERROR: host system does not have the necessary RAM
+	  message = "ERROR: the requested model saturates the system RAM!\n";
+	  logger->log(message);
+	  fclose(timing_file);
+	  delete time_logger;
+	  delete logger;
+	  delete sconf;
+	  delete gconf;
+	  exit(1);
+	}
+      }
+      if (gconf->gpu_ram_gb > 0.0) {
+	// mat_size_bytes = sizeof(dcomplex) * 2 * 2 * NSPH * NSPH * LI * LI * (LI + 2) * (LI + 2)
+	long matrix_size_bytes = sizeof(dcomplex)
+	  * 4 * gconf->number_of_spheres * gconf->number_of_spheres
+	  * gconf->li * gconf->li * (gconf->li + 2) * (gconf->li + 2);
+	double matrix_size_gb = matrix_size_bytes / 1024.0 / 1024.0 / 1024.0;
+	int refinement_factor = (gconf->refine_flag) ? 3 : 1;
+	if (refinement_factor * omp_wavelength_threads * matrix_size_gb > gconf->gpu_ram_gb) {
+	  // ERROR: GPU does not have the necessary RAM
+	  message = "ERROR: the requested model saturates the GPU RAM!\n";
+	  logger->log(message);
+	  fclose(timing_file);
+	  delete time_logger;
+	  delete logger;
+	  delete sconf;
+	  delete gconf;
+	  exit(1);
+	}
+      }
       ScatteringAngles *p_scattering_angles = new ScatteringAngles(gconf);
+      // Shortcuts to variables stored in configuration objects
       double wp = sconf->wp;
       // Open empty virtual ascii file for output
       InclusionOutputInfo *p_output = new InclusionOutputInfo(sconf, gconf, mpidata);
@@ -277,51 +335,9 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	p_output->vec_vk[0] = cid->vk;
       }
       
-      // do the first iteration on jxi488 separately, since it seems to be different from the others
       int jxi488;
       int initialmaxrefiters = cid->maxrefiters;
-      
-//       chrono::time_point<chrono::high_resolution_clock> start_iter_1 = chrono::high_resolution_clock::now();
-// #ifdef USE_NVTX
-//       nvtxRangePush("First iteration");
-// #endif
-      // use these pragmas, which should have no effect on parallelism, just to push OMP nested levels at the same level also in the first wavelength iteration
       int jer = 0;
-// #pragma omp parallel
-//       {
-// #pragma omp single
-// 	{
-// 	  jer = inclusion_jxi488_cycle(jxi488, sconf, gconf, p_scattering_angles, cid, p_output, output_path, vtppoanp);
-// 	}
-//       }
-// #ifdef USE_NVTX
-//       nvtxRangePop();
-// #endif
-//       chrono::time_point<chrono::high_resolution_clock> end_iter_1 = chrono::high_resolution_clock::now();
-//       elapsed = start_iter_1 - t_start;
-//       string message = "INFO: Calculation setup took " + to_string(elapsed.count()) + "s.\n";
-//       logger->log(message);
-//       time_logger->log(message);
-//       elapsed = end_iter_1 - start_iter_1;
-//       message = "INFO: First iteration took " + to_string(elapsed.count()) + "s.\n";
-//       logger->log(message);
-//       time_logger->log(message);
-      /* for the next iterations, just always do maxiter iterations, assuming the accuracy is good enough */
-      // cid->refinemode = 0;
-      // /* add an extra iteration for margin, if this does not exceed initialmaxrefiters */
-      // // if (cid->maxrefiters < initialmaxrefiters) cid->maxrefiters++;
-      // if (jer != 0) {
-      // 	// First loop failed. Halt the calculation.
-      // 	fclose(timing_file);
-      // 	delete time_logger;
-      // 	delete p_output;
-      // 	delete p_scattering_angles;
-      // 	delete cid;
-      // 	delete logger;
-      // 	delete sconf;
-      // 	delete gconf;
-      // 	return;
-      // }
 
       //==================================================
       // do the first outputs here, so that I open here the new files, afterwards I only append
@@ -536,7 +552,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
     time_logger->log(message);
     fclose(timing_file);
     delete time_logger;
-    delete logger;
   } // end instructions block of MPI process 0
   
     //===============================
@@ -666,10 +681,10 @@ void inclusion(const string& config_file, const string& data_file, const string&
     logger->log("INFO: Process " + to_string(mpidata->rank) + " finalizes MAGMA.\n");
     magma_finalize();
 #endif
-    delete logger;
 #ifdef MPI_VERSION
   }
 #endif
+  delete logger;
 }
 
 int inclusion_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf, ScatteringAngles *sa, InclusionIterationData *cid, InclusionOutputInfo *output, const string& output_path, VirtualBinaryFile *vtppoanp) {
@@ -737,12 +752,7 @@ int inclusion_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryCo
   double size_par_le = 2.0 * pi * sqrt(exdc) * sconf->get_particle_radius(gconf) / alamb;
   int recommended_le = 1 + (int)ceil(size_par_le + 11.0 * pow(size_par_le, 1.0 / 3.0));
   if (recommended_li != cid->c1->li || recommended_le != cid->c1->le) {
-    if (recommended_li > cid->c1->li) {
-      message = "WARNING: internal order " + to_string(cid->c1->li) + " for scale iteration "
-	+ to_string(jxi488) + " too low (recommended order is " + to_string(recommended_li)
-	+ ").\n";
-      logger->log(message, LOG_WARN);
-    } else if (recommended_li < cid->c1->li) {
+    if (recommended_li < cid->c1->li) {
       if (gconf->dyn_order_flag > 0) {
 	message = "INFO: lowering internal order from " + to_string(cid->c1->li) + " to "
 	  + to_string(recommended_li) + " for scale iteration " + to_string(jxi488) + ".\n";
@@ -753,12 +763,7 @@ int inclusion_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryCo
 	logger->log(message, LOG_WARN);
       }
     }
-    if (recommended_le > cid->c1->le) {
-      message = "WARNING: external order " + to_string(cid->c1->le) + " for scale iteration "
-	+ to_string(jxi488) + " too low (recommended order is " + to_string(recommended_le)
-	+ ").\n";
-      logger->log(message, LOG_WARN);
-    } else if (recommended_le < cid->c1->le) {
+    if (recommended_le < cid->c1->le) {
       if (gconf->dyn_order_flag > 0) {
 	message = "INFO: lowering external order from " + to_string(cid->c1->le) + " to "
 	  + to_string(recommended_le) + " for scale iteration " + to_string(jxi488) + ".\n";
@@ -1511,9 +1516,9 @@ InclusionIterationData::InclusionIterationData(GeometryConfiguration *gconf, Sca
   vec_zpv = new double[c1->lm * 12]();
   zpv = new double***[c1->lm];
   for (int zi = 0; zi < c1->lm; zi++) {
-    zpv[zi] = new double**[12];
+    zpv[zi] = new double**[3];
     for (int zj = 0; zj < 3; zj++) {
-      zpv[zi][zj] = new double*[4];
+      zpv[zi][zj] = new double*[2];
       zpv[zi][zj][0] = vec_zpv + (zi * 12) + (zj * 4);
       zpv[zi][zj][1] = vec_zpv + (zi * 12) + (zj * 4) + 2;
     }
@@ -1668,9 +1673,9 @@ InclusionIterationData::InclusionIterationData(const InclusionIterationData& rhs
   vec_zpv = new double[c1->lm * 12];
   zpv = new double***[c1->lm];
   for (int zi = 0; zi < c1->lm; zi++) {
-    zpv[zi] = new double **[12];
+    zpv[zi] = new double **[3];
     for (int zj = 0; zj < 3; zj++) {
-      zpv[zi][zj] = new double*[4];
+      zpv[zi][zj] = new double*[2];
       zpv[zi][zj][0] = vec_zpv + (zi * 12) + (zj * 4);
       zpv[zi][zj][1] = vec_zpv + (zi * 12) + (zj * 4) + 2;
       zpv[zi][zj][0][0] = rhs.zpv[zi][zj][0][0];
@@ -1808,9 +1813,9 @@ InclusionIterationData::InclusionIterationData(const mixMPI *mpidata, const int 
   MPI_Bcast(vec_zpv, c1->lm * 12, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   zpv = new double***[c1->lm];
   for (int zi = 0; zi < c1->lm; zi++) {
-    zpv[zi] = new double **[12];
+    zpv[zi] = new double **[3];
     for (int zj = 0; zj < 3; zj++) {
-      zpv[zi][zj] = new double*[4];
+      zpv[zi][zj] = new double*[2];
       zpv[zi][zj][0] = vec_zpv + (zi * 12) + (zj * 4);
       zpv[zi][zj][1] = vec_zpv + (zi * 12) + (zj * 4) + 2;
     }
@@ -1986,6 +1991,72 @@ InclusionIterationData::~InclusionIterationData() {
   delete[] cext;
   delete[] cmullr;
   delete[] cmul;
+}
+
+long InclusionIterationData::get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf) {
+  /*
+  ParticleDescriptor *c1; double *vec_zpv; double *gaps; double **tqse; dcomplex **tqspe;
+  double **tqss; dcomplex **tqsps; double ****zpv; double **gapm; dcomplex **gappm; double *argi;
+  double *args; double **gap; dcomplex **gapp; double **tqce; dcomplex **tqcpe; double **tqcs;
+  dcomplex **tqcps; double *duk; double **cextlr; double **cext; double **cmullr; double **cmul;
+  double *gapv; double *tqev; double *tqsv; double *u; double *us; double *un; double *uns;
+  double *up; double *ups; double *unmp; double *unsmp; double *upsmp; dcomplex *am_vector;
+  dcomplex **am;
+  37 root pointers
+ 
+  double extr; double vk; double wn; double xip; double scan; double cfmp; double sfmp; double cfsp;
+  double sfsp; double sqsfi; double accuracygoal;
+  11 double values
+
+  dcomplex arg;
+  1 dcomplex value
+  
+  int nimd; int number_of_scales; int xiblock; int firstxi; int lastxi; int proc_device;
+  int refinemode; int maxrefiters;
+  8 int values
+
+  bool is_first_scale;
+  1 boolean value
+
+  tqse = new double*[2]; tqspe = new dcomplex*[2]; tqss = new double*[2]; tqsps = new dcomplex*[2];
+  tqce = new double*[2]; tqcpe = new dcomplex*[2]; tqcs = new double*[2]; tqcps = new dcomplex*[2];
+  gapp = new dcomplex*[3]; gappm = new dcomplex*[3]; gap = new double*[3]; gapm = new double*[3];
+  cextlr = new double*[4]; cext = new double*[4]; cmullr = new double*[4]; cmul = new double*[4];
+  zpv[] = new double*[6 * LM]; am = new dcomplex*[c1->ndm];
+  (44 + 6 * LM + NDM) long values
+  
+  gaps = new double[nsph]; tqev = new double[3]; tqsv = new double[3]; tqse[] = new double[2 * nsph];
+  tqss[] = new double[2 * nsph]; tqce[] = new double[6]; tqcs[] = new double[6]; gapv = new double[3];
+  gap[] = new double[6]; gapm[] = new double[6]; u = new double[3]; us = new double[3];
+  un = new double[3]; uns = new double[3]; up = new double[3]; ups = new double[3]; unmp = new double[3];
+  unsmp = new double[3]; upmp = new double[3]; upsmp = new double[3]; argi = new double[1];
+  args = new double[1]; duk = new double[3]; cextlr[] = new double[16]; cext[] = new double[16];
+  cmullr[] = new double[16]; cmul[] = new double[16]; vec_zpv = new double[LM * 12];
+  (132 + 5 * NSPH + 12 * LM) double values
+
+  tqspe[] = new dcomplex[2 * nsph]; tqsps[] = new dcomplex[2 * nsph]; tqcpe[] = new dcomplex[6];
+  tqcps[] = new dcomplex[6]; gapp[] = new dcomplex[6]; gappm[] = new dcomplex[6];
+  am_vector = new dcomplex[ndm * ndm];
+  (24 + 4 * NSPH + NDM * NDM) dcomplex values
+  
+  */
+  const int nsph = gconf->number_of_spheres;
+  const int nlim = gconf->li * (gconf->li + 2);
+  const int nlem = gconf->le * (gconf->le + 2);
+  const int ndi = nsph * nlim;
+  const np_int ndit = 2 * ndi;
+  const int ndm = 2 * (nsph * nlim + nlem);
+  const int lm = (gconf->li > gconf->le) ? gconf->li : gconf->le;
+  long result = sizeof(long) * 37;
+  result += sizeof(double) * 11;
+  result += sizeof(dcomplex);
+  result += sizeof(int) * 8;
+  result += sizeof(bool);
+  result += sizeof(long) * (44 + 6 * lm + ndm);
+  result += sizeof(double) * (132 + 5 * nsph + 12 * lm);
+  result += sizeof(dcomplex) * (24 + 4 * nsph + ndm * ndm);
+  result += ParticleDescriptorInclusion::get_size(gconf, sconf);
+  return result;
 }
 
 int InclusionIterationData::update_orders(double **rcf, int inner_order, int outer_order) {
