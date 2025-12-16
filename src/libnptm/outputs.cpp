@@ -1166,7 +1166,7 @@ int ClusterOutputInfo::write(const std::string &output, const std::string &forma
   } else if (format.compare("HDF5") == 0) {
     result = write_hdf5(output);
   } else {
-    string message = "Unknown format mode: \"" + format + "\"";
+    string message = "Unknown format mode: \"" + format + "\"\n";
     throw UnrecognizedConfigurationException(message);
   }
   return result;
@@ -3627,7 +3627,7 @@ int InclusionOutputInfo::write(const std::string &output, const std::string &for
   } else if (format.compare("HDF5") == 0) {
     result = write_hdf5(output);
   } else {
-    string message = "Unknown format mode: \"" + format + "\"";
+    string message = "Unknown format mode: \"" + format + "\"\n";
     throw UnrecognizedConfigurationException(message);
   }
   return result;
@@ -5354,7 +5354,7 @@ int SphereOutputInfo::write(const std::string &output, const std::string &format
   } else if (format.compare("HDF5") == 0) {
     result = write_hdf5(output);
   } else {
-    string message = "Unknown format mode: \"" + format + "\"";
+    string message = "Unknown format mode: \"" + format + "\"\n";
     throw UnrecognizedConfigurationException(message);
   }
   return result;
@@ -5998,3 +5998,325 @@ int SphereOutputInfo::mpisend(const mixMPI *mpidata) {
 }
 #endif // MPI_VERSION
 // >>> END OF SphereOutputInfo CLASS IMPLEMENTATION <<<
+
+// >>> TrappingOutputInfo CLASS IMPLEMENTATION <<<
+TrappingOutputInfo::TrappingOutputInfo(
+  int ift, int iss, int itw, int nx, int ny, int nz
+) {
+  _jft = ift;
+  _jss = iss;
+  _jtw = itw;
+  _nxv = nx;
+  _nyv = ny;
+  _nzv = nz;
+  const int ntot = (iss == 1) ? 3 * _nxv * _nyv * _nzv : _nxv * _nyv * _nzv;
+  vec_x = new double[_nxv];
+  vec_y = new double[_nyv];
+  vec_z = new double[_nzv];
+  if (_jft <= 0) {
+    vec_cst1 = new double[ntot];
+    vec_cst2 = new double[ntot];
+    vec_cst3 = new double[ntot];
+  }
+  if (_jft >= 0) {
+    vec_csf1 = new double[ntot];
+    vec_csf2 = new double[ntot];
+    vec_csf3 = new double[ntot];
+  }
+  _nkv = 0;
+  _lmode = 0;
+  _le = 0;
+  _vk = 0.0;
+  _exri = 1.0;
+  _an = 0.0;
+  _ff = 0.0;
+  _tra = 0.0;
+  _spd = 0.0;
+  _frsh = 0.0;
+  _exril = 0.0;
+}
+
+TrappingOutputInfo::~TrappingOutputInfo() {
+  delete[] vec_x;
+  delete[] vec_y;
+  delete[] vec_z;
+  if (_jft <= 0) {
+    delete[] vec_cst1;
+    delete[] vec_cst2;
+    delete[] vec_cst3;
+  }
+  if (_jft >= 0) {
+    delete[] vec_csf1;
+    delete[] vec_csf2;
+    delete[] vec_csf3;
+  }
+}
+
+long TrappingOutputInfo::get_size(
+  int ift, int iss, int nx, int ny, int nz
+) {
+  // Size of the header
+  long result = sizeof(int) * 18;
+  result += sizeof(double) * 16;
+  result += sizeof(long) * 10;
+  // Size of data
+  const int ntot = (iss == 1) ? 3 * nx * ny * nz : nx * ny * nz;
+  if (ift <= 0) result += (sizeof(double) * 3 * ntot);
+  if (ift >= 0) result += (sizeof(double) * 3 * ntot);
+  result += sizeof(double) * nx;
+  result += sizeof(double) * ny;
+  result += sizeof(double) * nz;
+  return result;
+}
+
+long TrappingOutputInfo::get_size() {
+  // Size of the header
+  long result = sizeof(int) * 18;
+  result += sizeof(double) * 16;
+  result += sizeof(long) * 10;
+  // Size of data
+  const int nvtot = (_jss == 1) ? 3 * _nxv * _nyv * _nzv : _nxv * _nyv * _nzv;
+  if (_jft <= 0) result += (sizeof(double) * 3 * nvtot);
+  if (_jft >= 0) result += (sizeof(double) * 3 * nvtot);
+  result += sizeof(double) * _nxv;
+  result += sizeof(double) * _nyv;
+  result += sizeof(double) * _nzv;
+  return result;
+}
+
+void TrappingOutputInfo::set_param(const std::string& pname, double pvalue) {
+  if (pname.compare("lmode") == 0) _lmode = (int)pvalue;
+  else if (pname.compare("le") == 0) _le = (int)pvalue;
+  else if (pname.compare("nkv") == 0) _nkv = (int)pvalue;
+  else if (pname.compare("vk") == 0) _vk = pvalue;
+  else if (pname.compare("exri") == 0) _exri = pvalue;
+  else if (pname.compare("an") == 0) _an = pvalue;
+  else if (pname.compare("ff") == 0) _ff = pvalue;
+  else if (pname.compare("tra") == 0) _tra = pvalue;
+  else if (pname.compare("spd") == 0) _spd = pvalue;
+  else if (pname.compare("frsh") == 0) _frsh = pvalue;
+  else if (pname.compare("exril") == 0) _exril = pvalue;
+  else {
+    string message = "Unrecognized parameter name \"" + pname + "\"\n";
+    throw UnrecognizedParameterException(message);
+  }
+}
+
+int TrappingOutputInfo::write(const std::string &output, const std::string &format) {
+  int result = 0;
+  if (format.compare("ASCII") == 0) {
+    result = write_legacy(output);
+  } else if (format.compare("HDF5") == 0) {
+    result = write_hdf5(output);
+  } else {
+    string message = "Unknown format mode: \"" + format + "\"\n";
+    throw UnrecognizedConfigurationException(message);
+  }
+  return result;
+}
+
+int TrappingOutputInfo::write_hdf5(const std::string &file_name) {
+  List<string> *rec_name_list = new List<string>(1);
+  List<string> *rec_type_list = new List<string>(1);
+  List<void *> *rec_ptr_list = new List<void *>(1);
+  string str_type, str_name;
+  int num_data_elements = _nxv * _nyv * _nzv;
+  if (_jss == 1) num_data_elements *= 3;
+  rec_name_list->set(0, "JFT");
+  rec_type_list->set(0, "INT32_(1)");
+  rec_ptr_list->set(0, &_jft);
+  rec_name_list->append("JSS");
+  rec_type_list->append("INT32_(1)");
+  rec_ptr_list->append(&_jss);
+  rec_name_list->append("JTW");
+  rec_type_list->append("INT32_(1)");
+  rec_ptr_list->append(&_jtw);
+  rec_name_list->append("NKV");
+  rec_type_list->append("INT32_(1)");
+  rec_ptr_list->append(&_nkv);
+  rec_name_list->append("NXV");
+  rec_type_list->append("INT32_(1)");
+  rec_ptr_list->append(&_nxv);
+  rec_name_list->append("NYV");
+  rec_type_list->append("INT32_(1)");
+  rec_ptr_list->append(&_nyv);
+  rec_name_list->append("NZV");
+  rec_type_list->append("INT32_(1)");
+  rec_ptr_list->append(&_nzv);
+  rec_name_list->append("LMODE");
+  rec_type_list->append("INT32_(1)");
+  rec_ptr_list->append(&_lmode);
+  rec_name_list->append("LE");
+  rec_type_list->append("INT32_(1)");
+  rec_ptr_list->append(&_le);
+  rec_name_list->append("VK");
+  rec_type_list->append("FLOAT64_(1)");
+  rec_ptr_list->append(&_vk);
+  rec_name_list->append("EXRI");
+  rec_type_list->append("FLOAT64_(1)");
+  rec_ptr_list->append(&_exri);
+  rec_name_list->append("AN");
+  rec_type_list->append("FLOAT64_(1)");
+  rec_ptr_list->append(&_an);
+  rec_name_list->append("FF");
+  rec_type_list->append("FLOAT64_(1)");
+  rec_ptr_list->append(&_ff);
+  rec_name_list->append("TRA");
+  rec_type_list->append("FLOAT64_(1)");
+  rec_ptr_list->append(&_tra);
+  rec_name_list->append("SPD");
+  rec_type_list->append("FLOAT64_(1)");
+  rec_ptr_list->append(&_spd);
+  rec_name_list->append("FRSH");
+  rec_type_list->append("FLOAT64_(1)");
+  rec_ptr_list->append(&_frsh);
+  rec_name_list->append("EXRIL");
+  rec_type_list->append("FLOAT64_(1)");
+  rec_ptr_list->append(&_exril);
+  str_type = "FLOAT64_(" + to_string(_nxv) + ")";
+  rec_name_list->append("XV");
+  rec_type_list->append(str_type);
+  rec_ptr_list->append(vec_x);
+  str_type = "FLOAT64_(" + to_string(_nyv) + ")";
+  rec_name_list->append("YV");
+  rec_type_list->append(str_type);
+  rec_ptr_list->append(vec_y);
+  str_type = "FLOAT64_(" + to_string(_nzv) + ")";
+  rec_name_list->append("ZV");
+  rec_type_list->append(str_type);
+  rec_ptr_list->append(vec_z);
+  if (_jft <= 0) {
+    str_type = "FLOAT64_(" + to_string(num_data_elements) + ")";
+    rec_name_list->append("VEC_CSF1");
+    rec_type_list->append(str_type);
+    rec_ptr_list->append(vec_csf1);
+    str_type = "FLOAT64_(" + to_string(num_data_elements) + ")";
+    rec_name_list->append("VEC_CSF2");
+    rec_type_list->append(str_type);
+    rec_ptr_list->append(vec_csf2);
+    str_type = "FLOAT64_(" + to_string(num_data_elements) + ")";
+    rec_name_list->append("VEC_CSF3");
+    rec_type_list->append(str_type);
+    rec_ptr_list->append(vec_csf3);
+  }
+  if (_jft >= 0) {
+    str_type = "FLOAT64_(" + to_string(num_data_elements) + ")";
+    rec_name_list->append("VEC_CST1");
+    rec_type_list->append(str_type);
+    rec_ptr_list->append(vec_cst1);
+    str_type = "FLOAT64_(" + to_string(num_data_elements) + ")";
+    rec_name_list->append("VEC_CST2");
+    rec_type_list->append(str_type);
+    rec_ptr_list->append(vec_cst2);
+    str_type = "FLOAT64_(" + to_string(num_data_elements) + ")";
+    rec_name_list->append("VEC_CST3");
+    rec_type_list->append(str_type);
+    rec_ptr_list->append(vec_cst3);
+  }
+  
+  // Convert the lists to arrays and write them to HDF5
+  string *rec_names = rec_name_list->to_array();
+  string *rec_types = rec_type_list->to_array();
+  void **rec_pointers = rec_ptr_list->to_array();
+  const int rec_num = rec_name_list->length();
+  FileSchema *schema = new FileSchema(rec_num, rec_types, rec_names);
+  HDFFile *hdf_file = HDFFile::from_schema(*schema, file_name, H5F_ACC_TRUNC);
+  for (int ri = 0; ri < rec_num; ri++)
+    hdf_file->write(rec_names[ri], rec_types[ri], rec_pointers[ri]);
+  hdf_file->close();
+  
+  // Clean memory
+  delete rec_name_list;
+  delete rec_type_list;
+  delete rec_ptr_list;
+  delete[] rec_names;
+  delete[] rec_types;
+  delete[] rec_pointers;
+  delete schema;
+  delete hdf_file;
+  return 0;
+}
+
+int TrappingOutputInfo::write_legacy(const std::string &output) {
+  int result = 0;
+  string cur_file_name = output + "grid_scale.txt";
+  FILE *p_outfile1 = fopen(cur_file_name.c_str(), "w"), *p_outfile2 = NULL;
+  if (p_outfile1 != NULL) {
+    for (int i = 0; i < _nxv; i++) {
+      double x = vec_x[i];
+      if (_nxv - i == i + 1) {
+	double ximo = vec_x[i - 1];
+	double xipo = vec_x[i + 1];
+	if (ximo < 0.0 && xipo > 0.0) {
+	  double limo = log10(-ximo);
+	  double lipo = log10(xipo);
+	  double logi = (x > 0.0) ? log10(x) : log10(-x);
+	  if (logi < (limo + lipo) / 2.0 - 10.0) x = 0.0;
+	}
+      }
+      fprintf(p_outfile1, "  %24.16lE\n", x);      
+    }
+    fclose(p_outfile1);
+  } else
+    result += 1;
+  cur_file_name = output + "force_cs.txt";
+  if (_jft <= 0) p_outfile1 = fopen(cur_file_name.c_str(), "w");
+  cur_file_name = output + "torque_cs.txt";
+  if (_jft >= 0) p_outfile2 = fopen(cur_file_name.c_str(), "w");
+  for (int iz475 = 0; iz475 < nzv; iz475++) {
+    for (int iy475 = 0; iy475 < nyv; iy475++) {
+      for (int ix475 = 0; ix475 < nxv; ix475++) {
+	int oindex = nyv * nxv * iz475 + nxv * iy475 + ix475;
+	if (_jss == 1) {
+	  if (_jft <= 0) {
+	    fprintf(
+	      p_outfile1, " %18.16lE%18.16lE%18.16lE\n",
+	      vec_csf1[3 * oindex], vec_csf2[3 * oindex], vec_csf3[3 * oindex]
+	    );
+	    fprintf(
+	      p_outfile1, " %18.16lE%18.16lE%18.16lE\n",
+	      vec_csf1[3 * oindex + 1], vec_csf2[3 * oindex + 1], vec_csf3[3 * oindex + 1]
+	    );
+	    fprintf(
+	      p_outfile1, " %18.16lE%18.16lE%18.16lE\n",
+	      vec_csf1[3 * oindex + 2], vec_csf2[3 * oindex + 2], vec_csf3[3 * oindex + 2]
+	    );
+	  }
+	  if (_jft >= 0) {
+	    fprintf(
+	      p_outfile2, " %18.16lE%18.16lE%18.16lE\n",
+	      vec_cst1[3 * oindex], vec_cst2[3 * oindex], vec_cst3[3 * oindex]
+	    );
+	    fprintf(
+	      p_outfile2, " %18.16lE%18.16lE%18.16lE\n",
+	      vec_cst1[3 * oindex + 1], vec_cst2[3 * oindex + 1], vec_cst3[3 * oindex + 1]
+	    );
+	    fprintf(
+	      p_outfile2, " %18.16lE%18.16lE%18.16lE\n",
+	      vec_cst1[3 * oindex + 2], vec_cst2[3 * oindex + 2], vec_cst3[3 * oindex + 2]
+	    );
+	  }
+	} else { // jss != 1
+	  if (_jft <= 0) {
+	    fprintf(
+	      p_outfile1, " %5d%4d%4d%15.4lE%15.4lE%15.4lE\n",
+	      ix475 + 1, iy475 + 1, iz475 + 1,
+	      vec_csf1[oindex], vec_csf2[oindex], vec_csf3[oindex]
+	    );
+	  }
+	  if (_jft >= 0) {
+	    fprintf(
+	      p_outfile2, " %5d%4d%4d%15.4lE%15.4lE%15.4lE\n",
+	      ix475 + 1, iy475 + 1, iz475 + 1,
+	      vec_cst1[oindex], vec_cst2[oindex], vec_cst3[oindex]
+	    );
+	  }
+	}
+      }
+    }
+  }
+  fclose(p_outfile1);
+  fclose(p_outfile2);
+  return 0;
+}
+// >>> END OF TrappingOutputInfo CLASS IMPLEMENTATION <<<
