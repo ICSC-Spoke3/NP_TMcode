@@ -38,13 +38,13 @@
  * A structure containing field expansion order configuration.
  */
 struct CIL {
-  //! Maximum L expansion of the electric field.
+  //! Maximum external field expansion order
   int le;
-  //! le * (le + 1).
+  //! NLEM = LE * (LE + 2)
   int nlem;
-  //! 2 * nlem.
+  //! NLEMT = 2 * NLEM
   int nlemt;
-  //! Maximum field expansion order + 1.
+  //! MXMPO is read from T-matrix with IS < 0 (not used here).
   int mxmpo;
   //! 2 * mxmpo - 1.
   int mxim;

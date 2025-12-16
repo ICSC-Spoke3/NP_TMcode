@@ -133,7 +133,7 @@ ParticleDescriptor::ParticleDescriptor(GeometryConfiguration *gconf, ScattererCo
   ros = new double[num_configurations]();
   nshl = new int[num_configurations]();
   for (int ci = 0; ci < num_configurations; ci++) {
-    ros[ci] = sconf->get_radius(ci);
+    ros[ci] = sconf->get_type_radius(ci);
     nshl[ci] = sconf->get_nshl(ci);
   }
   _npnt = gconf->npnt;

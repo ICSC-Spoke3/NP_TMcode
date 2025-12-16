@@ -626,12 +626,12 @@ int sphere_jxi488_cycle(
     string ttms_name = output_path + "/c_TTMS.hd5";
     TransitionMatrix::write_binary(
       ttms_name, l_max, vk, exri, sid->c1->rmi, sid->c1->rei,
-      sconf->get_radius(0), "HDF5"
+      sconf->get_type_radius(0), "HDF5"
     );
     ttms_name = output_path + "/c_TTMS";
     TransitionMatrix::write_binary(
       ttms_name, l_max, vk, exri, sid->c1->rmi, sid->c1->rei,
-      sconf->get_radius(0)
+      sconf->get_type_radius(0)
     );
   }
   double cs0 = 0.25 * vk * vk * vk / half_pi;
