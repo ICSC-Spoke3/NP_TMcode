@@ -13,12 +13,6 @@ input_settings:
   geometry_file: "DSPH_two_layers"
   
 output_settings:
-  # Folder for the code output storage
-  output_folder: "."
-  # Name of the main output file
-  output_name  : "c_OSPH"
-  # Requested output formats
-  formats      : [ "LEGACY", "HDF5" ]
   # Index of the scale for transition matrix output
   jwtm         : 1
 
@@ -37,7 +31,7 @@ particle_settings:
   radii       : [ 1.31281e-07 ]
   # Layer fractional radii (one per layer in each type)
   rad_frac    : [ [ 6.58641e-01, 6.58642e-01, 1.0 ] ]
-  # Index of the dielectric constants (one per layer in each type)
+  # Index of the dielectric functions (one per layer in each type)
   #
   # 1 is first file in `dielec_file`, 2 is second ...
   dielec_id   : [ [1, 2] ]
@@ -46,22 +40,22 @@ material_settings:
   diel_flag   : 0
   # External medium dielectric constant
   extern_diel : 1.000e+00
-  # Dielectric constant files folder
+  # Dielectric function files folder
   dielec_path : "../../ref_data"
-  # List of dielectric constant files (used if diel_flag = 0)
+  # List of dielectric function files (used if diel_flag = 0)
   dielec_file : [ "eps_draine_Si.csv", "eps_ashok_C.csv"]
-  # Dielectric constant files format (same for all files)
+  # Dielectric function files format (same for all files)
   dielec_fmt  : [ "CSV" ]
-  # Matching method between optical constants and radiation wavelengths
+  # Matching method between optical functions and radiation wavelengths
   #
-  # INTERPOLATE: the constants are interpolated on wavelengths
-  # GRID: only the wavelengths with defined constants are computed
+  # INTERPOLATE: the functions are interpolated on wavelengths
+  # GRID: only the wavelengths with defined functions are computed
   #
   match_mode  : "INTERPOLATE"
-  # Reference dielectric constants (used if diel_flag = -1)
+  # Reference dielectric functions (used if diel_flag = -1)
   #
   # One real and one imaginary part for each layer in each type.
-  diel_const  : [ ]
+  diel_func   : [ ]
 
 radiation_settings:
   # Radiation field polarization (LINEAR | CIRCULAR)
