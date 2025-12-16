@@ -26,6 +26,7 @@
 #  The script execution requires python3.
 
 import math
+import pdb
 from sys import argv
 
 ## \brief Main execution code
@@ -66,11 +67,7 @@ def main():
                         print(ex)
                         errors += 1
                 elif (config['application'] == 'CLU'):
-                    try:
-                        errors += parse_legacy_oclu(config)
-                    except Exception as ex:
-                        print(ex)
-                        errors += 1
+                    errors += parse_legacy_oclu(config)
                 elif (config['application'] == 'SPH'):
                     try:
                         errors += parse_legacy_osph(config)
@@ -142,233 +139,243 @@ def parse_legacy_oclu(config):
     out40 = None # Cluster integrated asymmetry parameter and radiation pressure
     out51 = None # Cluster differential asymmetry parameter and radiation pressure forces in state -1
     out52 = None # Cluster differential asymmetry parameter and radiation pressure forces in state +1
-    try:
-        oclu_file = open(oclu_name, "r") # open the OCLU file for reading
-        file_line = "first line" # a string to parse the OCLU file lines
-        if ('ALL' in config['selection'] or 'ICS' in config['selection']):
-            out20 = open(root_name + "_ics.csv", "w") # open a file for integrated cross sections
-            out20.write("Wavelength,ScaSec,AbsSec,ExtSec\n")
-        if ('ALL' in config['selection'] or 'DCS' in config['selection']):
-            out31 = open(root_name + "_dcs1.csv", "w") # open a file for differential cross-sections in state -1
-            out31.write("Wavelength,THi,THs,PHi,PHs,ScaSec,AbsSec,ExtSec\n")
-            out32 = open(root_name + "_dcs2.csv", "w") # open a file for differential cross-sections in state +1
-            out32.write("Wavelength,THi,THs,PHi,PHs,ScaSec,AbsSec,ExtSec\n")
-        if ('ALL' in config['selection'] or 'IRP' in config['selection']):
-            out40 = open(root_name + "_irp.csv", "w") # open a file for integrated radiation pressure forces
-            out40.write("Wavelength,CosAv,RaPr\n")
-        if ('ALL' in config['selection'] or 'DRP' in config['selection']):
-            out51 = open(root_name + "_drp1.csv", "w") # open a file for differential radiation pressure forces in state -1
-            out51.write("Wavelength,THi,THs,PHi,PHs,CosAv,RaPr,Fl,Fr,Fk,Fx,Fy,Fz,TQEl,TQEr,TQEk,TQEx,TQEy,TQEz,TQSl,TQSr,TQSk,TQSx,TQSy,TQSz\n")
-            out52 = open(root_name + "_drp2.csv", "w") # open a file for differential radiation pressure forces in state +1
-            out52.write("Wavelength,THi,THs,PHi,PHs,CosAv,RaPr,Fl,Fr,Fk,Fx,Fy,Fz,TQEl,TQEr,TQEk,TQEx,TQEy,TQEz,TQSl,TQSr,TQSk,TQSx,TQSy,TQSz\n")
+    oclu_file = open(oclu_name, "r") # open the OCLU file for reading
+    file_line = "first line" # a string to parse the OCLU file lines
+    if ('ALL' in config['selection'] or 'ICS' in config['selection']):
+        out20 = open(root_name + "_ics.csv", "w") # open a file for integrated cross sections
+        out20.write("Wavelength,ScaSec,AbsSec,ExtSec\n")
+    if ('ALL' in config['selection'] or 'DCS' in config['selection']):
+        out31 = open(root_name + "_dcs1.csv", "w") # open a file for differential cross-sections in state -1
+        out31.write("Wavelength,THi,THs,PHi,PHs,ScaSec,AbsSec,ExtSec\n")
+        out32 = open(root_name + "_dcs2.csv", "w") # open a file for differential cross-sections in state +1
+        out32.write("Wavelength,THi,THs,PHi,PHs,ScaSec,AbsSec,ExtSec\n")
+    if ('ALL' in config['selection'] or 'IRP' in config['selection']):
+        out40 = open(root_name + "_irp.csv", "w") # open a file for integrated radiation pressure forces
+        out40.write("Wavelength,CosAv,RaPr\n")
+    if ('ALL' in config['selection'] or 'DRP' in config['selection']):
+        out51 = open(root_name + "_drp1.csv", "w") # open a file for differential radiation pressure forces in state -1
+        out51.write("Wavelength,THi,THs,PHi,PHs,CosAv,RaPr,Fl,Fr,Fk,Fx,Fy,Fz,TQEl,TQEr,TQEk,TQEx,TQEy,TQEz,TQSl,TQSr,TQSk,TQSx,TQSy,TQSz\n")
+        out52 = open(root_name + "_drp2.csv", "w") # open a file for differential radiation pressure forces in state +1
+        out52.write("Wavelength,THi,THs,PHi,PHs,CosAv,RaPr,Fl,Fr,Fk,Fx,Fy,Fz,TQEl,TQEr,TQEk,TQEx,TQEy,TQEz,TQSl,TQSr,TQSk,TQSx,TQSy,TQSz\n")
 
-        # Define the quantities that you need to extract
-        alam = 0.0
-        vk = 0.0
-        scaleOnXi = False
+    # Define the quantities that you need to extract
+    alam = 0.0
+    vk = 0.0
+    scaleOnXi = False
 
-        # Read the output file preamble
-        for i in range(2):
-            file_line = oclu_file.readline()
-        nsph = int(file_line[0:6])
-        for i in range(nsph + 3):
-            file_line = oclu_file.readline()
-        thifirst = float(file_line[0:11].replace("D", "E"))
-        thistep = float(file_line[12:21].replace("D", "E"))
-        thilast = float(file_line[22:31].replace("D", "E"))
-        thsfirst = float(file_line[32:41].replace("D", "E"))
-        thsstep = float(file_line[42:51].replace("D", "E"))
-        thslast = float(file_line[52:61].replace("D", "E"))
-        nthi = 1 if thistep == 0.0 else 1 + int((thilast - thifirst) / thistep)
-        nths = 1 if thsstep == 0.0 else 1 + int((thslast - thsfirst) / thsstep)
-        for i in range(2):
-            file_line = oclu_file.readline()
-        phifirst = float(file_line[0:11].replace("D", "E"))
-        phistep = float(file_line[12:21].replace("D", "E"))
-        philast = float(file_line[22:31].replace("D", "E"))
-        phsfirst = float(file_line[32:41].replace("D", "E"))
-        phsstep = float(file_line[42:51].replace("D", "E"))
-        phslast = float(file_line[52:61].replace("D", "E"))
-        nphi = 1 if phistep == 0.0 else 1 + int((philast - phifirst) / phistep)
-        nphs = 1 if phsstep == 0.0 else 1 + int((phslast - phsfirst) / phsstep)
-        ndirs = nthi * nths * nphi * nphs
-        
-        while ("JXI =" not in file_line):
-            file_line = oclu_file.readline() # read the next OSPH file line
-            if ("XI IS SCALE FACTOR FOR LENGTHS" in file_line):
-                scaleOnXi = True
-                vk = float(file_line[5:20].replace('D', 'E'))
-        
-        # Parsing loop until the end of the OCLU file
-        while (file_line != ""):
-            file_line = oclu_file.readline() # read the next OCLU file line
-            if (scaleOnXi):
-                if (file_line.startswith("  XI=")):
-                    xi = float(file_line[5:20].replace('D', 'E'))
-                    alam = 2.0 * math.pi * xi / vk
-            else:
-                if (file_line.startswith("  VK=")):
-                    # we found VK, so we calculate lambda
-                    # extract VK as a number from a string section, after
-                    # replacing FORTRAN's D with E
-                    vk = float(file_line[5:20].replace("D", "E"))
-                    alam = 2.0 * math.pi / vk
-            if ("CLUSTER (ENSEMBLE AVERAGE, MODE 0)" in file_line):
-                # we are in average section. We start a nested loop to
-                # extract the average values
-                found_averages = False
-                while (not found_averages):
+    # Read the output file preamble
+    for i in range(2):
+        file_line = oclu_file.readline()
+    nsph = int(file_line[0:6])
+    iavm = int(file_line[36:41])
+    for i in range(nsph + 3):
+        file_line = oclu_file.readline()
+    thifirst = float(file_line[0:11].replace("D", "E"))
+    thistep = float(file_line[12:21].replace("D", "E"))
+    thilast = float(file_line[22:31].replace("D", "E"))
+    thsfirst = float(file_line[32:41].replace("D", "E"))
+    thsstep = float(file_line[42:51].replace("D", "E"))
+    thslast = float(file_line[52:61].replace("D", "E"))
+    nthi = 1 if thistep == 0.0 else 1 + int((thilast - thifirst) / thistep)
+    nths = 1 if thsstep == 0.0 else 1 + int((thslast - thsfirst) / thsstep)
+    for i in range(2):
+        file_line = oclu_file.readline()
+    phifirst = float(file_line[0:11].replace("D", "E"))
+    phistep = float(file_line[12:21].replace("D", "E"))
+    philast = float(file_line[22:31].replace("D", "E"))
+    phsfirst = float(file_line[32:41].replace("D", "E"))
+    phsstep = float(file_line[42:51].replace("D", "E"))
+    phslast = float(file_line[52:61].replace("D", "E"))
+    nphi = 1 if phistep == 0.0 else 1 + int((philast - phifirst) / phistep)
+    nphs = 1 if phsstep == 0.0 else 1 + int((phslast - phsfirst) / phsstep)
+    ndirs = nthi * nths * nphi * nphs
+    nscas = nths * nphs
+    
+    while ("JXI =" not in file_line):
+        file_line = oclu_file.readline() # read the next OSPH file line
+        if ("XI IS SCALE FACTOR FOR LENGTHS" in file_line):
+            scaleOnXi = True
+            vk = float(file_line[5:20].replace('D', 'E'))
+    
+    # Parsing loop until the end of the OCLU file
+    while (file_line != ""):
+        file_line = oclu_file.readline() # read the next OCLU file line
+        if (scaleOnXi):
+            if (file_line.startswith("  XI=")):
+                xi = float(file_line[5:20].replace('D', 'E'))
+                alam = 2.0 * math.pi * xi / vk
+        else:
+            if (file_line.startswith("  VK=")):
+                # we found VK, so we calculate lambda
+                # extract VK as a number from a string section, after
+                # replacing FORTRAN's D with E
+                vk = float(file_line[5:20].replace("D", "E"))
+                alam = 2.0 * math.pi / vk
+        if ("CLUSTER (ENSEMBLE AVERAGE, " in file_line):
+            # we are in average section. We know the average cross-sections
+            # are after 3 more lines.
+            for i in range(3):
+                file_line = oclu_file.readline()
+                # the following check is needed to parse C++ output
+                if ("INSERTION" in file_line):
                     file_line = oclu_file.readline()
-                    if ("----- SCC ----- ABC ----- EXC ----- ALBEDC --" in file_line):
-                        # we know we are in LIN -1 because it is the first one
-                        # we also know that the next line contains the values
-                        # we are looking for, so we read it
+            # we know we are in LIN -1 because it is the first one
+            # we also know that the next line contains the values
+            # we are looking for, so we read it
+            scasm = float(file_line[1:15].replace("D", "E"))
+            abssm = float(file_line[17:30].replace("D", "E"))
+            extsm = float(file_line[32:45].replace("D", "E"))
+            # we can write the average values, similarly to fort.22
+            # note that \n puts a new line at the end of the string
+            output_line = "{0:.7E},{1:.7E},{2:.7E},{3:.7E}\n".format(alam, scasm, abssm, extsm)
+            if (out20 is not None): out20.write(output_line)
+            # we know that the asymmetry parameter and the radiation
+            # pressure forces will be after 8 more lines
+            for i in range(8):
+                file_line = oclu_file.readline()
+            cosav = float(file_line[8:23].replace("D", "E"))
+            rapr = float(file_line[31:46].replace("D", "E"))
+            output_line = "{0:.7E},{1:.7E},{2:.7E}\n".format(alam, cosav, rapr)
+            if (out40 is not None): out40.write(output_line)
+            # the averages were written. We look for differential section
+            for di in range(ndirs):
+                while ("JTH =" not in file_line):
+                    file_line = oclu_file.readline()
+                file_line = oclu_file.readline()
+                tidg = float(file_line[7:17].replace("D", "E"))
+                pidg = float(file_line[24:34].replace("D", "E"))
+                tsdg = float(file_line[41:51].replace("D", "E"))
+                psdg = float(file_line[58:68].replace("D", "E"))
+                while ("     CLUSTER" not in file_line):
+                    file_line = oclu_file.readline()
+                # we found CLUSTER. We know cross-sections for
+                # polarization state -1 will be after 3 more lines
+                for i in range(3):
+                    file_line = oclu_file.readline()
+                    # the following check is needed to parse C++ output
+                    if ("INSERTION" in file_line):
                         file_line = oclu_file.readline()
-                        # we now extract the values from string sections
-                        scasm = float(file_line[1:15].replace("D", "E"))
-                        abssm = float(file_line[17:30].replace("D", "E"))
-                        extsm = float(file_line[32:45].replace("D", "E"))
-                        # we can write the average values, similarly to fort.22
-                        # note that \n puts a new line at the end of the string
-                        output_line = "{0:.7E},{1:.7E},{2:.7E},{3:.7E}\n".format(alam, scasm, abssm, extsm)
-                        if (out20 is not None): out20.write(output_line)
-                        # we know that the asymmetry parameter and the radiation
-                        # pressure forces will be after 8 more lines
-                        for i in range(8):
-                            file_line = oclu_file.readline()
-                        cosav = float(file_line[8:23].replace("D", "E"))
-                        rapr = float(file_line[31:46].replace("D", "E"))
-                        output_line = "{0:.7E},{1:.7E},{2:.7E}\n".format(alam, cosav, rapr)
-                        if (out40 is not None): out40.write(output_line)
-                        found_averages = True # terminate the inner loop
-                # the averages were written. We look for CLUSTER section
-                # using another inner loop
-                found_differentials = False
-                while (not found_differentials):
-                    for di in range(ndirs):
-                        while ("JTH =" not in file_line):
-                            file_line = oclu_file.readline()
+                # breakpoint()
+                scc31 = float(file_line[1:15].replace("D", "E"))
+                abc31 = float(file_line[17:30].replace("D", "E"))
+                exc31 = float(file_line[32:45].replace("D", "E"))
+                # we can write the differential values, similarly to fort.31
+                output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, scc31, abc31, exc31)
+                if (out31 is not None): out31.write(output_line)
+                if (di % nscas == 0):
+                    #
+                    # we know that RAPRS values for polarization state -1
+                    # are after 9 more lines
+                    for i in range(9):
                         file_line = oclu_file.readline()
-                        tidg = float(file_line[7:17].replace("D", "E"))
-                        pidg = float(file_line[24:34].replace("D", "E"))
-                        tsdg = float(file_line[41:51].replace("D", "E"))
-                        psdg = float(file_line[58:68].replace("D", "E"))
-                        while ("     CLUSTER" not in file_line):
+                        # the following check is needed to parse C++ output
+                        if ("INSERTION" in file_line):
                             file_line = oclu_file.readline()
-                        if ("     CLUSTER" in file_line):
-                            # we found CLUSTER. We know cross-sections for
-                            # polarization state -1 will be after 2 more lines
-                            for i in range(3):
-                                file_line = oclu_file.readline()
-                                # the following check is needed to parse C++ output
-                                if ("INSERTION" in file_line):
-                                    file_line = oclu_file.readline()
-                            scc31 = float(file_line[1:15].replace("D", "E"))
-                            abc31 = float(file_line[17:30].replace("D", "E"))
-                            exc31 = float(file_line[32:45].replace("D", "E"))
-                            # we can write the differential values, similarly to fort.31
-                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, scc31, abc31, exc31)
-                            if (out31 is not None): out31.write(output_line)
-                            # we know that RAPRS values for polarization state -1
-                            # are after 9 more lines
-                            for i in range(9):
-                                file_line = oclu_file.readline()
-                                # the following check is needed to parse C++ output
-                                if ("INSERTION" in file_line):
-                                    file_line = oclu_file.readline()
-                            cosav = float(file_line[8:23].replace("D", "E"))
-                            rapr = float(file_line[31:46].replace("D", "E"))
-                            # we read the forces and torques
+                    cosav = float(file_line[8:23].replace("D", "E"))
+                    rapr = float(file_line[31:46].replace("D", "E"))
+                    # we read the forces and torques
+                    file_line = oclu_file.readline()
+                    fl = float(file_line[5:20].replace("D", "E"))
+                    fr = float(file_line[25:40].replace("D", "E"))
+                    fk = float(file_line[45:60].replace("D", "E"))
+                    file_line = oclu_file.readline()
+                    fx = float(file_line[5:20].replace("D", "E"))
+                    fy = float(file_line[25:40].replace("D", "E"))
+                    fz = float(file_line[45:60].replace("D", "E"))
+                    file_line = oclu_file.readline()
+                    TQEl = float(file_line[8:23].replace("D", "E"))
+                    TQEr = float(file_line[31:46].replace("D", "E"))
+                    TQEk = float(file_line[54:69].replace("D", "E"))
+                    file_line = oclu_file.readline()
+                    TQSl = float(file_line[8:23].replace("D", "E"))
+                    TQSr = float(file_line[31:46].replace("D", "E"))
+                    TQSk = float(file_line[54:69].replace("D", "E"))
+                    file_line = oclu_file.readline()
+                    TQEx = float(file_line[8:23].replace("D", "E"))
+                    TQEy = float(file_line[31:46].replace("D", "E"))
+                    TQEz = float(file_line[54:69].replace("D", "E"))
+                    file_line = oclu_file.readline()
+                    TQSx = float(file_line[8:23].replace("D", "E"))
+                    TQSy = float(file_line[31:46].replace("D", "E"))
+                    TQSz = float(file_line[54:69].replace("D", "E"))
+                    # we can write the RAPRS values
+                    output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E},{8:.7E},{9:.7E},{10:.7E},{11:.7E},{12:.7E},{13:.7E},{14:.7E},{15:.7E},{16:.7E},{17:.7E},{18:.7E},{19:.7E},{20:.7E},{21:.7E},{22:.7E},{23:.7E},{24:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, cosav, rapr, fl, fr, fk, fx, fy, fx, TQEl, TQEr, TQEk, TQEx, TQEy, TQEz, TQSl, TQSr, TQSk, TQSx, TQSy, TQSz)
+                    if (out51 is not None): out51.write(output_line)
+                    # we know the differential values for polarization
+                    # state 1 are after 3 more lines
+                    for i in range(3):
+                        file_line = oclu_file.readline()
+                        # the following check is needed to parse C++ output
+                        if ("INSERTION" in file_line):
                             file_line = oclu_file.readline()
-                            fl = float(file_line[5:20].replace("D", "E"))
-                            fr = float(file_line[25:40].replace("D", "E"))
-                            fk = float(file_line[45:60].replace("D", "E"))
+                    scc32 = float(file_line[1:15].replace("D", "E"))
+                    abc32 = float(file_line[17:30].replace("D", "E"))
+                    exc32 = float(file_line[32:45].replace("D", "E"))
+                    # we can write the differential values, similarly to fort.31
+                    output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, scc32, abc32, exc32)
+                    if (out32 is not None): out32.write(output_line)
+                    # we know that RAPRS values for polarization state 1
+                    # are after 9 more lines
+                    for i in range(9):
+                        file_line = oclu_file.readline()
+                        # the following check is needed to parse C++ output
+                        if ("INSERTION" in file_line):
                             file_line = oclu_file.readline()
-                            fx = float(file_line[5:20].replace("D", "E"))
-                            fy = float(file_line[25:40].replace("D", "E"))
-                            fz = float(file_line[45:60].replace("D", "E"))
+                    cosav = float(file_line[8:23].replace("D", "E"))
+                    rapr = float(file_line[31:46].replace("D", "E"))
+                    # we read the forces and torques
+                    file_line = oclu_file.readline()
+                    fl = float(file_line[5:20].replace("D", "E"))
+                    fr = float(file_line[25:40].replace("D", "E"))
+                    fk = float(file_line[45:60].replace("D", "E"))
+                    file_line = oclu_file.readline()
+                    fx = float(file_line[5:20].replace("D", "E"))
+                    fy = float(file_line[25:40].replace("D", "E"))
+                    fz = float(file_line[45:60].replace("D", "E"))
+                    file_line = oclu_file.readline()
+                    TQEl = float(file_line[8:23].replace("D", "E"))
+                    TQEr = float(file_line[31:46].replace("D", "E"))
+                    TQEk = float(file_line[54:69].replace("D", "E"))
+                    file_line = oclu_file.readline()
+                    TQSl = float(file_line[8:23].replace("D", "E"))
+                    TQSr = float(file_line[31:46].replace("D", "E"))
+                    TQSk = float(file_line[54:69].replace("D", "E"))
+                    file_line = oclu_file.readline()
+                    TQEx = float(file_line[8:23].replace("D", "E"))
+                    TQEy = float(file_line[31:46].replace("D", "E"))
+                    TQEz = float(file_line[54:69].replace("D", "E"))
+                    file_line = oclu_file.readline()
+                    TQSx = float(file_line[8:23].replace("D", "E"))
+                    TQSy = float(file_line[31:46].replace("D", "E"))
+                    TQSz = float(file_line[54:69].replace("D", "E"))
+                    # we can write the RAPRS values
+                    output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E},{8:.7E},{9:.7E},{10:.7E},{11:.7E},{12:.7E},{13:.7E},{14:.7E},{15:.7E},{16:.7E},{17:.7E},{18:.7E},{19:.7E},{20:.7E},{21:.7E},{22:.7E},{23:.7E},{24:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, cosav, rapr, fl, fr, fk, fx, fy, fx, TQEl, TQEr, TQEk, TQEx, TQEy, TQEz, TQSl, TQSr, TQSk, TQSx, TQSy, TQSz)
+                    if (out52 is not None): out52.write(output_line)
+                else: # di % nscas != 0: skip COSAV & RAPRS
+                    # polarization state 1 will be after 11 more lines
+                    for i in range(11):
+                        file_line = oclu_file.readline()
+                        # the following check is needed to parse C++ output
+                        if ("INSERTION" in file_line):
                             file_line = oclu_file.readline()
-                            TQEl = float(file_line[8:23].replace("D", "E"))
-                            TQEr = float(file_line[31:46].replace("D", "E"))
-                            TQEk = float(file_line[54:69].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQSl = float(file_line[8:23].replace("D", "E"))
-                            TQSr = float(file_line[31:46].replace("D", "E"))
-                            TQSk = float(file_line[54:69].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQEx = float(file_line[8:23].replace("D", "E"))
-                            TQEy = float(file_line[31:46].replace("D", "E"))
-                            TQEz = float(file_line[54:69].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQSx = float(file_line[8:23].replace("D", "E"))
-                            TQSy = float(file_line[31:46].replace("D", "E"))
-                            TQSz = float(file_line[54:69].replace("D", "E"))
-                            # we can write the RAPRS values
-                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E},{8:.7E},{9:.7E},{10:.7E},{11:.7E},{12:.7E},{13:.7E},{14:.7E},{15:.7E},{16:.7E},{17:.7E},{18:.7E},{19:.7E},{20:.7E},{21:.7E},{22:.7E},{23:.7E},{24:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, cosav, rapr, fl, fr, fk, fx, fy, fx, TQEl, TQEr, TQEk, TQEx, TQEy, TQEz, TQSl, TQSr, TQSk, TQSx, TQSy, TQSz)
-                            if (out51 is not None): out51.write(output_line)
-                            # we know the differential values for polarization
-                            # state 1 are after 3 more lines
-                            for i in range(3):
-                                file_line = oclu_file.readline()
-                                # the following check is needed to parse C++ output
-                                if ("INSERTION" in file_line):
-                                    file_line = oclu_file.readline()
-                            scc32 = float(file_line[1:15].replace("D", "E"))
-                            abc32 = float(file_line[17:30].replace("D", "E"))
-                            exc32 = float(file_line[32:45].replace("D", "E"))
-                            # we can write the differential values, similarly to fort.31
-                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, scc32, abc32, exc32)
-                            if (out32 is not None): out32.write(output_line)
-                            # we know that RAPRS values for polarization state 1
-                            # are after 9 more lines
-                            for i in range(9):
-                                file_line = oclu_file.readline()
-                                # the following check is needed to parse C++ output
-                                if ("INSERTION" in file_line):
-                                    file_line = oclu_file.readline()
-                            cosav = float(file_line[8:23].replace("D", "E"))
-                            rapr = float(file_line[31:46].replace("D", "E"))
-                            # we read the forces and torques
-                            file_line = oclu_file.readline()
-                            fl = float(file_line[5:20].replace("D", "E"))
-                            fr = float(file_line[25:40].replace("D", "E"))
-                            fk = float(file_line[45:60].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            fx = float(file_line[5:20].replace("D", "E"))
-                            fy = float(file_line[25:40].replace("D", "E"))
-                            fz = float(file_line[45:60].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQEl = float(file_line[8:23].replace("D", "E"))
-                            TQEr = float(file_line[31:46].replace("D", "E"))
-                            TQEk = float(file_line[54:69].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQSl = float(file_line[8:23].replace("D", "E"))
-                            TQSr = float(file_line[31:46].replace("D", "E"))
-                            TQSk = float(file_line[54:69].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQEx = float(file_line[8:23].replace("D", "E"))
-                            TQEy = float(file_line[31:46].replace("D", "E"))
-                            TQEz = float(file_line[54:69].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQSx = float(file_line[8:23].replace("D", "E"))
-                            TQSy = float(file_line[31:46].replace("D", "E"))
-                            TQSz = float(file_line[54:69].replace("D", "E"))
-                            # we can write the RAPRS values
-                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E},{8:.7E},{9:.7E},{10:.7E},{11:.7E},{12:.7E},{13:.7E},{14:.7E},{15:.7E},{16:.7E},{17:.7E},{18:.7E},{19:.7E},{20:.7E},{21:.7E},{22:.7E},{23:.7E},{24:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, cosav, rapr, fl, fr, fk, fx, fy, fx, TQEl, TQEr, TQEk, TQEx, TQEy, TQEz, TQSl, TQSr, TQSk, TQSx, TQSy, TQSz)
-                            if (out52 is not None): out52.write(output_line)
-                    found_differentials = True # terminate the inner loop
-            # The parsing loop ends here
+                    # breakpoint()
+                    scc32 = float(file_line[1:15].replace("D", "E"))
+                    abc32 = float(file_line[17:30].replace("D", "E"))
+                    exc32 = float(file_line[32:45].replace("D", "E"))
+                    # we can write the differential values, similarly to fort.32
+                    output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, scc31, abc31, exc31)
+                    if (out32 is not None): out32.write(output_line)
+                # closes if (di % nscas == 0)
+            # closes di for loop
+        # The parsing loop ends here
 
-        if (out20 is not None): out20.close()
-        if (out31 is not None): out31.close()
-        if (out32 is not None): out32.close()
-        if (out40 is not None): out40.close()
-        if (out51 is not None): out51.close()
-        if (out52 is not None): out52.close()
-        oclu_file.close() # close the OCLU file
-    except Exception as ex:
-        print(ex)
-        errors += 1
+    if (out20 is not None): out20.close()
+    if (out31 is not None): out31.close()
+    if (out32 is not None): out32.close()
+    if (out40 is not None): out40.close()
+    if (out51 is not None): out51.close()
+    if (out52 is not None): out52.close()
+    oclu_file.close() # close the OCLU file
     return errors
 
 ## \brief Parse a legacy output file of np_inclusion.
