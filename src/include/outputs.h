@@ -938,7 +938,7 @@ public:
     int first_xi = 1, int xi_length = 0
   );
   
-  /*! \brief Get the size of a `ClusterOutputInfo` instance in bytes.
+  /*! \brief Get the size of an `InclusionOutputInfo` instance in bytes.
    *
    * \return size: `long` Estimated instance size in bytes.
    */
@@ -1211,7 +1211,7 @@ public:
    */   
   SphereOutputInfo(const int skip_flag);
 
-  /*! \brief `InclusionOutputInfo` instance destroyer.
+  /*! \brief `SphereOutputInfo` instance destroyer.
    */
   ~SphereOutputInfo();
 
@@ -1228,7 +1228,7 @@ public:
     int first_xi = 1, int xi_length = 0
   );
   
-  /*! \brief Get the size of a `ClusterOutputInfo` instance in bytes.
+  /*! \brief Get the size of a `SphereOutputInfo` instance in bytes.
    *
    * \return size: `long` Estimated instance size in bytes.
    */
@@ -1278,5 +1278,166 @@ public:
 #endif // MPI_VERSION
 };
 // >>> END OF OUTPUT FOR SPHERE <<<
+
+// >>> OUTPUT FOR TRAPPING <<<
+class TrappingOutputInfo {
+protected:
+  //! \brief Force / torque mode.
+  int _jft;
+  //! \brief TWS / TFRFME switch.
+  int _jss;
+  //! \brief Flag for formatted output.
+  int _jtw;
+  //! \brief Number of wave vectors used to describe the radiation field.
+  int _nkv;
+  //! \brief Number of vertices along X-axis.
+  int _nxv;
+  //! \brief Number of vertices along Y-axis.
+  int _nyv;
+  //! \brief Number of vertices along Z-axis.
+  int _nzv;
+  //! \brief Laser mode flag.
+  int _lmode;
+  //! \brief Maximum field expansion order for the T-matrix.
+  int _le;
+  //! \brief Vacuum wave number of laser radiation field.
+  double _vk;
+  //! \brief Refractive index of the external medium.
+  double _exri;
+  //! \brief Numeric aperturte of focusing lens.
+  double _an;
+  //! \brief Lens filling factor.
+  double _ff;
+  //! \brief Lens transmittance.
+  double _tra;
+  //! \brief Offset of cover slip.
+  double _spd;
+  //! \brief Cover slip offset normalization.
+  double _frsh;
+  //! \brief Refractive index of cover lens.
+  double _exril;
+  
+  /*! \brief Write the output to a HDF5 file.
+   *
+   * \param file_name: `const string &` Path to the output to be written.
+   * \return result: `int` Exit code (0 if successful).
+   */
+  int write_hdf5(const std::string &file_name);
+  
+  /*! \brief Write the output to a legacy text file.
+   *
+   * This function takes care of writing the output using the legacy
+   * formatted ASCII structure. If the output file does not exist, it
+   * is created. If it exists, the new content is overwritten.
+   *
+   * \param output: `const string &` Path to the output to be written.
+   * \return result: `int` Exit code (0 if successful).
+   */
+  int write_legacy(const std::string &output);
+  
+public:
+  //! \brief Read-only view on force / torque mode.
+  const int& jft = _jft;
+  //! \brief TWS / TFRFME switch.
+  const int& jss = _jss;
+  //! \brief Flag for formatted output.
+  const int& jtw = _jtw;
+  //! \brief Read-only view on number of wave vectors used to describe the radiation field.
+  const int& nkv = _nkv;
+  //! \brief Read-only view on number of vertices along X-axis
+  const int& nxv = _nxv;
+  //! \brief Read-only view on number of vertices along Y-axis
+  const int& nyv = _nyv;
+  //! \brief Read-only view on number of vertices along Z-axis
+  const int& nzv = _nzv;
+  //! \brief Laser mode flag.
+  const int& lmode = _lmode;
+  //! \brief Maximum field expansion order for the T-matrix.
+  const int& le = _le;
+  //! \brief Vacuum wave number of laser radiation field.
+  const double& vk = _vk;
+  //! \brief Refractive index of the external medium.
+  const double& exri = _exri;
+  //! \brief Numeric aperturte of focusing lens.
+  const double& an = _an;
+  //! \brief Lens filling factor.
+  const double& ff = _ff;
+  //! \brief Lens transmittance.
+  const double& tra = _tra;
+  //! \brief Offset of cover slip.
+  const double& spd = _spd;
+  //! \brief Cover slip offset normalization.
+  const double& frsh = _frsh;
+  //! \brief Refractive index of cover lens.
+  const double& exril = _exril;
+  //! \brief Vector of X-coordinates grid spacings
+  double *vec_x;
+  //! \brief Vector of Y-coordinates grid spacings
+  double *vec_y;
+  //! \brief Vector of Z-coordinates grid spacings
+  double *vec_z;
+  //! \brief Vector of first components for force cross-sections
+  double *vec_csf1;
+  //! \brief Vector of second components for force cross-sections
+  double *vec_csf2;
+  //! \brief Vector of third components for force cross-sections
+  double *vec_csf3;
+  //! \brief Vector of first components for torque cross-sections
+  double *vec_cst1;
+  //! \brief Vector of second components for torque cross-sections
+  double *vec_cst2;
+  //! \brief Vector of third components for torque cross-sections
+  double *vec_cst3;
+  
+  /*! \brief `TrappingOutputInfo` default instance constructor.
+   *
+   * \param ift: `int' Force / torque toggle mode.
+   * \param iss: `int' TWS / TFRFME switch.
+   * \param itw: `int' Formatted output switch (0 - disabled, 1 - enabled).
+   * \param nx: `int' Number of vertices along the X-axis.
+   * \param ny: `int' Number of vertices along the Y-axis.
+   * \param nz: `int' Number of vertices along the Z-axis.
+   */   
+  TrappingOutputInfo(
+    int ift, int iss, int itw, int nx, int ny, int nz
+  );
+
+  /*! \brief `TrappingOutputInfo` instance destroyer.
+   */
+  ~TrappingOutputInfo();
+
+  /*! \brief Estimate the size of the structure that would be built for given input.
+   *
+   * \param ift: `int' Force / torque toggle mode.
+   * \param iss: `int' TWS / TFRFME switch.
+   * \param nx: `int' Number of vertices along the X-axis.
+   * \param ny: `int' Number of vertices along the Y-axis.
+   * \param nz: `int' Number of vertices along the Z-axis.
+   * \return size: `long` Estimated instance size in bytes.
+   */
+  static long get_size(int ift, int iss, int nx, int ny, int nz);
+  
+  /*! \brief Get the size of a `TrappingOutputInfo` instance in bytes.
+   *
+   * \return size: `long` Estimated instance size in bytes.
+   */
+  long get_size();
+
+  /*! \brief Set the value of a parameter by its name.
+   *
+   * \param pname: `const string&' Name of the parameter to be set.
+   * \param pvalue: `double' Value of the parameter.
+   */
+  void set_param(const std::string& pname, double pvalue);
+
+  /*! \brief Write the output to a file.
+   *
+   * \param output: `const string &` Path to the output to be written.
+   * \param format: `const string &` Output format (one of LEGACY or HDF5).
+   * \return result: `int` Exit code (0 if successful).
+   */
+  int write(const std::string &output, const std::string &format);
+};
+// >>> END OF OUTPUT FOR TRAPPING <<<
 
 #endif // INCLUDE_OUTPUTS_H_

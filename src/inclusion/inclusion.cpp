@@ -231,14 +231,47 @@ void inclusion(const string& config_file, const string& data_file, const string&
     // Sanity check on number of sphere consistency, should always be verified
     if (s_nsph == nsph) {
       char virtual_line[256];
-      sprintf(virtual_line, "%.5lg.\n", sconf->get_particle_radius(gconf));
+      sprintf(virtual_line, "%.5lg m.\n", sconf->get_particle_radius(gconf));
       message = "INFO: particle radius is " + (string)virtual_line;
       logger->log(message);
+      // Overlapping spheres test
+      double tolerance = gconf->tolerance;
+      if (tolerance < 0.0) {
+	tolerance = 0.1 * sconf->get_min_radius();
+      }
+      int *overlaps = check_overlaps(sconf, gconf, tolerance);
+      if (overlaps[0] != 0) {
+	message = "WARNING: detected limiting separation between spheres!\n";
+	logger->log(message, LOG_WARN);
+	for (int oi = 0; oi < overlaps[0]; oi++) {
+	  int index_0 = overlaps[1 + 2 * oi];
+	  int index_1 = overlaps[2 + 2 * oi];
+	  double overlap = get_overlap(sconf, gconf, index_0 - 1, index_1 - 1);
+	  if (overlap > 0.0) {
+	    message = "INFO: sphere " + to_string(index_0) +
+	      " overlaps with sphere " + to_string(index_1) +
+	      "\n";
+	    logger->log(message);
+	    sprintf(
+	      virtual_line, "INFO: overlap is %.5lg m (tolerance is %.5lg m)\n",
+	      overlap, tolerance
+	    );
+	    message = (string)virtual_line;
+	    logger->log(message);
+	    if (tolerance == 0.0 || overlap > tolerance) {
+	      message = "ERROR: sphere overlap above tolerance limit!\n";
+	      logger->err(message);
+	      throw(UnrecognizedConfigurationException(message));
+	    } // tolerance == 0 || overlap > tolerance
+	  } // ovelrap > 0
+	} // oi loop
+      } // overlaps[0] != 0
+      delete[] overlaps;
       // Memory requirements test
       long cid_size_bytes = InclusionIterationData::get_size(gconf, sconf);
       double cid_size_gb = cid_size_bytes / 1024.0 / 1024.0 / 1024.0;
       sprintf(virtual_line, "%.5lg", cid_size_gb);
-      message = "INFO: iteration data requires " + (string)virtual_line + "GiB of RAM.\n";
+      message = "INFO: iteration data requires " + (string)virtual_line + " GiB of RAM.\n";
       logger->log(message);
       int omp_wavelength_threads = 1;
 #ifdef _OPENMP
@@ -252,8 +285,13 @@ void inclusion(const string& config_file, const string& data_file, const string&
 #endif //_OPENMP
       double requested_ram_gb = (ram_overhead_factor + omp_wavelength_threads) * cid_size_gb;
       sprintf(virtual_line, "%.5lg", requested_ram_gb);
-      message = "INFO: code execution needs " + (string)virtual_line + "GiB of RAM.\n";
+      message = "INFO: code execution needs " + (string)virtual_line + " GiB of RAM.\n";
       logger->log(message);
+      // mat_size_bytes = sizeof(dcomplex) * 2 * 2 * NSPH * NSPH * LI * LI * (LI + 2) * (LI + 2)
+      long matrix_size_bytes = sizeof(dcomplex)
+	* 4 * gconf->number_of_spheres * gconf->number_of_spheres
+	* gconf->li * gconf->li * (gconf->li + 2) * (gconf->li + 2);
+      double matrix_size_gb = matrix_size_bytes / 1024.0 / 1024.0 / 1024.0;
       if (gconf->host_ram_gb > 0.0) {
 	if (requested_ram_gb > gconf->host_ram_gb) {
 	  // ERROR: host system does not have the necessary RAM
@@ -268,11 +306,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	}
       }
       if (gconf->gpu_ram_gb > 0.0) {
-	// mat_size_bytes = sizeof(dcomplex) * 2 * 2 * NSPH * NSPH * LI * LI * (LI + 2) * (LI + 2)
-	long matrix_size_bytes = sizeof(dcomplex)
-	  * 4 * gconf->number_of_spheres * gconf->number_of_spheres
-	  * gconf->li * gconf->li * (gconf->li + 2) * (gconf->li + 2);
-	double matrix_size_gb = matrix_size_bytes / 1024.0 / 1024.0 / 1024.0;
 	int refinement_factor = (gconf->refine_flag) ? 3 : 1;
 	if (refinement_factor * omp_wavelength_threads * matrix_size_gb > gconf->gpu_ram_gb) {
 	  // ERROR: GPU does not have the necessary RAM
@@ -292,8 +325,10 @@ void inclusion(const string& config_file, const string& data_file, const string&
       // Open empty virtual ascii file for output
       InclusionOutputInfo *p_output = new InclusionOutputInfo(sconf, gconf, mpidata);
       InclusionIterationData *cid = new InclusionIterationData(gconf, sconf, mpidata, device_count);
-      logger->log("INFO: Size of matrices to invert: " + to_string((int64_t)cid->c1->ndm) + " x " + to_string((int64_t)cid->c1->ndm) +".\n");
-      time_logger->log("INFO: Size of matrices to invert: " + to_string((int64_t)cid->c1->ndm) + " x " + to_string((int64_t)cid->c1->ndm) +".\n");
+      sprintf(virtual_line, "INFO: Size of matrices to invert: %d x %d (%.5lg GiB)\n", cid->c1->ndm, cid->c1->ndm, matrix_size_gb);
+      message = string(virtual_line);
+      logger->log(message);
+      time_logger->log(message);
       
       instr(sconf->_rcf, cid->c1);
       thdps(cid->c1->lm, cid->zpv);

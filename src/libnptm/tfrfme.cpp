@@ -67,7 +67,7 @@ Swap1* Swap1::from_binary(const std::string& file_name, const std::string& mode)
   } else if (mode.compare("HDF5") == 0) {
     instance = from_hdf5(file_name);
   } else {
-    string message = "Unknown format mode: \"" + mode + "\"";
+    string message = "Unknown format mode: \"" + mode + "\"\n";
     throw UnrecognizedFormatException(message);
   }
   return instance;
@@ -139,7 +139,7 @@ void Swap1::write_binary(const std::string& file_name, const std::string& mode) 
   } else if (mode.compare("HDF5") == 0) {
     write_hdf5(file_name);
   } else {
-    string message = "Unknown format mode: \"" + mode + "\"";
+    string message = "Unknown format mode: \"" + mode + "\"\n";
     throw UnrecognizedFormatException(message);
   }
 }
@@ -259,7 +259,7 @@ Swap2* Swap2::from_binary(const std::string& file_name, const std::string& mode)
   } else if (mode.compare("HDF5") == 0) {
     instance = from_hdf5(file_name);
   } else {
-    string message = "Unknown format mode: \"" + mode + "\"";
+    string message = "Unknown format mode: \"" + mode + "\"\n";
     throw UnrecognizedFormatException(message);
   }
   return instance;
@@ -397,7 +397,7 @@ void Swap2::set_param(const std::string& param_name, double value) {
   else if (param_name.compare("nlmmt") == 0) _nlmmt = (int)value;
   else if (param_name.compare("nrvc") == 0) _nrvc = (int)value;
   else {
-    string message = "Unrecognized parameter name \"" + param_name + "\"";
+    string message = "Unrecognized parameter name \"" + param_name + "\"\n";
     throw UnrecognizedParameterException(message);
   }
 }
@@ -408,7 +408,7 @@ void Swap2::write_binary(const std::string& file_name, const std::string& mode) 
   } else if (mode.compare("HDF5") == 0) {
     write_hdf5(file_name);
   } else {
-    string message = "Unknown format mode: \"" + mode + "\"";
+    string message = "Unknown format mode: \"" + mode + "\"\n";
     throw UnrecognizedFormatException(message);
   }
 }
@@ -635,7 +635,7 @@ TFRFME* TFRFME::from_binary(const std::string& file_name, const std::string& mod
   } else if (mode.compare("HDF5") == 0) {
     instance = from_hdf5(file_name);
   } else {
-    string message = "Unknown format mode: \"" + mode + "\"";
+    string message = "Unknown format mode: \"" + mode + "\"\n";
     throw UnrecognizedFormatException(message);
   }
   return instance;
@@ -786,7 +786,7 @@ void TFRFME::set_param(const std::string& param_name, double value) {
   else if (param_name.compare("frsh") == 0) _frsh = value;
   else if (param_name.compare("exril") == 0) _exril = value;
   else {
-    string message = "Unrecognized parameter name \"" + param_name + "\"";
+    string message = "Unrecognized parameter name \"" + param_name + "\"\n";
     throw UnrecognizedParameterException(message);
   }
 }
@@ -797,7 +797,7 @@ void TFRFME::write_binary(const std::string& file_name, const std::string& mode)
   } else if (mode.compare("HDF5") == 0) {
     write_hdf5(file_name);
   } else {
-    string message = "Unknown format mode: \"" + mode + "\"";
+    string message = "Unknown format mode: \"" + mode + "\"\n";
     throw UnrecognizedFormatException(message);
   }
 }

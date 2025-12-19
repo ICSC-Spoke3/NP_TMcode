@@ -27,19 +27,15 @@
 class TransitionMatrix {
  protected:
   //! Matrix type identifier.
-  int is;
+  int _is;
   //! Maximum field expansion order.
-  int l_max;
+  int _l_max;
   //! Wave number in scale units.
-  double vk;
+  double _vk;
   //! External medium refractive index.
-  double exri;
-  //! Vectorized matrix elements.
-  dcomplex *elements;
+  double _exri;
   //! Sphere radius.
-  double sphere_radius;
-  //! Matrix shape
-  int *shape;
+  double _sphere_radius;
 
   /*! \brief Build transition matrix from a HDF5 binary input file.
    *
@@ -78,15 +74,15 @@ class TransitionMatrix {
    * work for the case of a cluster of spheres.
    *
    * \param file_name: `string` Name of the binary configuration data file.
-   * \param _nlemt: `np_int` Size of the matrix (2 * LE * (LE + 2)).
-   * \param _lm: `int` Maximum field expansion order.
-   * \param _vk: `double` Wave number in scale units.
-   * \param _exri: `double` External medium refractive index.
-   * \param _am0m: `complex double **`
+   * \param nlemt: `np_int` Size of the matrix (2 * LE * (LE + 2)).
+   * \param lm: `int` Maximum field expansion order.
+   * \param vk: `double` Wave number in scale units.
+   * \param exri: `double` External medium refractive index.
+   * \param am0m: `complex double **`
    */
   static void write_hdf5(
-			 const std::string& file_name, np_int _nlemt, int _lm, double _vk,
-			 double _exri, dcomplex **_am0m
+    const std::string& file_name, np_int nlemt, int lm, double vk,
+    double exri, dcomplex **am0m
   );
   
   /*! \brief Write transition matrix data to HDF5 binary output.
@@ -97,16 +93,16 @@ class TransitionMatrix {
    * work for the case of a single sphere.
    *
    * \param file_name: `string` Name of the binary configuration data file.
-   * \param _lm: `int` Maximum field expansion order.
-   * \param _vk: `double` Wave number in scale units.
-   * \param _exri: `double` External medium refractive index.
-   * \param _rmi: `complex double **`
-   * \param _rei: `complex double **`
-   * \param _sphere_radius: `double` Radius of the sphere.
+   * \param lm: `int` Maximum field expansion order.
+   * \param vk: `double` Wave number in scale units.
+   * \param exri: `double` External medium refractive index.
+   * \param rmi: `complex double **`
+   * \param rei: `complex double **`
+   * \param sphere_radius: `double` Radius of the sphere.
    */
   static void write_hdf5(
-			 const std::string& file_name, int _lm, double _vk, double _exri,
-			 dcomplex **_rmi, dcomplex **_rei, double _sphere_radius
+    const std::string& file_name, int lm, double vk, double exri,
+    dcomplex **rmi, dcomplex **rei, double sphere_radius
   );
 
   /*! \brief Write the Transition Matrix to legacy binary output.
@@ -123,15 +119,15 @@ class TransitionMatrix {
    * the case of clusters of spheres.
    *
    * \param file_name: `string` Name of the binary configuration data file.
-   * \param _nlemt: `np_int` Size of the matrix (2 * LE * (LE + 2)).
-   * \param _lm: `int` Maximum field expansion order.
-   * \param _vk: `double` Wave number in scale units.
-   * \param _exri: `double` External medium refractive index.
-   * \param _am0m: `complex double **`
+   * \param nlemt: `np_int` Size of the matrix (2 * LE * (LE + 2)).
+   * \param lm: `int` Maximum field expansion order.
+   * \param vk: `double` Wave number in scale units.
+   * \param exri: `double` External medium refractive index.
+   * \param am0m: `complex double **`
    */
   static void write_legacy(
-			   const std::string& file_name, np_int _nlemt, int _lm, double _vk,
-			   double _exri, dcomplex **_am0m
+    const std::string& file_name, np_int nlemt, int lm, double vk,
+    double exri, dcomplex **am0m
   );
   
   /*! \brief Write transition matrix data to binary output using legacy format.
@@ -142,31 +138,45 @@ class TransitionMatrix {
    * to work for the case of a single sphere.
    *
    * \param file_name: `string` Name of the binary configuration data file.
-   * \param _lm: `int` Maximum field expansion order.
-   * \param _vk: `double` Wave number in scale units.
-   * \param _exri: `double` External medium refractive index.
-   * \param _rmi: `complex double **`
-   * \param _rei: `complex double **`
-   * \param _sphere_radius: `double` Radius of the sphere.
+   * \param lm: `int` Maximum field expansion order.
+   * \param vk: `double` Wave number in scale units.
+   * \param exri: `double` External medium refractive index.
+   * \param rmi: `complex double **`
+   * \param rei: `complex double **`
+   * \param radius: `double` Radius of the sphere.
    */
   static void write_legacy(
-			   const std::string& file_name, int _lm, double _vk, double _exri,
-			   dcomplex **_rmi, dcomplex **_rei, double _sphere_radius
+    const std::string& file_name, int lm, double vk, double exri,
+    dcomplex **rmi, dcomplex **rei, double radius
   );
 
  public:
+  //! Read-only view on matrix type identifier.
+  const int& is = _is;
+  //! Read-only view on maximum field expansion order.
+  const int& l_max = _l_max;
+  //! Read-only view on wave number in scale units.
+  const double& vk = _vk;
+  //! Read-only view on external medium refractive index.
+  const double& exri = _exri;
+  //! Vectorized matrix elements.
+  dcomplex *elements;
+  //! Read-only view on sphere radius.
+  const double& sphere_radius = _sphere_radius;
+  //! Matrix shape
+  int *shape;
+  
   /*! \brief Default Transition Matrix instance constructor.
    *
-   * \param _is: `int` Matrix type identifier
-   * \param _lm: `int` Maximum field expansion order.
-   * \param _vk: `double` Wave number in scale units.
-   * \param _exri: `double` External medium refractive index.
-   * \param _elements: `complex double *` Vectorized elements of the matrix.
-   * \param _radius: `double` Radius for the single sphere case (defaults to 0.0).
+   * \param is: `int` Matrix type identifier
+   * \param lm: `int` Maximum field expansion order.
+   * \param vk: `double` Wave number in scale units.
+   * \param exri: `double` External medium refractive index.
+   * \param elems: `complex double *` Vectorized elements of the matrix.
+   * \param radius: `double` Radius for the single sphere case (defaults to 0.0).
    */
   TransitionMatrix(
-		   int _is, int _lm, double _vk, double _exri, dcomplex *_elements,
-		   double _radius=0.0
+    int is, int lm, double vk, double exri, dcomplex *_elems, double radius=0.0
   );
 
   /*! \brief Transition Matrix instance constructor for single sphere.
@@ -174,16 +184,15 @@ class TransitionMatrix {
    * This constructor allocates the memory structure needed to represent the transition
    * matrix for the case of a single sphere.
    *
-   * \param _lm: `int` Maximum field expansion order.
-   * \param _vk: `double` Wave number in scale units.
-   * \param _exri: `double` External medium refractive index.
-   * \param _rmi: `complex double **`
-   * \param _rei: `complex double **`
-   * \param _sphere_radius: `double` Radius of the sphere.
+   * \param lm: `int` Maximum field expansion order.
+   * \param vk: `double` Wave number in scale units.
+   * \param exri: `double` External medium refractive index.
+   * \param rmi: `complex double **`
+   * \param rei: `complex double **`
+   * \param radius: `double` Radius of the sphere.
    */
   TransitionMatrix(
-		   int _lm, double _vk, double _exri, dcomplex **_rmi,
-		   dcomplex **_rei, double _sphere_radius
+     int lm, double vk, double exri, dcomplex **rmi, dcomplex **rei, double radius
   );
 
   /*! \brief Transition Matrix instance constructor for a cluster of spheres.
@@ -191,13 +200,13 @@ class TransitionMatrix {
    * This constructor allocates the memory structure needed to represent the transition
    * matrix for the case of a cluster of spheres.
    *
-   * \param _nlemt: `int` Size of the matrix (2 * LE * (LE + 2)).
-   * \param _lm: `int` Maximum field expansion order.
-   * \param _vk: `double` Wave number in scale units.
-   * \param _exri: `double` External medium refractive index.
-   * \param _am0m: `complex double **`
+   * \param nlemt: `int` Size of the matrix (2 * LE * (LE + 2)).
+   * \param lm: `int` Maximum field expansion order.
+   * \param vk: `double` Wave number in scale units.
+   * \param exri: `double` External medium refractive index.
+   * \param am0m: `complex double **`
    */
-  TransitionMatrix(int _nlemt, int _lm, double _vk, double _exri, dcomplex **_am0m);
+  TransitionMatrix(int nlemt, int lm, double vk, double exri, dcomplex **am0m);
 
   /*! \brief Transition Matrix instance destroyer.
    */
@@ -249,17 +258,17 @@ class TransitionMatrix {
    * depending on the requested output format.
    * 
    * \param file_name: `string` Name of the file to be written.
-   * \param _nlemt: `np_int` Size of the matrix (2 * LE * (LE + 2)).
-   * \param _lm: `int` Maximum field expansion order.
-   * \param _vk: `double` Wave number in scale units.
-   * \param _exri: `double` External medium refractive index.
-   * \param _am0m: `complex double **`
+   * \param nlemt: `np_int` Size of the matrix (2 * LE * (LE + 2)).
+   * \param lm: `int` Maximum field expansion order.
+   * \param vk: `double` Wave number in scale units.
+   * \param exri: `double` External medium refractive index.
+   * \param am0m: `complex double **`
    * \param mode: `string` Binary encoding. Can be one of ["LEGACY", "HDF5"] . Optional
    * (default is "LEGACY").
    */
   static void write_binary(
-			   const std::string& file_name, np_int _nlemt, int _lm, double _vk,
-			   double _exri, dcomplex **_am0m, const std::string& mode="LEGACY"
+     const std::string& file_name, np_int nlemt, int lm, double vk,
+     double exri, dcomplex **am0m, const std::string& mode="LEGACY"
   );
   
   /*! \brief Write a single sphere Transition Matrix to a binary file without instanciating it.
@@ -276,19 +285,19 @@ class TransitionMatrix {
    * depending on the requested output format.
    *
    * \param file_name: `string` Name of the file to be written.
-   * \param _lm: `int` Maximum field expansion order.
-   * \param _vk: `double` Wave number in scale units.
-   * \param _exri: `double` External medium refractive index.
-   * \param _rmi: `complex double **`
-   * \param _rei: `complex double **`
-   * \param _sphere_radius: `double` Radius of the sphere.
+   * \param lm: `int` Maximum field expansion order.
+   * \param vk: `double` Wave number in scale units.
+   * \param exri: `double` External medium refractive index.
+   * \param rmi: `complex double **`
+   * \param rei: `complex double **`
+   * \param sphere_radius: `double` Radius of the sphere.
    * \param mode: `string` Binary encoding. Can be one of ["LEGACY", "HDF5"] . Optional
    * (default is "LEGACY").
    */
   static void write_binary(
-			   const std::string& file_name, int _lm, double _vk, double _exri,
-			   dcomplex **_rmi, dcomplex **_rei, double _sphere_radius,
-			   const std::string& mode="LEGACY"
+    const std::string& file_name, int lm, double vk, double exri,
+    dcomplex **rmi, dcomplex **rei, double sphere_radius,
+    const std::string& mode="LEGACY"
   );
 
   /*! \brief Test whether two instances of TransitionMatrix are equal.

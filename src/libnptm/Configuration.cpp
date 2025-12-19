@@ -101,6 +101,7 @@ GeometryConfiguration::GeometryConfiguration(
   _dyn_order_flag = 1;
   _host_ram_gb = 0.0;
   _gpu_ram_gb = 0.0;
+  _tolerance = -1.0;
 }
 
 GeometryConfiguration::GeometryConfiguration(const GeometryConfiguration& rhs)
@@ -140,6 +141,7 @@ GeometryConfiguration::GeometryConfiguration(const GeometryConfiguration& rhs)
   _dyn_order_flag = rhs._dyn_order_flag;
   _host_ram_gb = rhs._host_ram_gb;
   _gpu_ram_gb = rhs._gpu_ram_gb;
+  _tolerance = rhs._tolerance;
 }
 
 #ifdef MPI_VERSION
@@ -179,6 +181,7 @@ GeometryConfiguration::GeometryConfiguration(const mixMPI *mpidata) {
   MPI_Bcast(&_dyn_order_flag, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_host_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_gpu_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_tolerance, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 
 void GeometryConfiguration::mpibcast(const mixMPI *mpidata) {
@@ -214,6 +217,7 @@ void GeometryConfiguration::mpibcast(const mixMPI *mpidata) {
   MPI_Bcast(&_dyn_order_flag, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_host_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_gpu_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_tolerance, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 #endif
 
@@ -345,33 +349,54 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
     fjwtm
   );
 
+  last_read_line++; // skip the end-of-data code
   // Read optional configuration data used only by the C++ code.
   while (num_lines > last_read_line) {
     str_target = file_lines[last_read_line++];
+    bool is_parsed = false;
     if (str_target.size() > 15) {
       if (str_target.substr(0, 15).compare("USE_REFINEMENT=") == 0) {
 	re = regex("[0-9]+");
 	regex_search(str_target, m, re);
 	short refine_flag = (short)stoi(m.str());
 	conf->_refine_flag = refine_flag;
+	is_parsed = true;
       }
       if (str_target.substr(0, 15).compare("USE_DYN_ORDERS=") == 0) {
 	re = regex("[0-9]+");
 	regex_search(str_target, m, re);
 	short dyn_order_flag = (short)stoi(m.str());
 	conf->_dyn_order_flag = dyn_order_flag;
+	is_parsed = true;
       }
     }
     if (str_target.size() > 12) {
       if (str_target.substr(0, 12).compare("HOST_RAM_GB=") == 0) {
 	double ram_gb = (double)stod(str_target.substr(12, str_target.length()));
 	conf->_host_ram_gb = ram_gb;
+	is_parsed = true;
       }
     }
     if (str_target.size() > 11) {
       if (str_target.substr(0, 11).compare("GPU_RAM_GB=") == 0) {
 	double ram_gb = (double)stod(str_target.substr(11, str_target.length()));
 	conf->_gpu_ram_gb = ram_gb;
+	is_parsed = true;
+      }
+    }
+    if (str_target.size() > 10) {
+      if (str_target.substr(0, 10).compare("TOLERANCE=") == 0) {
+	double tolerance = (double)stod(str_target.substr(10, str_target.length()));
+	conf->_tolerance = tolerance;
+	is_parsed = true;
+      }
+    }
+    if (!is_parsed) {
+      if (str_target.size() > 0) {
+	if (str_target.substr(0, 1).compare("#") != 0) {
+	  // ERROR: found an unrecognized option that is not marked as comment
+	  throw(UnrecognizedConfigurationException("ERROR: unrecognized option \"" + str_target + "\"!\n"));
+	}
       }
     }
   }
@@ -404,6 +429,26 @@ ScattererConfiguration::ScattererConfiguration(
     }
   }
   _rcf = rcf_vector;
+  for (int ci = 0; ci < _configurations; ci++) {
+    int num_layers = _nshl_vec[ci];
+    double last_rcf = -1.0;
+    for (int cj = 0; cj < num_layers; cj++) {
+      if (rcf_vector[ci][cj] < last_rcf) {
+	string message = "ERROR: invalid radius in layer " + to_string(cj + 1) +
+	  " for spheres of type " + to_string(ci + 1) + "!\n";
+	throw(UnrecognizedConfigurationException(message));
+      } else {
+	last_rcf = rcf_vector[ci][cj];
+      }
+    }
+    if (ci == 0 && _use_external_sphere) {
+      if (rcf_vector[0][num_layers] < 1.0) {
+	string message = "ERROR: invalid radius in layer " + to_string(num_layers + 1) +
+	  " for sphere of type 1!\n";
+	throw(UnrecognizedConfigurationException(message));
+      }
+    }
+  }
   _idfc = dielectric_func_type;
   _dc0_matrix = dc_matrix;
   _exdc = ex;
@@ -439,7 +484,7 @@ ScattererConfiguration::ScattererConfiguration(const ScattererConfiguration& rhs
   _xip = rhs._xip;
   _max_layers = rhs._max_layers;
   _iog_vec = new int[_number_of_spheres]();
-  _radii_of_spheres = new double[_number_of_spheres]();
+  _radii_of_spheres = new double[_configurations]();
   _nshl_vec = new int[_configurations]();
   _rcf = new double*[_configurations];
   _scale_vec = new double[_number_of_scales]();
@@ -1019,6 +1064,15 @@ double ScattererConfiguration::get_max_radius() {
   return result;
 }
 
+double ScattererConfiguration::get_min_radius() {
+  double result = -1.0;
+  for (int ci = 0; ci < _configurations; ci++) {
+    if (_radii_of_spheres[ci] < result or result <= 0.0)
+      result = _radii_of_spheres[ci];
+  }
+  return result;
+}
+
 double ScattererConfiguration::get_particle_radius(GeometryConfiguration *gc) {
   double result = 0.0;
   if (_use_external_sphere) {
@@ -1036,14 +1090,15 @@ double ScattererConfiguration::get_particle_radius(GeometryConfiguration *gc) {
     avgX /= _number_of_spheres;
     avgY /= _number_of_spheres;
     avgZ /= _number_of_spheres;
-    int configuration = 0;
+    // int configuration = 0;
     for (int si = 0; si < _number_of_spheres; si++) {
-      int iogi = _iog_vec[si];
-      if (iogi >= si + 1) configuration++;
+      // int iogi = _iog_vec[si];
+      // if (iogi >= si + 1) configuration++;
       double dX = gc->get_sph_x(si) - avgX;
       double dY = gc->get_sph_y(si) - avgY;
       double dZ = gc->get_sph_z(si) - avgZ;
-      double radius = _radii_of_spheres[configuration - 1];
+      // double radius = _radii_of_spheres[configuration - 1];
+      double radius = get_radius(si);
       dist2 = dX * dX + dY * dY + dZ * dZ + radius * radius;
       if (dist2 > max_dist2) {
 	max_dist2 = dist2;
@@ -1053,6 +1108,12 @@ double ScattererConfiguration::get_particle_radius(GeometryConfiguration *gc) {
     result = max_dist;
   }
   return result;
+}
+
+double ScattererConfiguration::get_radius(int index) {
+  int type_id = _iog_vec[index];
+  double radius = _radii_of_spheres[type_id - 1];
+  return radius;
 }
 
 void ScattererConfiguration::print() {
@@ -1515,4 +1576,77 @@ bool ScattererConfiguration::operator ==(const ScattererConfiguration &other) {
     } // dj loop
   }
   return true;
+}
+
+int *check_overlaps(
+  ScattererConfiguration *sconf, GeometryConfiguration *gconf,
+  const double tolerance
+) {
+  const int nsphs = sconf->number_of_spheres;
+  const int nsphg = gconf->number_of_spheres;
+  const int nn = nsphs * nsphs;
+  if (nsphs != nsphg)
+    throw(UnrecognizedConfigurationException("ERROR: mismatch in number of spheres!"));
+  int num_overlaps = 0;
+  int *index_matrix = new int[nn]();
+#pragma omp parallel for reduction(+: num_overlaps)
+  for (int si = 0; si < nn; si++) {
+    const int i0 = si / nsphs;
+    const int i1 = si % nsphs;
+    if (i0 != i1) {
+      const double x0 = gconf->get_sph_x(i0);
+      const double y0 = gconf->get_sph_y(i0);
+      const double z0 = gconf->get_sph_z(i0);
+      const double x1 = gconf->get_sph_x(i1);
+      const double y1 = gconf->get_sph_y(i1);
+      const double z1 = gconf->get_sph_z(i1);
+      const double r0 = sconf->get_radius(i0);
+      const double r1 = sconf->get_radius(i1);
+      const double r_sum = (r0 + r1);
+      const double dist2 = (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)
+	+ (z1 - z0) * (z1 - z0);
+      const double dist = sqrt(dist2);
+      const double min_dist = r0 + r1 - tolerance;
+      if (dist < min_dist) {
+	num_overlaps++;
+	index_matrix[nsphs * i0 + i1] = 1;
+      }
+    }
+  }
+  int *vec_overlaps = new int[1 + 2 * num_overlaps];
+  vec_overlaps[0] = num_overlaps;
+  int last_index = 1;
+  for (int si = 0; si < nn; si++) {
+    if (index_matrix[si] != 0) {
+      const int i0 = si / nsphs;
+      const int i1 = si % nsphs;
+      if (i0 != i1) {
+	vec_overlaps[last_index++] = i0 + 1;
+	vec_overlaps[last_index++] = i1 + 1;
+	if (last_index > 2 * num_overlaps) break; // for loop
+      }
+    }
+  }
+  delete[] index_matrix;
+  return vec_overlaps;
+}
+
+double get_overlap(
+  ScattererConfiguration *sconf, GeometryConfiguration *gconf,
+  const int index_0, const int index_1
+) {
+  const double x0 = gconf->get_sph_x(index_0);
+  const double y0 = gconf->get_sph_y(index_0);
+  const double z0 = gconf->get_sph_z(index_0);
+  const double x1 = gconf->get_sph_x(index_1);
+  const double y1 = gconf->get_sph_y(index_1);
+  const double z1 = gconf->get_sph_z(index_1);
+  const double r0 = sconf->get_radius(index_0);
+  const double r1 = sconf->get_radius(index_1);
+  const double r_sum = (r0 + r1);
+  const double dist2 = (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)
+    + (z1 - z0) * (z1 - z0);
+  const double dist = sqrt(dist2);
+  double result = (dist > r_sum) ? 0.0 : r_sum - dist;
+  return result;
 }

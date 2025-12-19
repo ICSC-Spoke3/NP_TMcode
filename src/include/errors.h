@@ -77,6 +77,29 @@ public:
   }
 };
 
+/*! \brief Exception for object allocation error handlers.
+ */
+class ObjectAllocationException: public std::exception {
+protected:
+  //! \brief Name of the file that was accessed.
+  std::string file_name;
+
+public:
+  /**
+   * \brief Exception instance constructor.
+   *
+   * \param name: `string` Name of the file that was accessed.
+   */
+  ObjectAllocationException(const std::string& name) { file_name = name; }
+
+  /**
+   * \brief Exception message.
+   */
+  virtual const char* what() const throw() {
+    return file_name.c_str();
+  }
+};
+
 /*! \brief Exception for open file error handlers.
  */
 class OpenConfigurationFileException: public std::exception {

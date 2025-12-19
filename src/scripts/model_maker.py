@@ -54,7 +54,8 @@ def main():
     if (config['help_mode'] or config['yml_file_name'] == ""):
         print_help()
     else:
-        sconf, gconf = load_model(config['yml_file_name'])
+        rnd_attempts = config['attempt_limit']
+        sconf, gconf = load_model(config['yml_file_name'], rnd_attempts)
         if (sconf is not None) and (gconf is not None):
             result = write_legacy_sconf(sconf)
             if (result == 0):
@@ -140,9 +141,10 @@ def interpolate_constants(sconf):
 ## \brief Create tha calculation configuration structure from YAML input.
 #
 #  \param model_file: `str` Full path to the YAML input file.
+#  \param rnd_attempts: `int` Limiting number of attempts to randomly place a sphere.
 #  \return sconf, gconf: `tuple` A dictionary tuple for scatterer and
 #                        geometric configurations.
-def load_model(model_file):
+def load_model(model_file, rnd_attempts):
     sconf = None
     gconf = None
     model = None
@@ -186,7 +188,7 @@ def load_model(model_file):
         sconf['dielec_file'] = model['material_settings']['dielec_file']
         num_dielec = 0 # len(model['particle_settings']['dielec_id'])
         if (sconf['idfc'] == -1):
-            num_dielec = len(model['material_settings']['diel_const'])
+            num_dielec = len(model['material_settings']['diel_func'])
         elif (sconf['idfc'] == 0):
             num_dielec = len(model['particle_settings']['dielec_id'])
         if (len(model['particle_settings']['n_layers']) != sconf['configurations']):
@@ -243,12 +245,12 @@ def load_model(model_file):
                     ]
                     for di in range(max_layers):
                         for dj in range(sconf['configurations']):
-                            if (len(model['material_settings']['diel_const'][dj]) / 2 != sconf['nshl'][dj]):
+                            if (len(model['material_settings']['diel_func'][dj]) / 2 != sconf['nshl'][dj]):
                                 print("ERROR: dielectric constants for type %d do not match number of layers!"%(dj + 1))
                                 return (None, None)
                             else:
-                                sconf['rdc0'][di][dj][0] = float(model['material_settings']['diel_const'][dj][2 * di])
-                                sconf['idc0'][di][dj][0] = float(model['material_settings']['diel_const'][dj][2 * di + 1])
+                                sconf['rdc0'][di][dj][0] = float(model['material_settings']['diel_func'][dj][2 * di])
+                                sconf['idc0'][di][dj][0] = float(model['material_settings']['diel_func'][dj][2 * di + 1])
                 else: # sconf[idfc] != -1 and scaling on XI
                     print("ERROR: for scaling on XI, optical constants must be defined!")
                     return (None, None)
@@ -419,7 +421,7 @@ def load_model(model_file):
                     # use compact generator, if no specification is given
                     rnd_engine = "COMPACT"
                 if (rnd_engine == "COMPACT"):
-                    check = random_compact(sconf, gconf, rnd_seed, max_rad)
+                    check = random_compact(sconf, gconf, rnd_seed, max_rad, rnd_attempts)
                     if (check == -1):
                         print("ERROR: compact random generator works only when all sphere types have the same radius.")
                         return (None, None)
@@ -431,7 +433,7 @@ def load_model(model_file):
                         return (None, None)
                 elif (rnd_engine == "LOOSE"):
                     # random_aggregate() checks internally whether application is INCLUSION
-                    check = random_aggregate(sconf, gconf, rnd_seed, max_rad)
+                    check = random_aggregate(sconf, gconf, rnd_seed, max_rad, rnd_attempts)
                 else:
                     print("ERROR: unrecognized random generator engine.")
                     return (None, None)
@@ -552,6 +554,7 @@ def match_grid(sconf):
 #  \returns config: `dict` A dictionary containing the script configuration.
 def parse_arguments():
     config = {
+        'attempt_limit': 100,
         'yml_file_name': "",
         'help_mode': False,
     }
@@ -559,6 +562,9 @@ def parse_arguments():
     for arg in argv[1:]:
         if (arg.startswith("--help")):
             config['help_mode'] = True
+        elif (arg.startswith("--attempts=")):
+            split_arg = arg.split('=')
+            config['attempt_limit'] = int(split_arg[1])
         elif (not yml_set):
             if (not arg.startswith("--")):
                 config['yml_file_name'] = arg
@@ -569,21 +575,22 @@ def parse_arguments():
 
 ## \brief Print a command-line help summary.
 def print_help():
-    print("###############################################")
-    print("#                                             #")
-    print("#           NPtm_code MODEL_MAKER             #")
-    print("#                                             #")
-    print("###############################################")
-    print("                                               ")
-    print("Create input files for FORTRAN and C++ code.   ")
-    print("                                               ")
-    print("Usage: \"./model_maker.py CONFIG [OPTIONS]\"   ")
-    print("                                               ")
-    print("CONFIG must be a valid YAML configuration file.")
-    print("                                               ")
-    print("Valid options are:                             ")
-    print("--help                Print this help and exit.")
-    print("                                               ")
+    print("###############################################           ")
+    print("#                                             #           ")
+    print("#           NPtm_code MODEL_MAKER             #           ")
+    print("#                                             #           ")
+    print("###############################################           ")
+    print("                                                          ")
+    print("Create input files for FORTRAN and C++ code.              ")
+    print("                                                          ")
+    print("Usage: \"./model_maker.py CONFIG [OPTIONS]\"              ")
+    print("                                                          ")
+    print("CONFIG must be a valid YAML configuration file.           ")
+    print("                                                          ")
+    print("Valid options are:                                        ")
+    print("--attempts=N          Try to place a sphere up to N times.")
+    print("--help                Print this help and exit.           ")
+    print("                                                          ")
 
 ## \brief Print a summary of model properties.
 #
@@ -633,7 +640,7 @@ def print_model_summary(scatterer, geometry):
     else:
         print("INFO: smallest monomer radius is Rmin = %.5em"%Rmin)
         print("INFO: largest monomer radius is Rmax = %.5em"%Rmax)
-    print("INFO: equivalent mass radius is Reqm = %.5em"%Reqm)
+    print("INFO: equivalent volume radius is Reqv = %.5em"%Reqm)
     print("INFO: minimum encircling radius is Rcirc = %.5em"%Rcirc)
 
 ## \brief Generate a random cluster aggregate from YAML configuration options.
@@ -905,7 +912,7 @@ def test_system_resources(model, gconf, sconf):
         matrix_dim = 2 * gconf['nsph'] * gconf['li'] * (gconf['li'] + 2)
         matrix_size_bytes = 16 * matrix_dim * matrix_dim
         matrix_size_Gb = float(matrix_size_bytes) / 1024.0 / 1024.0 / 1024.0
-        print("INFO: estimated matrix size is {0:.3g} Gb.".format(matrix_size_Gb))
+        print("INFO: estimated matrix size is {0:.3g} GiB.".format(matrix_size_Gb))
         if (max_gpu_ram > 0):
             max_gpu_ram_bytes = max_gpu_ram * 1024 * 1024 * 1024
             if (matrix_size_bytes < max_gpu_ram_bytes):

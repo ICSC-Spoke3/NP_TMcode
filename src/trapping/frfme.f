@@ -30,7 +30,7 @@ CCC  1WK(NLMMT),W(NKV,NKV),WSUM(NLMMT,NRVC)
       ITT1=11
       ITT2=12
       CC0=(0.0D0,0.0D0)
-      OPEN(IR,FILE='../../test_data/trapping/DFRFME',STATUS='OLD')
+      OPEN(IR,FILE='DFRFME',STATUS='OLD')
       READ(IR,*)JLMF,JLML
       IF(JLMF.EQ.1)GO TO 16
       CLOSE(IR)

@@ -117,6 +117,8 @@ protected:
   double _host_ram_gb;
   //! \brief GPU RAM in GB
   double _gpu_ram_gb;
+  //! \brief Sphere overlap tolerance;
+  double _tolerance;
 
 public:
   //! \brief Read-only view on number of spherical components.
@@ -173,6 +175,8 @@ public:
   const double& host_ram_gb = _host_ram_gb;
   //! \brief Read-only view on GPU RAM in GB
   const double& gpu_ram_gb = _gpu_ram_gb;
+  //! \brief Read-only view on sphere overlap tolerance
+  const double& tolerance = _tolerance;
   
   /*! \brief Build a scattering geometry configuration structure.
    *
@@ -533,6 +537,12 @@ public:
    */
   double get_max_radius();
   
+  /*! \brief Get the minimum radius of the sphere components.
+   *
+   * \return radius: `double` The radius of the smallest sphere.
+   */
+  double get_min_radius();
+  
   /*! \brief Get the number of layers for a given configuration.
    *
    * This is a specialized function to get the number of layers in a specific
@@ -558,7 +568,7 @@ public:
    * \param index: `int` Index of the ID to be retrieved.
    * \return radius: `double` The requested sphere radius.
    */
-  double get_radius(int index) { return _radii_of_spheres[index]; }
+  double get_radius(int index);
   
   /*! \brief Get the value of a scale by its index.
    *
@@ -580,6 +590,16 @@ public:
    * \return scale: `double` The desired scale.
    */
   double get_scale(int index) { return _scale_vec[index]; }
+  
+  /*! \brief Get the radius of a sphere type by its index.
+   *
+   * This is a specialized function to get the radius of a sphere type through its
+   * index. Sphere types range from 0 to NUM_CONFIGURATIONS - 1.
+   *
+   * \param index: `int` Index of the ID to be retrieved.
+   * \return radius: `double` The requested sphere radius.
+   */
+  double get_type_radius(int index) { return _radii_of_spheres[index]; }
   
   /*! \brief Print the contents of the configuration object to terminal.
    *
@@ -630,4 +650,38 @@ public:
 
 };
 
-#endif
+  /*! \brief Check the presence of overlapping spheres in an aggregate.
+   *
+   * The theoretical implementation of the code is based on the assumption that the
+   * spherical monomers that compose the aggregate do not overlap in space. Small
+   * violations of this assumption do not critically affect the results, but they
+   * need to be reported. This function performs a scan of the aggregate and returns
+   * a summary of any potential overlap, if detected.
+   *
+   * \param sconf: `ScattererConfiguration *` Pointer to a ScattererConfiguration instance.
+   * \param gconf: `GeometryConfiguration *` Pointer to a GeometryConfiguration instance.
+   * \param tolerance: `const double` A tolerance value below which overlap is ignored.
+   * \return overlaps: `int *` A vector containing the number of overlaps and a list of
+   * overlapping sphere indices.
+   */
+int *check_overlaps(
+  ScattererConfiguration *sconf, GeometryConfiguration *gconf, const double tolerance=0.0
+);
+
+  /*! \brief Get the overlap among two spheres.
+   *
+   * This function computes the thickness of the compenetration between
+   * two spheres, in order to compare it with the current tolerance settings.
+   *
+   * \param sconf: `ScattererConfiguration *` Pointer to a ScattererConfiguration instance.
+   * \param gconf: `GeometryConfiguration *` Pointer to a GeometryConfiguration instance.
+   * \param index_0: `const int` Index of the first sphere.
+   * \param index_1: `const int` Index of the second sphere.
+   * \return overlap: `double` The thickness of the overlapping layer in meters.
+   */
+double get_overlap(
+  ScattererConfiguration *sconf, GeometryConfiguration *gconf,
+  const int index_0, const int index_1
+);
+
+#endif // INCLUDE_CONFIGURATION_H_

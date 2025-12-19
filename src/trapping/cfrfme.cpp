@@ -57,6 +57,10 @@
 #include "../include/tra_subs.h"
 #endif
 
+#ifndef INCLUDE_ERRORS_H_
+#include "../include/errors.h"
+#endif
+
 #ifdef USE_NVTX
 #include <nvtx3/nvToolsExt.h>
 #endif
@@ -146,15 +150,23 @@ void frfme(string data_file, string output_path) {
   str_target = m.suffix().str();
   regex_search(str_target, m, re);
   int jlml = stoi(m.str());
-  int lmode = 0, lm = 0, nks = 0;
+  // Input parameters
+  int lmode, lm;
   double vk = 0.0, exri = 0.0, an = 0.0, ff = 0.0, tra = 0.0;
   double exdc = 0.0, wp = 0.0, xip = 0.0, xi = 0.0;
   int idfc = 0, nxi = 0;
   double apfafa = 0.0, pmf = 0.0, spd = 0.0, rir = 0.0, ftcn = 0.0, fshmx = 0.0;
-  double vxyzmx = 0.0, delxyz = 0.0, vknmx = 0.0, delk = 0.0, delks = 0.0;
-  double frsh = 0.0, exril = 0.0;
-  double *vkv = NULL;
+  double vxyzmx = 0.0, delxyz = 0.0, vknmx = 0.0, delk = 0.0, delks = 0.0, vkm = 0.0;
+  double frsh = 0.0, exril = 1.0, spdfr = 1.0, exdcl = 1.0, wlenfr= 1.0, wn = 0.0;
+  int nksh = 0, nrsh = 0, nxsh = 0, nysh = 0, nzsh = 0;
+  // Calculation parameters, computed from input data
   int nlmmt = 0, nrvc = 0;
+  int nkshpo = 0, nks = 0, nkv = 0;
+  int nxshpo = 0, nxs = 0, nxv = 0;
+  int nyshpo = 0, nys = 0, nyv = 0;
+  int nzshpo = 0, nzs = 0, nzv = 0;
+  double *vkv = NULL;
+  double *_xv = NULL, *_yv = NULL, *_zv = NULL;
   // Vector size variables
   int wsum_size;
   // End of vector size variables
@@ -162,16 +174,18 @@ void frfme(string data_file, string output_path) {
 #ifdef USE_NVTX
     nvtxRangePush("frfme() with jlmf != 1");
 #endif
-    int nxv, nyv, nzv;
     if (tfrfme == NULL) tfrfme = TFRFME::from_binary(tfrfme_name, "HDF5");
     if (tfrfme != NULL) {
       lmode = tfrfme->lmode;
       lm = tfrfme->lm;
-      const int nkv = tfrfme->nkv;
+      nkv = tfrfme->nkv;
       nks = nkv - 1;
       nxv = tfrfme->nxv;
       nyv = tfrfme->nyv;
       nzv = tfrfme->nzv;
+      _xv = tfrfme->get_x();
+      _yv = tfrfme->get_y();
+      _zv = tfrfme->get_z();
       vk = tfrfme->vk;
       exri = tfrfme->exri;
       an = tfrfme->an;
@@ -215,7 +229,6 @@ void frfme(string data_file, string output_path) {
 #ifdef USE_NVTX
     nvtxRangePush("Setup operations");
 #endif
-    int nksh, nrsh, nxsh, nysh, nzsh;
     str_target = file_lines[last_read_line++];
     for (int cli = 0; cli < 7; cli++) {
       regex_search(str_target, m, re);
@@ -230,7 +243,7 @@ void frfme(string data_file, string output_path) {
     }
     re = regex("-?[0-9]\\.[0-9]+([dDeE][-+]?[0-9]+)?");
     regex_search(str_target, m, re);
-    double wlenfr = stod(m.str());
+    wlenfr = stod(m.str());
     str_target = file_lines[last_read_line++];
     for (int cli = 0; cli < 3; cli++) {
       regex_search(str_target, m, re);
@@ -239,7 +252,6 @@ void frfme(string data_file, string output_path) {
       else if (cli == 2) tra = stod(m.str());
       str_target = m.suffix().str();
     }
-    double spdfr, exdcl;
     str_target = file_lines[last_read_line++];
     for (int cli = 0; cli < 3; cli++) {
       regex_search(str_target, m, re);
@@ -262,339 +274,344 @@ void frfme(string data_file, string output_path) {
       else if (more == 'e' || more == 'E') {
 	more = 'E';
 	sprintf(namef, "c_TEDF");
-      }
-      str_target = m.suffix().str();
-      re = regex("[0-9]+");
-      regex_search(str_target, m, re);
-      int ixi = stoi(m.str());
-      string tedf_name = output_path + "/" + namef + ".hd5";
-      // Check for run-time options
-      while (last_read_line < line_count) {
-	str_target = file_lines[last_read_line++];
-	if (str_target.size() > 12) {
-	  if (str_target.substr(0, 12).compare("PRECOMPUTED=") == 0) {
-	    string precomp_name = output_path + "/" + str_target.substr(12, str_target.size()) + ".hd5";
-	    // TODO: check that the file exists and it is suitable for the calculation.
-	    message = "INFO: using precomputed file " + precomp_name + "\n";
-	    logger.log(message);
-	    return;
-	  }
-	}
-      }
-      ScattererConfiguration *tedf = ScattererConfiguration::from_binary(tedf_name, "HDF5");
-      if (tedf != NULL) {
-#ifdef USE_NVTX
-	nvtxRangePush("TEDF data import");
-#endif
-	int iduml, idum;
-	iduml = tedf->number_of_spheres;
-	idum = tedf->get_iog(iduml - 1);
-	exdc = tedf->exdc;
-	wp = tedf->wp;
-	xip = tedf->xip;
-	idfc = tedf->idfc;
-	nxi = tedf->number_of_scales;
-	if (idfc >= 0) {
-	  if (ixi <= nxi) {
-	    xi = tedf->get_scale(ixi - 1);
-	  } else { // label 96
-	    delete tedf;
-	    // label 98
-	    string output_name = output_path + "/c_OFRFME";
-	    FILE *output = fopen(output_name.c_str(), "w");
-	    fprintf(output, "  WRONG INPUT TAPE\n");
-	    fclose(output);
-	  }
-	} else { // label 18
-	  xi = xip;
-	}
-	// label 20
-#ifdef USE_NVTX
-	nvtxRangePop();
-#endif
-	delete tedf;
-	double wn = wp / 3.0e8;
-	vk = xi * wn;
-	exri = sqrt(exdc);
-	frsh = 0.0;
-	exril = 0.0;
-	fshmx = 0.0;
-	apfafa = exri / (an * ff);
-	if (lmode != 0) pmf = 2.0 * apfafa;
-	if (spd > 0.0) {
-	  exril = sqrt(exdcl);
-	  rir = exri / exril;
-	  ftcn = 2.0 / (1.0 + rir);
-	  frsh = -spd * spdfr;
-	  double sthmx = an / exri;
-	  double sthlmx = sthmx * rir;
-	  double uy = 1.0;
-	  fshmx = spd * (rir * (sqrt(uy - sthmx * sthmx) / sqrt(uy - sthlmx * sthlmx)) - uy);
-	}
-	// label 22
-#ifdef USE_NVTX
-	nvtxRangePush("Memory data loading");
-#endif
-	nlmmt = lm * (lm + 2) * 2;
-	nks = nksh * 2;
-	const int nkv = nks + 1;
-	// Array initialization
-	long swap1_size, swap2_size, tfrfme_size;
-	double size_mb;
-	message = "INFO: calculating memory requirements...\n";
-	logger.log(message);
-	swap1_size = Swap1::get_size(lm, nkv);
-	size_mb = 1.0 * swap1_size / 1024.0 / 1024.0;
-	printf("Swap 1: %.2lg MB\n", size_mb);
-	swap2_size = Swap2::get_size(nkv);
-	size_mb = 1.0 * swap2_size / 1024.0 / 1024.0;
-	sprintf(buffer, "Swap 2: %.2lg MB\n", size_mb);
-	message = string(buffer);
-	logger.log(message);
-	tt2 = new Swap2(nkv);
-	vkv = tt2->get_vector();
-	// End of array initialization
-	double vkm = vk * exri;
-	vknmx = vk * an;
-	delk = vknmx / nksh;
-	delks = delk / vkm;
-	delks = delks * delks;
-	vxyzmx = acos(0.0) * 4.0 / vkm * wlenfr;
-	delxyz = vxyzmx / nrsh;
-	int nxs = nxsh * 2;
-	int nxv = nxs + 1;
-	int nxshpo = nxsh + 1;
-	int nys = nysh * 2;
-	int nyv = nys + 1;
-	int nyshpo = nysh + 1;
-	int nzs = nzsh * 2;
-	int nzv = nzs + 1;
-	int nzshpo = nzsh + 1;
-	tfrfme_size = TFRFME::get_size(lm, nkv, nxv, nyv, nzv);
-	size_mb = 1.0 * tfrfme_size / 1024.0 / 1024.0;
-	sprintf(buffer, "TFRFME: %.2lg MB\n", size_mb);
-	message = string(buffer);
-	logger.log(message);
-	size_mb = 1.0 * (swap1_size + swap2_size + tfrfme_size) / 1024.0 / 1024.0;
-	sprintf(buffer, "TOTAL: %.2lg MB\n", size_mb);
-	message = string(buffer);
-	logger.log(message);
-	sprintf(buffer, "INFO: nxv = %d, nyv = %d, nzv = %d, nrvc = %d\n", nxv, nyv, nzv, (nxv * nyv * nzv));
-	message = string(buffer);
-	logger.log(message);
-	sprintf(buffer, "INFO: nlmmt = %d, nkv = %d\n", nlmmt, nkv);
-	message = string(buffer);
-	logger.log(message);
-	
-	tfrfme = new TFRFME(lmode, lm, nkv, nxv, nyv, nzv);
-	double *_xv = tfrfme->get_x();
-	double *_yv = tfrfme->get_y();
-	double *_zv = tfrfme->get_z();
-#ifdef USE_NVTX
-	nvtxRangePop();
-#endif
-#ifdef USE_NVTX
-	nvtxRangePush("Looped vector initialization");
-#endif
-	for (int i24 = nxshpo; i24 <= nxs; i24++) {
-	  _xv[i24] = _xv[i24 - 1] + delxyz;
-	  _xv[nxv - i24 - 1] = -_xv[i24];
-	} // i24 loop
-	for (int i25 = nyshpo; i25 <= nys; i25++) {
-	  _yv[i25] = _yv[i25 - 1] + delxyz;
-	  _yv[nyv - i25 - 1] = -_yv[i25];
-	} // i25 loop
-	for (int i27 = nzshpo; i27 <= nzs; i27++) {
-	  _zv[i27] = _zv[i27 - 1] + delxyz;
-	  _zv[nzv - i27 - 1] = -_zv[i27];
-	} // i27 loop
-	int nrvc = nxv * nyv * nzv;
-	int nkshpo = nksh + 1;
-	for (int i28 = nkshpo; i28 <= nks; i28++) {
-	  vkv[i28] = vkv[i28 - 1] + delk;
-	  vkv[nkv - i28 - 1] = -vkv[i28];
-	} // i28 loop
-#ifdef USE_NVTX
-	nvtxRangePop();
-#endif
-	if (tfrfme != NULL) {
-#ifdef USE_NVTX
-	  nvtxRangePush("TFRFME initialization");
-#endif
-	  tfrfme->set_param("vk", vk);
-	  tfrfme->set_param("exri", exri);
-	  tfrfme->set_param("an", an);
-	  tfrfme->set_param("ff", ff);
-	  tfrfme->set_param("tra", tra);
-	  tfrfme->set_param("spd", spd);
-	  tfrfme->set_param("frsh", frsh);
-	  tfrfme->set_param("exril", exril);
-	  //fstream temptape1, temptape2;
-	  string temp_name1 = output_path + "/c_TEMPTAPE1.hd5";
-	  string temp_name2 = output_path + "/c_TEMPTAPE2.hd5";
-	  //temptape1.open(temp_name1.c_str(), ios::out | ios::binary);
-	  tt1 = new Swap1(lm, nkv);
-	  if (wk != NULL) delete[] wk;
-	  wk = frfmer(nkv, vkm, vknmx, apfafa, tra, spd, rir, ftcn, lm, lmode, pmf, tt1, tt2);
-	  tt1->write_binary(temp_name1, "HDF5");
-	  //delete tt1;
-	  tt2->set_param("apfafa", apfafa);
-	  tt2->set_param("pmf", pmf);
-	  tt2->set_param("spd", spd);
-	  tt2->set_param("rir", rir);
-	  tt2->set_param("ftcn", ftcn);
-	  tt2->set_param("fshmx", fshmx);
-	  tt2->set_param("vxyzmx", vxyzmx);
-	  tt2->set_param("delxyz", delxyz);
-	  tt2->set_param("vknmx", vknmx);
-	  tt2->set_param("delk", delk);
-	  tt2->set_param("delks", delks);
-	  tt2->set_param("nlmmt", 1.0 * nlmmt);
-	  tt2->set_param("nrvc", 1.0 * nrvc);
-	  tt2->write_binary(temp_name2, "HDF5");
-#ifdef USE_NVTX
-	  nvtxRangePop();
-#endif
-#ifdef USE_NVTX
-	  nvtxRangePush("j80 loop");
-#endif
-	  const int nkvs = nkv * nkv;
-	  int size_vec_wsum = nlmmt * nrvc;
-	  int size_global_vec_w = nkvs * (jlml - jlmf + 1);
-	  int size_vec_tt1_wk = nkvs * nlmmt;
-	  const dcomplex *vec_tt1_wk = tt1->wk;
-	  dcomplex *vec_wsum = tfrfme->vec_wsum;
-	  double *vec_vkzm = tt2->vec_vkzm;
-#ifdef USE_TARGET_OFFLOAD
-	  dcomplex *global_vec_w = (dcomplex *)aligned_alloc(64, size_global_vec_w * sizeof(dcomplex));
-#else
-	  dcomplex *global_vec_w = new dcomplex[size_global_vec_w]();
-#endif // USE_TARGET_OFFLOAD
-	  message = "INFO: looping over " + to_string(jlml - jlmf + 1) + " J iterations.\n";
-	  logger.log(message);
-#ifdef USE_TARGET_OFFLOAD
-	  t_end = chrono::high_resolution_clock::now();
-	  elapsed = t_start - t_end;
-	  frfme_duration = elapsed;
-	  t_start = chrono::high_resolution_clock::now();
-	  message = "INFO: computing loop.\n";
-	  logger.log(message);
-#ifdef USE_NVTX
-	  nvtxRangePush("Offloaded loop");
-#endif
-	  offload_loop(
-            vec_wsum, size_vec_wsum, global_vec_w, size_global_vec_w, vec_tt1_wk,
-	    size_vec_tt1_wk, vkv, _xv, nxv, _yv, nyv, _zv, nzv, vec_vkzm, jlmf, jlml,
-	    nkv, nlmmt, delks, frsh
-          );
-#ifdef USE_NVTX
-	  nvtxRangePop();
-#endif
-	  t_end = chrono::high_resolution_clock::now();
-	  elapsed = t_end - t_start;
-	  frfme_duration += elapsed;
-	  sprintf(buffer, "INFO: loop calculation took %lfs.\n", elapsed.count());
-	  message = string(buffer);
-	  logger.log(message);
-	  free(global_vec_w);
-#else
-#pragma omp parallel for
-	  for (int j80 = jlmf - 1; j80 < jlml; j80++) {
-	    dcomplex *vec_w = global_vec_w + nkvs * (j80 - jlmf + 1);
-#pragma omp parallel for simd
-	    for (long long jxy50 = 0; jxy50 < nkvs; jxy50++) {
-	      long long wk_index = nlmmt * jxy50;
-	      dcomplex wk_value = vec_tt1_wk[wk_index + j80];
-	      long long jy50 = jxy50 / nkv;
-	      long long jx50 = jxy50 % nkv;
-	      vec_w[(nkv * jx50) + jy50] = wk_value;
-	    } // jxy50 loop
-	    long long nvxy = nxv * nyv;
-#pragma omp parallel for
-	    for (long long ixyz = 0; ixyz < nrvc; ixyz++) {
-	      long long iz75 = ixyz / nvxy;
-	      long long iy70 = (ixyz % nvxy) / nxv;
-	      long long ix65 = ixyz % nxv;
-	      double z = _zv[iz75] + frsh;
-	      double y = _yv[iy70];
-	      double x = _xv[ix65];
-	      dcomplex sumy = cc0;
-#pragma omp parallel for simd reduction(+:sumy)
-	      for (long long jy60x55 = 0; jy60x55 < nkvs ; jy60x55++) {
-		long long jy60 = jy60x55 / nkv;
-		long long jx55 = jy60x55 % nkv;
-		long long w_index = (jx55 * nkv) + jy60;
-		double vky = vkv[jy60];
-		if (jx55 == 0) {
-		  // jx55 = 0: phasf
-		  double vkx = vkv[nkv - 1];
-		  double vkz = vec_vkzm[jy60];
-		  dcomplex phasf = cexp(uim * (-vkx * x + vky * y + vkz * z));
-		  dcomplex term = vec_w[jy60] * phasf * 0.5;
-		  double factor = (jy60 == 0 || jy60 == nkv - 1) ? 0.5 : 1.0;
-		  term *= factor;
-		  sumy += term;
-		} else if (jx55 == nkv - 1) {
-		  // jx55 = nkv - 1: phasl
-		  double vkx = vkv[nkv - 1];
-		  double vkz = vec_vkzm[(nkv - 1) * nkv + jy60];
-		  dcomplex phasl = cexp(uim * (vkx * x + vky * y + vkz * z));
-		  dcomplex term = vec_w[(nkv - 1) * nkv + jy60] * phasl * 0.5;
-		  double factor = (jy60 == 0 || jy60 == nkv - 1) ? 0.5 : 1.0;
-		  term *= factor;
-		  sumy += term;
-		} else {
-		  // 1 <= jx55 < nkv - 1
-		  double vkx = vkv[jx55];
-		  double vkz = vec_vkzm[(jx55) * nkv + jy60];
-		  dcomplex phas = cexp(uim * (vkx * x + vky * y + vkz * z));
-		  dcomplex term = vec_w[(jx55) * nkv + jy60] * phas;
-		  double factor = (jy60 == 0 || jy60 == nkv - 1) ? 0.5 : 1.0;
-		  term *= factor;
-		  sumy += term;
-		}
-	      } // jy60x55 loop
-	      vec_wsum[(j80 * nrvc) + ixyz] = sumy * delks;
-	    } // ixyz loop
-	  } // j80 loop
-	  delete[] global_vec_w;
-#endif // USE_TARGET_OFFLOAD
-#ifdef USE_NVTX
-	  nvtxRangePop();
-#endif
-	  // label 88
-#ifdef USE_NVTX
-	  nvtxRangePush("Closing operations");
-#endif
-	  tfrfme->write_binary(tfrfme_name, "HDF5");
-	  string output_name = output_path + "/c_OFRFME";
-	  FILE *output = fopen(output_name.c_str(), "w");
-	  fprintf(output, " IF JLML < NLMMT, PRESERVE TEMPTAPE1, TEMPTAPE2, AND TFRFRME,\n");
-	  fprintf(output, " AND RESTART LM RUN WITH JLMF = JLML+1\n");
-	  if (spd > 0.0) fprintf(output, "  FSHMX =%15.7lE\n", fshmx);
-	  fprintf(output, "  FRSH =%15.7lE\n", frsh);
-	  fclose(output);
-#ifdef USE_NVTX
-	  nvtxRangePop();
-#endif
-	} else { // Should never happen.
-	  message = "ERROR: could not open TFRFME file for output.\n";
-	  logger.err(message);
-	}
       } else {
-	message = "ERROR: could not open TEDF file.\n";
-	logger.err(message);
+	throw(UnrecognizedConfigurationException("ERROR: only 'm', 'M', 'e', or 'E' accepted as modes!\n"));
       }
-    } else { // label 98
-      string output_name = output_path + "/c_OFRFME";
-      FILE *output = fopen(output_name.c_str(), "w");
-      fprintf(output, "  WRONG INPUT TAPE\n");
-      fclose(output);
     }
+    str_target = m.suffix().str();
+    re = regex("[0-9]+");
+    regex_search(str_target, m, re);
+    int ixi = stoi(m.str());
+    string tedf_name = output_path + "/" + namef + ".hd5";
+    // Check for run-time options
+    bool skip_frfme = false;
+    last_read_line++; // skip the end-of-data code
+    while (last_read_line < line_count) {
+      bool is_parsed = false;
+      str_target = file_lines[last_read_line++];
+      if (str_target.size() > 12) {
+	if (str_target.substr(0, 12).compare("PRECOMPUTED=") == 0) {
+	  string precomp_name = output_path + "/" + str_target.substr(12, str_target.size());
+	  // TODO: check that the file exists and it is suitable for the calculation.
+	  message = "INFO: using precomputed file " + precomp_name + "\n";
+	  logger.log(message);
+	  skip_frfme = true;
+	  is_parsed = true;
+	}
+      }
+      if (!is_parsed) {
+	if (str_target.size() > 0) {
+	  if (str_target.substr(0, 1).compare("#") != 0) {
+	    // ERROR: found an unrecognized option that is not marked as comment
+	    throw(UnrecognizedConfigurationException("ERROR: unrecognized option \"" + str_target + "\"!\n"));
+	  }
+	}
+      }
+    }
+    if (skip_frfme) return;
+    ScattererConfiguration *tedf = ScattererConfiguration::from_binary(tedf_name, "HDF5");
+#ifdef USE_NVTX
+    nvtxRangePush("TEDF data import");
+#endif
+    if (tedf == NULL) {
+      throw(OpenConfigurationFileException("ERROR: could not open " + tedf_name + "hd5!\n"));
+    }
+    int iduml, idum;
+    iduml = tedf->number_of_spheres;
+    idum = tedf->get_iog(iduml - 1);
+    exdc = tedf->exdc;
+    wp = tedf->wp;
+    xip = tedf->xip;
+    idfc = tedf->idfc;
+    nxi = tedf->number_of_scales;
+    if (idfc >= 0) {
+      if (ixi <= nxi) {
+	xi = tedf->get_scale(ixi - 1);
+      } else { // label 96
+	delete tedf;
+	// label 98
+	string output_name = output_path + "/c_OFRFME";
+	FILE *output = fopen(output_name.c_str(), "w");
+	fprintf(output, "  WRONG INPUT TAPE\n");
+	fclose(output);
+      }
+    } else { // label 18
+      xi = xip;
+    }
+    // label 20
 #ifdef USE_NVTX
     nvtxRangePop();
 #endif
-  }
+    delete tedf;
+    wn = wp / 3.0e8;
+    vk = xi * wn;
+    exri = sqrt(exdc);
+    frsh = 0.0;
+    exril = 0.0;
+    fshmx = 0.0;
+    apfafa = exri / (an * ff);
+    if (lmode != 0) pmf = 2.0 * apfafa;
+    if (spd > 0.0) {
+      exril = sqrt(exdcl);
+      rir = exri / exril;
+      ftcn = 2.0 / (1.0 + rir);
+      frsh = -spd * spdfr;
+      double sthmx = an / exri;
+      double sthlmx = sthmx * rir;
+      double uy = 1.0;
+      fshmx = spd * (rir * (sqrt(uy - sthmx * sthmx) / sqrt(uy - sthlmx * sthlmx)) - uy);
+    }
+    // label 22
+#ifdef USE_NVTX
+    nvtxRangePush("Memory data loading");
+#endif
+    nlmmt = lm * (lm + 2) * 2;
+    nks = nksh * 2;
+    nkv = nks + 1;
+    // Array initialization
+    long swap1_size, swap2_size, tfrfme_size;
+    double size_mb;
+    message = "INFO: calculating memory requirements...\n";
+    logger.log(message);
+    swap1_size = Swap1::get_size(lm, nkv);
+    size_mb = 1.0 * swap1_size / 1024.0 / 1024.0;
+    printf("Swap 1: %.2lg MB\n", size_mb);
+    swap2_size = Swap2::get_size(nkv);
+    size_mb = 1.0 * swap2_size / 1024.0 / 1024.0;
+    sprintf(buffer, "Swap 2: %.2lg MB\n", size_mb);
+    message = string(buffer);
+    logger.log(message);
+    tt2 = new Swap2(nkv);
+    vkv = tt2->get_vector();
+    // End of array initialization
+    vkm = vk * exri;
+    vknmx = vk * an;
+    delk = vknmx / nksh;
+    delks = delk / vkm;
+    delks = delks * delks;
+    vxyzmx = acos(0.0) * 4.0 / vkm * wlenfr;
+    delxyz = vxyzmx / nrsh;
+    nxs = nxsh * 2;
+    nxv = nxs + 1;
+    nxshpo = nxsh + 1;
+    nys = nysh * 2;
+    nyv = nys + 1;
+    nyshpo = nysh + 1;
+    nzs = nzsh * 2;
+    nzv = nzs + 1;
+    nzshpo = nzsh + 1;
+    tfrfme_size = TFRFME::get_size(lm, nkv, nxv, nyv, nzv);
+    size_mb = 1.0 * tfrfme_size / 1024.0 / 1024.0;
+    sprintf(buffer, "TFRFME: %.2lg MB\n", size_mb);
+    message = string(buffer);
+    logger.log(message);
+    size_mb = 1.0 * (swap1_size + swap2_size + tfrfme_size) / 1024.0 / 1024.0;
+    sprintf(buffer, "TOTAL: %.2lg MB\n", size_mb);
+    message = string(buffer);
+    logger.log(message);
+    sprintf(buffer, "INFO: nxv = %d, nyv = %d, nzv = %d, nrvc = %d\n", nxv, nyv, nzv, (nxv * nyv * nzv));
+    message = string(buffer);
+    logger.log(message);
+    sprintf(buffer, "INFO: nlmmt = %d, nkv = %d\n", nlmmt, nkv);
+    message = string(buffer);
+    logger.log(message);
+    
+    tfrfme = new TFRFME(lmode, lm, nkv, nxv, nyv, nzv);
+    if (tfrfme == NULL)
+      throw(ObjectAllocationException("ERROR: could not initialize TFRFME structure!\n"));
+    _xv = tfrfme->get_x();
+    _yv = tfrfme->get_y();
+    _zv = tfrfme->get_z();
+#ifdef USE_NVTX
+    nvtxRangePop();
+#endif
+#ifdef USE_NVTX
+    nvtxRangePush("Looped vector initialization");
+#endif
+    for (int i24 = nxshpo; i24 <= nxs; i24++) {
+      _xv[i24] = _xv[i24 - 1] + delxyz;
+      _xv[nxv - i24 - 1] = -_xv[i24];
+    } // i24 loop
+    for (int i25 = nyshpo; i25 <= nys; i25++) {
+      _yv[i25] = _yv[i25 - 1] + delxyz;
+      _yv[nyv - i25 - 1] = -_yv[i25];
+    } // i25 loop
+    for (int i27 = nzshpo; i27 <= nzs; i27++) {
+      _zv[i27] = _zv[i27 - 1] + delxyz;
+      _zv[nzv - i27 - 1] = -_zv[i27];
+    } // i27 loop
+    nrvc = nxv * nyv * nzv;
+    nkshpo = nksh + 1;
+    for (int i28 = nkshpo; i28 <= nks; i28++) {
+      vkv[i28] = vkv[i28 - 1] + delk;
+      vkv[nkv - i28 - 1] = -vkv[i28];
+    } // i28 loop
+#ifdef USE_NVTX
+    nvtxRangePop();
+#endif
+#ifdef USE_NVTX
+    nvtxRangePush("TFRFME initialization");
+#endif
+    tfrfme->set_param("vk", vk);
+    tfrfme->set_param("exri", exri);
+    tfrfme->set_param("an", an);
+    tfrfme->set_param("ff", ff);
+    tfrfme->set_param("tra", tra);
+    tfrfme->set_param("spd", spd);
+    tfrfme->set_param("frsh", frsh);
+    tfrfme->set_param("exril", exril);
+    //fstream temptape1, temptape2;
+    string temp_name1 = output_path + "/c_TEMPTAPE1.hd5";
+    string temp_name2 = output_path + "/c_TEMPTAPE2.hd5";
+    //temptape1.open(temp_name1.c_str(), ios::out | ios::binary);
+    tt1 = new Swap1(lm, nkv);
+    if (wk != NULL) delete[] wk;
+    wk = frfmer(nkv, vkm, vknmx, apfafa, tra, spd, rir, ftcn, lm, lmode, pmf, tt1, tt2);
+    tt1->write_binary(temp_name1, "HDF5");
+    //delete tt1;
+    tt2->set_param("apfafa", apfafa);
+    tt2->set_param("pmf", pmf);
+    tt2->set_param("spd", spd);
+    tt2->set_param("rir", rir);
+    tt2->set_param("ftcn", ftcn);
+    tt2->set_param("fshmx", fshmx);
+    tt2->set_param("vxyzmx", vxyzmx);
+    tt2->set_param("delxyz", delxyz);
+    tt2->set_param("vknmx", vknmx);
+    tt2->set_param("delk", delk);
+    tt2->set_param("delks", delks);
+    tt2->set_param("nlmmt", 1.0 * nlmmt);
+    tt2->set_param("nrvc", 1.0 * nrvc);
+    tt2->write_binary(temp_name2, "HDF5");
+#ifdef USE_NVTX
+    nvtxRangePop();
+#endif
+  } // jlmf = 1 configuration mode
+  // label 45
+#ifdef USE_NVTX
+  nvtxRangePush("j80 loop");
+#endif
+  const int nkvs = nkv * nkv;
+  int size_vec_wsum = nlmmt * nrvc;
+  int size_global_vec_w = nkvs * (jlml - jlmf + 1);
+  int size_vec_tt1_wk = nkvs * nlmmt;
+  const dcomplex *vec_tt1_wk = tt1->wk;
+  dcomplex *vec_wsum = tfrfme->vec_wsum;
+  double *vec_vkzm = tt2->vec_vkzm;
+#ifdef USE_TARGET_OFFLOAD
+  dcomplex *global_vec_w = (dcomplex *)aligned_alloc(64, size_global_vec_w * sizeof(dcomplex));
+#else
+  dcomplex *global_vec_w = new dcomplex[size_global_vec_w]();
+#endif // USE_TARGET_OFFLOAD
+  message = "INFO: looping over " + to_string(jlml - jlmf + 1) + " J iterations.\n";
+  logger.log(message);
+#ifdef USE_TARGET_OFFLOAD
+  t_end = chrono::high_resolution_clock::now();
+  elapsed = t_start - t_end;
+  frfme_duration = elapsed;
+  t_start = chrono::high_resolution_clock::now();
+  message = "INFO: computing loop.\n";
+  logger.log(message);
+#ifdef USE_NVTX
+  nvtxRangePush("Offloaded loop");
+#endif
+  offload_loop(
+    vec_wsum, size_vec_wsum, global_vec_w, size_global_vec_w, vec_tt1_wk,
+    size_vec_tt1_wk, vkv, _xv, nxv, _yv, nyv, _zv, nzv, vec_vkzm, jlmf, jlml,
+    nkv, nlmmt, delks, frsh
+  );
+#ifdef USE_NVTX
+  nvtxRangePop();
+#endif
+  t_end = chrono::high_resolution_clock::now();
+  elapsed = t_end - t_start;
+  frfme_duration += elapsed;
+  sprintf(buffer, "INFO: loop calculation took %lfs.\n", elapsed.count());
+  message = string(buffer);
+  logger.log(message);
+  free(global_vec_w);
+#else
+  // This code block is compiled if USE_TARGET_OFFLOAD is not defined
+#pragma omp parallel for
+  for (int j80 = jlmf - 1; j80 < jlml; j80++) {
+    dcomplex *vec_w = global_vec_w + nkvs * (j80 - jlmf + 1);
+#pragma omp parallel for simd
+    for (long long jxy50 = 0; jxy50 < nkvs; jxy50++) {
+      long long wk_index = nlmmt * jxy50;
+      dcomplex wk_value = vec_tt1_wk[wk_index + j80];
+      long long jy50 = jxy50 / nkv;
+      long long jx50 = jxy50 % nkv;
+      vec_w[(nkv * jx50) + jy50] = wk_value;
+    } // jxy50 loop
+    long long nvxy = nxv * nyv;
+#pragma omp parallel for
+    for (long long ixyz = 0; ixyz < nrvc; ixyz++) {
+      long long iz75 = ixyz / nvxy;
+      long long iy70 = (ixyz % nvxy) / nxv;
+      long long ix65 = ixyz % nxv;
+      double z = _zv[iz75] + frsh;
+      double y = _yv[iy70];
+      double x = _xv[ix65];
+      dcomplex sumy = cc0;
+#pragma omp parallel for simd reduction(+:sumy)
+      for (long long jy60x55 = 0; jy60x55 < nkvs ; jy60x55++) {
+	long long jy60 = jy60x55 / nkv;
+	long long jx55 = jy60x55 % nkv;
+	long long w_index = (jx55 * nkv) + jy60;
+	double vky = vkv[jy60];
+	if (jx55 == 0) {
+	  // jx55 = 0: phasf
+	  double vkx = vkv[nkv - 1];
+	  double vkz = vec_vkzm[jy60];
+	  dcomplex phasf = cexp(uim * (-vkx * x + vky * y + vkz * z));
+	  dcomplex term = vec_w[jy60] * phasf * 0.5;
+	  double factor = (jy60 == 0 || jy60 == nkv - 1) ? 0.5 : 1.0;
+	  term *= factor;
+	  sumy += term;
+	} else if (jx55 == nkv - 1) {
+	  // jx55 = nkv - 1: phasl
+	  double vkx = vkv[nkv - 1];
+	  double vkz = vec_vkzm[(nkv - 1) * nkv + jy60];
+	  dcomplex phasl = cexp(uim * (vkx * x + vky * y + vkz * z));
+	  dcomplex term = vec_w[(nkv - 1) * nkv + jy60] * phasl * 0.5;
+	  double factor = (jy60 == 0 || jy60 == nkv - 1) ? 0.5 : 1.0;
+	  term *= factor;
+	  sumy += term;
+	} else {
+	  // 1 <= jx55 < nkv - 1
+	  double vkx = vkv[jx55];
+	  double vkz = vec_vkzm[(jx55) * nkv + jy60];
+	  dcomplex phas = cexp(uim * (vkx * x + vky * y + vkz * z));
+	  dcomplex term = vec_w[(jx55) * nkv + jy60] * phas;
+	  double factor = (jy60 == 0 || jy60 == nkv - 1) ? 0.5 : 1.0;
+	  term *= factor;
+	  sumy += term;
+	}
+      } // jy60x55 loop
+      vec_wsum[(j80 * nrvc) + ixyz] = sumy * delks;
+    } // ixyz loop
+  } // j80 loop
+  delete[] global_vec_w;
+#endif // USE_TARGET_OFFLOAD
+#ifdef USE_NVTX
+  nvtxRangePop();
+#endif
+  // label 88
+#ifdef USE_NVTX
+  nvtxRangePush("Closing operations");
+#endif
+  tfrfme->write_binary(tfrfme_name, "HDF5");
+  string output_name = output_path + "/c_OFRFME";
+  FILE *output = fopen(output_name.c_str(), "w");
+  fprintf(output, " IF JLML < NLMMT, PRESERVE TEMPTAPE1, TEMPTAPE2, AND TFRFRME,\n");
+  fprintf(output, " AND RESTART LM RUN WITH JLMF = JLML+1\n");
+  if (spd > 0.0) fprintf(output, "  FSHMX =%15.7lE\n", fshmx);
+  fprintf(output, "  FRSH =%15.7lE\n", frsh);
+  fclose(output);
+#ifdef USE_NVTX
+  nvtxRangePop();
+  nvtxRangePop();
+#endif
   // label 45
 #ifdef USE_NVTX
   nvtxRangePush("frfme() memory clean");
@@ -620,6 +637,25 @@ void frfme(string data_file, string output_path) {
   nvtxRangePop();
 #endif
 }
+ // STALE CODE BLOCK
+ // else { // Should never happen.
+ // 	  message = "ERROR: could not open TFRFME file for output.\n";
+ // 	  logger.err(message);
+ // 	}
+ //      } else {
+ // 	message = "ERROR: could not open TEDF file.\n";
+ // 	logger.err(message);
+ //      }
+ //    } else { // label 98
+ //      string output_name = output_path + "/c_OFRFME";
+ //      FILE *output = fopen(output_name.c_str(), "w");
+ //      fprintf(output, "  WRONG INPUT TAPE\n");
+ //      fclose(output);
+ //    }
+ // #ifdef USE_NVTX
+ //     nvtxRangePop();
+ // #endif
+ //   }
 
 #ifdef USE_TARGET_OFFLOAD
 void offload_loop(

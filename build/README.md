@@ -25,28 +25,36 @@ The original code produces output in the current working directory (the path whe
 
 This section describes the use of the single programs that make up the *NP_TMcode* suite, once the binaries have been properly built.
 
-*NOTE:* This set of instructions applies to the serial code implementation only. Please, refer to the Release Notes of `NP_TMcode-M8.03` for more details on how to build and use a parallel implementation of the code.
+*NOTE:* This set of instructions applies to the serial code implementation only. Please, refer to the code user manual in the `doc` folder for more details on how to build and use a parallel implementation of the code.
 
 ### cluster
 
 1. cd to the `build/cluster` folder.
-2. Run `edfb_clu`:
+2. copy the test data in the current working folder
+
+   > cp ../../test_data/cluster/DEDFB .
+   >
+   > cp ../../test_data/cluster/DCLU .
+   
+3. Run `edfb_clu`:
    
    > ./edfb_clu
    
-3. Run `clu`:
+4. Run `clu`:
    
    > ./clu
    
-*NOTE:* both `edfb_clu` and `clu` expect an input which is assumed to be in a folder named `../../test_data/cluster/` (i.e. two levels above the current execution path)
+*NOTE:* both `edfb_clu` and `clu` expect to find their input in the current working directory. The input used in this example is located in a folder named `../../test_data/cluster/` (i.e. two levels above the current execution path).
 
-4. Run `np_cluster`:
+5. Run `np_cluster`:
 
    > ./np_cluster
 
 *NOTE:* The *C++* version does not need to run a configuration program because all configuration operations are handled by the code at run-time.
 
-5. Check the consistency between the output files (the default output file for the *FORTRAN* code is named `OCLU`, while the corresponding *C++* output has the default name of `c_OCLU`).
+6. Check the consistency between the output files (the default output file for the *FORTRAN* code is named `OCLU`, while the corresponding *C++* output has the default name of `c_OCLU`). This can be done, e. g., using the `pycompare.py` script (which requires _Python 3_):
+
+   > ../../src/scripts/pycompare.py --ffile OCLU --cfile c_OCLU
 
 The default behaviour of `np_cluster` is to take the same input files as `edfb_clu` and `clu` and to write the output in the current folder. If needed, different input and output paths can be given as command-line arguments:
 
@@ -55,23 +63,31 @@ The default behaviour of `np_cluster` is to take the same input files as `edfb_c
 ### sphere
 
 1. cd to the `build/sphere` folder.
-2. Run `edfb_sph`:
+2. copy the test data in the current working folder
+
+   > cp ../../test_data/sphere/DEDFB .
+   >
+   > cp ../../test_data/sphere/DSPH .
+   
+3. Run `edfb_sph`:
 
    > ./edfb_sph
    
-3. Run `sph`:
+4. Run `sph`:
 
    > ./sph
    
-*NOTE:* both `edfb_sph` and `sph` expect an input which is assumed to be in a folder named `../../test_data/sphere/` (i.e. two levels above the current execution path)
+*NOTE:* both `edfb_sph` and `sph` expect to find their input in the current working directory. The input used in this example is located in a folder named `../../test_data/sphere/` (i.e. two levels above the current execution path).
 
-4. Run `np_sphere`:
+5. Run `np_sphere`:
 
    > ./np_sphere
 
 *NOTE:* The *C++* version does not need to run a configuration program because all configuration operations are handled by the code at run-time.
 
-5. Check the consistency between the output files (the default output file for the *FORTRAN* code is named `OSPH`, while the corresponding *C++* output has the default name of `c_OSPH`).
+5. Check the consistency between the output files (the default output file for the *FORTRAN* code is named `OSPH`, while the corresponding *C++* output has the default name of `c_OSPH`). This can be done, e. g., using the `pycompare.py` script (which requires _Python 3_):
+
+   > ../../src/scripts/pycompare.py --ffile OSPH --cfile c_OSPH
 
 The default behaviour of `np_sphere` is to take the same input files as `edfb_sph` and `sph` and to write the output in the current folder. If needed, different input and output paths can be given as command-line arguments:
 
@@ -91,7 +107,13 @@ The execution of trapping programs requires at least one of the previous program
 
    > ./np_trapping ../../test_data/trapping/DFRFME ../../test_data/trapping/DLFFT .
 
-5. Check the consistency between `np_trapping` output files (`c_out66.txt` and `c_out67.txt`) and the legacy *FORTRAN* output for this case (the files named, respectively, `fort.66` and `fort.67` in the `test_data/trapping/` folder). Consider that some of the output values will be affected by numeric noise and take substantially different values. However, this is expected for results whose order of magnitude is clearly below the precision level of the calculation, as they represent results appraching zero that were just approximated with different precision.
+5. Check the consistency between `np_trapping` output files (`c_force_cs.txt` and `c_torque_cs.txt`) and the legacy *FORTRAN* output for this case (the files named, respectively, `fort.66` and `fort.67` in the `test_data/trapping/` folder). Consider that some of the output values will be affected by numeric noise and take substantially different values. However, this is expected for results whose order of magnitude is clearly below the precision level of the calculation, as they represent results approaching zero that were just approximated with different precision. This can be done using the `pycompare.py` script (which requires _Python 3_):
+
+   > ../../src/scripts/pycompare.py --ffile ../../test_data/trapping/fort.66 --cfile c_force_cs.txt
+   >
+   > ../../src/scripts/pycompare.py --ffile ../../test_data/trapping/fort.67 --cfile c_torque_cs.txt --data-order=-10
+
+(where the `--data-order=-10` option tells the script to consider as data only nummbers down to the order of 1e-10 and ignore anything below this limit).
 
 ### testing
 
@@ -101,7 +123,7 @@ The `testing` folder contains programs that are used to test the consistency of 
 
 This program checks for the consistency of the configuration data loaded from a formatted configuration file, a legacy binary file and an _HDF5_ binary file. It must be executed as:
 
-> ./test_TEDF PATH_TO_EDFB PATH_TO_c_TEDF PATH_TO_c_TEDF.hd5
+    > ./test_TEDF PATH_TO_EDFB PATH_TO_c_TEDF PATH_TO_c_TEDF.hd5
 
 where the command line arguments must be valid paths to, respectively, the formatted configuration file, a binary configuration file produced by one of the _NP_ codes presented above (generally named `c_TEDF`) and a binary configuration file saved in _HDF5_ format (`c_TEDF.hd5`). The program checks for the data in each of the above formats and, after writing a short log to the terminal, returns a result value of 0, in case of success, or a positive error code in case of inconsistent data.
 
@@ -109,7 +131,7 @@ where the command line arguments must be valid paths to, respectively, the forma
 
 This program checks for the consistency of transition matrix data files. It is executed similarly to the previous one, but with just two arguments:
 
-> ./test_TTMS PATH_TO_c_TTMS PATH_TO_c_TTMS.hd5
+    > ./test_TTMS PATH_TO_c_TTMS PATH_TO_c_TTMS.hd5
 
 where the arguments must be valid paths to binary transition matrix files saved in the legacy or the _HDF5_ format. Similarly to the previous case, the program writes a short log and returns a result value of 0, for success, or a positive number in case of inconsistency detection.
 
