@@ -34,7 +34,7 @@
  * \param n: `int` Bessel y function order.
  * \param z: `dcomplex` Argument of Bessel y function.
  * \param nm: `int` Maximum computed order.
- * \param csj: `dcomplex *` TBD.
+ * \param csj: `dcomplex *` ANNOTATION: Complex spherical J vector.
  * \param csy: `dcomplex *` Complex spherical Bessel functions up to desired order.
  */
 void cnf(int n, dcomplex z, int nm, dcomplex *csj, dcomplex *csy);
@@ -49,7 +49,7 @@ void exma(dcomplex **am, ParticleDescriptor *c1);
 /*! \brief C++ porting of INCMS.
  *
  * \param am: `dcomplex **` Field transition coefficients matrix.
- * \param enti: `double` TBD.
+ * \param enti: `double` ANNOTATION: imaginary part of coating dielectric function.
  * \param c1: `ParticleDescriptor *` Pointer to a ParticleDescriptor instance.
  */
 void incms(dcomplex **am, double enti, ParticleDescriptor *c1);
@@ -57,15 +57,15 @@ void incms(dcomplex **am, double enti, ParticleDescriptor *c1);
 /*! \brief C++ porting of INDME.
  *
  * \param i: `int` 1-based sphere configuration index.
- * \param npnt: `int` TBD.
- * \param npntts: `int` TBD.
+ * \param npnt: `int` ANNOTATION: Number of non transition layer integration points.
+ * \param npntts: `int` ANNOTATION: Number of transition layer integrtion points.
  * \param vk: `double` Vacuum wave vector magnitude.
- * \param ent: `dcomplex` TBD.
- * \param enti: `double` TBD.
- * \param entn: `dcomplex` TBD.
+ * \param ent: `dcomplex` ANNOTATION: coating dielectric function.
+ * \param enti: `double` ANNOTATION: imaginary part of coating dielectric function.
+ * \param entn: `dcomplex` ANNOTATION: coating refractive index.
  * \param jer: `int &` Error code flag.
  * \param lcalc: `int &` Maximum order achieved in calculation.
- * \param arg: `dcomplex &` TBD.
+ * \param arg: `dcomplex &` ANNOTATION: argument of calculation.
  * \param c1: `ParticleDescriptor *` Pointer to a ParticleDescriptor instance.
  */
 void indme(
@@ -83,8 +83,8 @@ void instr(double **rcf, ParticleDescriptor *c1);
 /*! \brief C++ porting of OSPV.
  *
  * \param c1: `ParticleDescriptor *` Pointer to a ParticleDescriptor instance.
- * \param vk: `double` TBD.
- * \param sze: `double` TBD.
+ * \param vk: `double` ANNOTATION: vacuum wave number.
+ * \param sze: `double` ANNOTATION: size.
  * \param exri: `double` External medium refractive index.
  * \param entn: `dcomplex` Outer sphere refractive index.
  * \param enti: `double` Imaginary part of the outer medium refractive index.

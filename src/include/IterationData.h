@@ -63,7 +63,7 @@ public:
   double **tqcs;
   //! \brief Components of scattering contribution to radiation torque on the cluster along k referred to polarization plane.
   dcomplex **tqcps;
-  //! \brief Variation of unitary radiation vector. QUESTION: correct?
+  //! \brief Variation of unitary radiation vector.
   double *duk;
   //! \brief Cluster extinction cross-section components referred to scattering plane.
   double **cextlr;
@@ -115,13 +115,13 @@ public:
   dcomplex *am_vector;
   //! \brief Scattering coefficient matrix.
   dcomplex **am;
-  //! \brief Argument of harmonic functions. QUESTION: correct?
+  //! \brief ANNOTATION: Argument of harmonic functions.
   dcomplex arg;
   //! \brief Vacuum magnitude of wave vector.
   double vk;
   //! \brief Wave number.
   double wn;
-  //! \brief Normalization scale. QUESTION: correct?
+  //! \brief ANNOTATION: Normalization scale.
   double xip;
   //! \brief Number of scales (wavelengths) to be computed.
   int number_of_scales;
@@ -249,7 +249,7 @@ public:
   double **tqcs;
   //! \brief Components of scattering contribution to radiation torque on the cluster along k referred to polarization plane.
   dcomplex **tqcps;
-  //! \brief Variation of unitary radiation vector. QUESTION: correct?
+  //! \brief Variation of unitary radiation vector.
   double *duk;
   //! \brief Cluster extinction cross-section components referred to scattering plane.
   double **cextlr;
@@ -301,13 +301,13 @@ public:
   dcomplex *am_vector;
   //! \brief Scattering coefficient matrix.
   dcomplex **am;
-  //! \brief Argument of harmonic functions. QUESTION: correct?
+  //! \brief Argument of harmonic functions.
   dcomplex arg;
   //! \brief Vacuum magnitude of wave vector.
   double vk;
   //! \brief Wave number.
   double wn;
-  //! \brief Normalization scale. QUESTION: correct?
+  //! \brief ANNOTATION: Normalization scale.
   double xip;
   //! \brief Number of scales (wavelengths) to be computed.
   int number_of_scales;
@@ -432,7 +432,7 @@ public:
   double vk;
   //! \brief Wave number.
   double wn;
-  //! \brief Normalization scale. QUESTION: correct?
+  //! \brief ANNOTATION: Normalization scale.
   double xip;
   //! \brief Number of scales (wavelengths) to be computed.
   int number_of_scales;

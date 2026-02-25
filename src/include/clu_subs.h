@@ -73,17 +73,17 @@ void apcra(
  *
  * This function performs the complex inner product. It is used by `lucin()`.
  *
- * \param z: `complex double`
- * \param am: `complex double **`
- * \param i: `int`
- * \param jf: `int`
- * \param k: `int`
- * \param nj: `int`
+ * \param z: `complex double` Starting element.
+ * \param vec_am: `complex double *` Vectorized matrix.
+ * \param i: `int` Index of first sub-matrix row.
+ * \param jf: `int` Index of first submatrix column.
+ * \param k: `int` Index of second sub-matrix row.
+ * \param nj: `int` Range of first sub-matrix columns.
  * \param istep: `np_int` Size of rows in the matrix.
  */
 dcomplex cdtp(dcomplex z, dcomplex *vec_am, int i, int jf, int k, int nj, np_int istep);
 
-/*! \brief C++ porting of CGEV. QUESTION: description?
+/*! \brief C++ porting of CGEV. ANNOTATION: Get weight of T-matrix element.
  *
  * \param ipamo: `int`
  * \param mu: `int`
@@ -106,8 +106,8 @@ void cms(dcomplex **am, ParticleDescriptor *c1);
 /*! \brief Compute orientation-averaged scattered field intensity.
  *
  * This function computes the intensity of the scattered field for the cluster,
- * averaged on the orientations. It is invoked for IAVM=1 (geometry referred to
- * the meridional plane). QUESTION: correct?
+ * averaged on the orientations. It is invoked for IAVM=1 (ANNOTATION: geometry
+ * referred to the meridional plane).
  *
  * \param vk: `double` Wave number.
  * \param exri: `double` External medium refractive index.
@@ -355,9 +355,9 @@ void scr0(double vk, double exri, ParticleDescriptor *c1);
  * an aggregate. See Sec. 4.2.1 in Borghese, Denti & Saija (2007).
  *
  * \param vk: `double` Wave number.
- * \param vkarg: `double` QUESTION: definition?
+ * \param vkarg: `double` ANNOTATION: Argument of wave number.
  * \param exri: `double` External medium refractive index.
- * \param duk: `double *` QUESTION: definition?
+ * \param duk: `double *` ANNOTATION: variation of unit wave vector.
  * \param c1: `ParticleDescriptor *` Pointer to a ParticleDescriptor instance.
  */
 void scr2(

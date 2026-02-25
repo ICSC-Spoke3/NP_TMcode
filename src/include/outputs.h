@@ -1280,6 +1280,15 @@ public:
 // >>> END OF OUTPUT FOR SPHERE <<<
 
 // >>> OUTPUT FOR TRAPPING <<<
+/*! \brief Class to collect output information for particle trapping.
+ *
+ * The results of the calculation can be saved in different formats.
+ * It is therefore convenient to have a proper memory structure that
+ * allows for storing the results and flushing them in any of the
+ * permitted formats with just one operation. The purpose of the
+ * `TrappingOutputInfo` class is to provide a wrapper for the output
+ * of the particle trapping solver.
+ */
 class TrappingOutputInfo {
 protected:
   //! \brief Force / torque mode.

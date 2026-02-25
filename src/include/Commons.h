@@ -218,9 +218,9 @@ public:
   int *iog;
   //! \brief Vector of number of layers in sphere type.
   int *nshl;
-  //! \brief TBD
+  //! \brief ANNOTATION: Square inverted coefficients.
   dcomplex *ris;
-  //! \brief TBD
+  //! \brief ANNOTATION: Refractive index variation.
   dcomplex *dlri;
   //! \brief Vector of dielectric constants.
   dcomplex *dc0;
@@ -268,9 +268,9 @@ public:
   double ecs;
   //! \brief Sphere absorption cross-section.
   double acs;
-  //! \brief TBD.
+  //! \brief ANNOTATION: Geometric tensor.
   dcomplex **gis;
-  //! \brief TBD.
+  //! \brief ANNOTATION: Geometric tensor.
   dcomplex **gls;
   //! \brief Mean scattering amplitude components.
   dcomplex **sam;
@@ -308,17 +308,17 @@ public:
   //! \brief Read-only view of NDM.
   const int& ndm = _ndm;
 
-  //! \brief TBD
+  //! \brief ANNOTATION: Hankel vector.
   dcomplex *vh;
-  //! \brief TBD
+  //! \brief ANNOTATION: J0 vector.
   dcomplex *vj0;
-  //! \brief TBD
+  //! \brief ANNOTATION: Translation vector.
   dcomplex *vyhj;
-  //! \brief TBD
+  //! \brief ANNOTATION: J0 translation vector.
   dcomplex *vyj0;
-  //! \brief TBD
+  //! \brief ANNOTATION: J vector.
   dcomplex vj;
-  //! \brief Transition matrix
+  //! \brief Transition matrix.
   dcomplex **am0m;
   //! \brief Cluster forward scattering amplitude.
   dcomplex **fsac;
@@ -336,7 +336,7 @@ public:
   dcomplex *scscpm;
   //! \brief Mean cluster polarized extinction cross-sections.
   dcomplex *ecscpm;
-  //! \brief TBD
+  //! \brief ANNOTATION: J0 vector.
   double *v3j0;
   //! \brief Cluster scattering cross-sections.
   double *scsc;
@@ -348,28 +348,28 @@ public:
   double *ecscm;
   //! \brief J-vector components index matrix.
   int **ind3j;
-  //! \brief J-vector boundary values. QUESTION: correct?
+  //! \brief ANNOTATION: J-vector boundary conditions.
   double *rac3j;
   // >>> END OF SECTION NEEDED BY CLUSTER AND INCLU <<< //
 
   // >>> NEEDED BY INCLU <<< //
-  //! \brief TBD
+  //! \brief ANNOTATION: M coefficients.
   dcomplex *rm0;
-  //! \brief TBD
+  //! \brief ANNOTATION: E coefficients.
   dcomplex *re0;
-  //! \brief TBD
+  //! \brief ANNOTATION: M amplitude coefficients.
   dcomplex *rmw;
-  //! \brief TBD
+  //! \brief ANNOTATION: E amplitude coefficients.
   dcomplex *rew;
-  //! \brief TBD
+  //! \brief ANNOTATION: Transition M coefficients.
   dcomplex *tm;
-  //! \brief TBD
+  //! \brief ANNOTATION: Transition E coefficients.
   dcomplex *te;
-  //! \brief TBD
+  //! \brief ANNOTATION: Initial transition M coefficients.
   dcomplex *tm0;
-  //! \brief TBD
+  //! \brief ANNOTATION: Initial transition E coefficients.
   dcomplex *te0;
-  //! \brief TBD
+  //! \brief ANNOTATION: Included particle T-matrix.
   dcomplex **at;
   // >>> END OF SECTION NEEDED BY INCLU <<< //
   

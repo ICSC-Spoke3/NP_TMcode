@@ -183,8 +183,8 @@ public:
    * \param nsph: `int` Number of spheres to be used in calculation.
    * \param lm: `int` Maximum field angular momentum expansion order.
    * \param in_pol: `int` Incident field polarization status
-   * \param npnt: `int` Number of transition points. QUESTION: correct?
-   * \param npntts: `int` Transition smoothness. QUESTION: correct?
+   * \param npnt: `int` ANNOTATION: Number of points for non transition layer integration.
+   * \param npntts: `int` ANNOTATION: Number of points for transition layer integration.
    * \param meridional_type: `int` Type of meridional plane definition (<0
    * for incident angles, 0 if determined by incidence and observation, =1
    * accross z-axis for incidence and observation, >1 across z-axis as a
@@ -208,7 +208,7 @@ public:
    * \param sc_ph_start: `double` Scattered field starting elevation angle.
    * \param sc_ph_step: `double` Scattered field elevation angle step.
    * \param sc_ph_end: `double` Scattered field final elevation angle.
-   * \param jwtm: `int` Transition Matrix layer ID. QUESTION: correct?
+   * \param jwtm: `int` Transition Matrix layer ID.
    */
   GeometryConfiguration(
 			int nsph, int lm, int in_pol, int npnt, int npntts, int meridional_type,
@@ -324,11 +324,11 @@ protected:
   int _number_of_scales;
   //! \brief Type of dielectric functions (<0 at XIP, =0 as function of XI, >0 constants).
   int _idfc;
-  //! \brief External medium dielectric constant. QUESTION: correct?
+  //! \brief External medium dielectric constant.
   double _exdc;
-  //! \brief WP. QUESTION: better definition?
+  //! \brief WP. Peak pulsation.
   double _wp;
-  //! \brief Peak XI. QUESTION: correct?
+  //! \brief Peak scale.
   double _xip;
   //! \brief Maximum number of layers for the particle components.
   int _max_layers;
@@ -414,10 +414,10 @@ public:
    * \param scale_vector: `double*` The radiation-particle scale vector.
    * \param nxi: `int` The number of radiation-particle scalings.
    * \param variable_name: `string` The name of the radiation-particle scaling type.
-   * \param iog_vector: `int*` Array of sphere identification numbers. QUESTION: correct?
+   * \param iog_vector: `int*` Array of sphere identification numbers.
    * \param ros_vector: `double*` Sphere radius array.
    * \param nshl_vector: `int*` Array of layer numbers.
-   * \param rcf_vector: `double**` Array of fractional break radii. QUESTION: correct?
+   * \param rcf_vector: `double**` Array of fractional break radii.
    * \param dielectric_func_type: `int` Type of dielectric function definition (=0 for constant,
    * \>0 as function of scale parameter, <0 for functions at XIP value and XI is scale factor
    * for dimensions).
