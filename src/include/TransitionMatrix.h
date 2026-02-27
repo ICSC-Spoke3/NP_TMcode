@@ -172,7 +172,7 @@ class TransitionMatrix {
    * \param lm: `int` Maximum field expansion order.
    * \param vk: `double` Wave number in scale units.
    * \param exri: `double` External medium refractive index.
-   * \param elems: `complex double *` Vectorized elements of the matrix.
+   * \param _elems: `complex double *` Vectorized elements of the matrix.
    * \param radius: `double` Radius for the single sphere case (defaults to 0.0).
    */
   TransitionMatrix(

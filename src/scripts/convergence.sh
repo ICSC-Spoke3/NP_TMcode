@@ -15,6 +15,13 @@ if [ "x${ompthreads}" = "x" ]; then
     NPROC=$(nproc)
     ompthreads="1,${NPROC}" # OMP threads settings
 fi
+if [ "x${NPTMDIR}" = "x" ]; then
+    echo "ERROR: environment variable NPTMDIR is not defined."
+    echo "       Use \"export NPTMDIR=PATH_TO_NPTMCODE_INSTALL_DIR\","
+    echo "       where the installation directory is the one containing"
+    echo "       the COPYING license file."
+    exit 1
+fi
 li=${l_start}
 echo "#Wavelength,ScaSec,AbsSec,ExtSec,LM" > ${outputfile}
 while [ $((li)) -le ${l_end} ]
@@ -43,8 +50,8 @@ EOF
 0
 USE_DYN_ORDERS=0
 EOF
-    OMP_NUM_THREADS=${ompthreads} /home/lamura/Programming/gits/np_tmcode/build/sphere/np_sphere DEDFB DSPH .
-    /home/lamura/Programming/gits/np_tmcode/src/scripts/parse_output.py --app=SPH --in c_OSPH --out convergence
+    OMP_NUM_THREADS=${ompthreads} ${NPTMDIR}/build/sphere/np_sphere DEDFB DSPH .
+    ${NPTMDIR}/src/scripts/parse_output.py --app=SPH --in c_OSPH --out convergence
     cd ..
     str_line=$(tail -1 ${folder}/convergence_ics.csv)
     echo "${str_line},${fold_index}" >> ${outputfile}

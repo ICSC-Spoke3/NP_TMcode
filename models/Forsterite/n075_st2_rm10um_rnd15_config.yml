@@ -1,0 +1,148 @@
+system_settings:
+  # Limit on host RAM use in Gb (0 for no configuration limit)
+  max_host_ram : 200
+  # Limit on GPU RAM use in Gb ( 0 for no configuration limit)
+  max_gpu_ram  : 48
+  # Random seed (a positive integer number)
+  rnd_seed     : 15
+  # Random engine (COMPACT or LOOSE)
+  rnd_engine   : "LOOSE"
+  # OBJ model export flag (requires pyvista; 0 is FALSE)
+  make_3D      : 1
+
+runtime:
+  # Dynamically adapt orders
+  dyn_orders   : 1
+  # Use matrix inversion refinement
+  refinement   : 1
+  
+input_settings:
+  # Folder to write the code input configuration files
+  input_folder : "."
+  # Name of the scatterer description file
+  spheres_file : "DEDFB_15"
+  # Name of the geometry description file
+  geometry_file: "DCLU_15"
+  
+output_settings:
+  # Folder for the code output storage
+  output_folder: "."
+  # Name of the main output file
+  output_name  : "c_OCLU"
+  # Requested output formats
+  formats      : [ "LEGACY", "HDF5" ]
+  # Index of the scale for transition matrix output
+  jwtm         : 0
+
+particle_settings:
+  # What application to use (SPHERE | CLUSTER | INCLUSION)
+  application : "CLUSTER"
+  # Number of spheres
+  n_spheres   : 75
+  # Number of sphere types
+  n_types     : 2
+  # Vector of sphere type identifiers (what type is each sphere)
+  sph_types   : [
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    2, 2, 2
+  ]
+  # Vector of layers in types (how many layers in each type)
+  n_layers    : [ 1, 1 ]
+  # Spherical monomer radii in m (one size for each type)
+  radii       : [ 1.25893e-6, 7.94328e-07 ]
+  # Layer fractional radii (one per layer in each type)
+  rad_frac    : [ [ 1.0 ], [ 1.0 ] ]
+  # Index of the dielectric constants (one per layer in each type)
+  #
+  # 1 is first file in `dielec_file`, 2 is second ...
+  dielec_id   : [ [ 1 ], [ 1 ] ]
+  # Maximum radius for random particle size in m
+  max_rad     : 1.0e-5
+
+material_settings:
+  diel_flag   : 0
+  # External medium dielectric constant
+  extern_diel : 1.000e+0
+  # Dielectric constant files folder
+  dielec_path : "."
+  # List of dielectric constant files (used if diel_flag = 0)
+  dielec_file : [ "eps_forsterite.csv" ]
+  # Dielectric constant files format (same for all files)
+  dielec_fmt  : [ "CSV" ]
+  # Matching method between optical constants and radiation wavelengths
+  #
+  # INTERPOLATE: the constants are interpolated on wavelengths
+  # GRID: only the wavelengths with defined constants are computed
+  #
+  match_mode  : "GRID"
+  # Reference dielectric constants (used if diel_flag = -1)
+  #
+  # One real and one imaginary part for each layer in each type.
+  diel_const  : [ ]
+
+radiation_settings:
+  # Radiation field polarization (LINEAR | CIRCULAR)
+  polarization: "LINEAR"
+  # First scale to be used
+  scale_start : 1.000e-6
+  # Last scale to be used
+  scale_end   : 2.500e-5
+  # Calculation step (overridden if `match_mode` is GRID)
+  scale_step  : 1.0e00
+  # Peak Omega
+  wp          : 3.000e+8
+  # Peak scale
+  xip         : 1.000e00
+  # Define scale explicitly (0) or in equal steps (1)
+  step_flag   : 0
+  # Type of scaling variable
+  scale_name  : "WAVELENGTH"
+
+geometry_settings:
+  # Maximum internal field expansion
+  li          : 10
+  # Maximum external field expansion (not used by SPHERE)
+  le          : 44
+  # Number of transition layer integration points
+  npnt        : 149
+  # Number of non transition layer integration points
+  npntts      : 300
+  # Averaging mode
+  iavm        : 0
+  # Meridional plane flag
+  isam        : 0
+  # Starting incidence azimuth angle
+  in_th_start : 0.0
+  # Incidence azimuth angle incremental step
+  in_th_step  : 0.0
+  # Ending incidence azimuth angle
+  in_th_end   : 0.0
+  # Starting incidence elevation angle
+  in_ph_start : 0.0
+  # Incidence elevation angle incremental step
+  in_ph_step  : 0.0
+  # Ending incidence elevation angle
+  in_ph_end   : 0.0
+  # Starting scattered azimuth angle
+  sc_th_start : 0.0
+  # Scattered azimuth angle incremental step
+  sc_th_step  : 0.0
+  # Ending scattered azimuth angle
+  sc_th_end   : 0.0
+  # Starting scattered elevation angle
+  sc_ph_start : 0.0
+  # Scattered elevation angle incremental step
+  sc_ph_step  : 0.0
+  # Ending scattered elevation angle
+  sc_ph_end   : 0.0
+  # Vector of sphere X coordinates (one per sphere or empty for random)
+  x_coords    : [ ]
+  # Vector of sphere Y coordinates (one per sphere or empty for random)
+  y_coords    : [ ]
+  # Vector of sphere Z coordinates (one per sphere or empty for random)
+  z_coords    : [ ]

@@ -64,9 +64,9 @@ struct CCR {
 
 /*! C++ porting of CAMP
  *
- * \param ac: `complex double *` QUESTION: definition?
- * \param am0m: `complex double **` QUESTION: definition?
- * \param ws: `complex double *` QUESTION: definition?
+ * \param ac: `complex double *` ANNOTATION: vector of complex amplitudes.
+ * \param am0m: `complex double **` ANNOTATION: T-matrix of the particle.
+ * \param ws: `complex double *` ANNOTATION: scattering amplitudes.
  * \param cil: `CIL *` Pointer to a CIL structure.
  *
  * This function builds the AC vector using AM0M and WS.
@@ -75,10 +75,10 @@ void camp(dcomplex *ac, dcomplex **am0m, dcomplex *ws, CIL *cil);
 
 /*! C++ porting of CZAMP
  *
- * \param ac: Vector of complex. QUESTION: definition?
- * \param amd: Matrix of complex. QUESTION: definition?
- * \param indam: `int **`. QUESTION: definition?
- * \param ws: Vector of complex. QUESTION: definition?
+ * \param ac: Vector of complex. ANNOTATION: vector of complex amplitudes.
+ * \param amd: Matrix of complex. ANNOTATION: T-matrix.
+ * \param indam: `int **`. ANNOTATION: map of matrix indexes.
+ * \param ws: Vector of complex. ANNOTATION: scattering amplitudes.
  * \param cil: `CIL *` Pointer to a CIL structure.
  *
  * This function builds the AC vector using AMD, INDAM and WS.
@@ -87,11 +87,11 @@ void czamp(dcomplex *ac, dcomplex **amd, int **indam, dcomplex *ws, CIL *cil);
 
 /*! C++ porting of FFRF
  *
- * \param zpv: `double ****`. QUESTION: definition?
- * \param ac: `complex double *` QUESTION: definition?
- * \param ws: `complex double *` QUESTION: definition?
- * \param fffe: `double *`. QUESTION: definition?
- * \param fffs: `double *`. QUESTION: definition?
+ * \param zpv: `double ****`. ANNOTATION: asymmetry tensor.
+ * \param ac: `complex double *` ANNOTATION: vector of complex amplitudes.
+ * \param ws: `complex double *` ANNOTATION: scattering amplitudes.
+ * \param fffe: `double *`. ANNOTATION: extinction contributions to force.
+ * \param fffs: `double *`. ANNOTATION: scattering contributions to force.
  * \param cil: `CIL *` Pointer to a CIL structure.
  * \param ccr: `CCR *` Pointer to a CCR structure.
  */
@@ -102,30 +102,30 @@ void ffrf(
 
 /*! C++ porting of FFRT
  *
- * \param ac: `complex double *` QUESTION: definition?
- * \param ws: `complex double *` QUESTION: definition?
- * \param ffte: `double *`. QUESTION: definition?
- * \param ffts: `double *`. QUESTION: definition?
+ * \param ac: `complex double *` ANNOTATION: vector of complex amplitudes.
+ * \param ws: `complex double *` ANNOTATION: scattering amplitudes.
+ * \param ffte: `double *`. ANNOTATION: extinction contributions to torque.
+ * \param ffts: `double *`. ANNOTATION: scattering contributions to torque.
  * \param cil: `CIL *` Pointer to a CIL structure.
  */
 void ffrt(dcomplex *ac, dcomplex *ws, double *ffte, double *ffts, CIL *cil);
 
 /*! C++ porting of FRFMER
  *
- * \param nkv: `int` QUESTION: definition?
- * \param vkm: `double` QUESTION: definition?
- * \param vknmx: `double` QUESTION: definition?
- * \param apfafa: `double` QUESTION: definition?
- * \param tra: `double` QUESTION: definition?
- * \param spd: `double` QUESTION: definition?
- * \param rir: `double` QUESTION: definition?
- * \param ftcn: `double` QUESTION: definition?
- * \param le: `int` QUESTION: definition?
- * \param lmode: `int` QUESTION: definition?
- * \param pmf: `double` QUESTION: definition?
+ * \param nkv: `int` ANNOTATION: number of wave vectors.
+ * \param vkm: `double` ANNOTATION: wave number.
+ * \param vknmx: `double` ANNOTATION: maximum wave number.
+ * \param apfafa: `double` ANNOTATION: normalized aperture.
+ * \param tra: `double` ANNOTATION: lens transmission.
+ * \param spd: `double` ANNOTATION: cover thickness.
+ * \param rir: `double` ANNOTATION: external over oil refractive index ratio.
+ * \param ftcn: `double` ANNOTATION: refraction factor.
+ * \param le: `int` ANNOTATION: external multipole truncation order.
+ * \param lmode: `int` ANNOTATION: laser mode.
+ * \param pmf: `double` ANNOTATION: aperture correction.
  * \param tt1: `Swap1 *` Pointer to first swap object.
  * \param tt2: `Swap2 *` Pointer to second swap object.
- * \return wk: `complex double *` QUESTION: definition?
+ * \return wk: `complex double *` ANNOTATION: incident amplitudes.
  */
 dcomplex *frfmer(
 	    int nkv, double vkm, double vknmx, double apfafa, double tra,
@@ -135,20 +135,20 @@ dcomplex *frfmer(
 
 /*! C++ porting of PWMALP
  *
- * \param w: `complex double *` QUESTION: definition?
- * \param up: `double *`
- * \param un: `double *`
+ * \param w: `complex double *` ANNOTATION: amplitudes.
+ * \param up: `double *` ANNOTATION: unit polarization vector.
+ * \param un: `double *` ANNOTATION: unit normal vector.
  * \param ylm: `complex double *` Field vector spherical harmonics.
- * \param lw: `int`
+ * \param lw: `int` ANNOTATION: order of amplitudes.
  */
 void pwmalp(dcomplex **w, double *up, double *un, dcomplex *ylm, int lw);
 
 /*! C++ porting of SAMP
  *
- * \param ac: `complex double *` QUESTION: definition?
- * \param tmsm: `complex double *` QUESTION: definition?
- * \param tmse: `complex double *` QUESTION: definition?
- * \param ws: `complex double *` QUESTION: definition?
+ * \param ac: `complex double *` ANNOTATION: vector of complex amplitudes.
+ * \param tmsm: `complex double *` ANNOTATION: T-matrix M components.
+ * \param tmse: `complex double *` ANNOTATION: T-matrix E components.
+ * \param ws: `complex double *` ANNOTATION: scattering amplitudes.
  * \param cil: `CIL *` Pointer to a CIL structure.
  *
  * This function builds the AC vector using TMSM, TMSE and WS.
@@ -157,9 +157,9 @@ void samp(dcomplex *ac, dcomplex *tmsm, dcomplex *tmse, dcomplex *ws, CIL *cil);
 
 /*! C++ porting of SAMPOA
  *
- * \param ac: `complex double *` QUESTION: definition?
- * \param tms: `complex double **` QUESTION: definition?
- * \param ws: `complex double *` QUESTION: definition?
+ * \param ac: `complex double *` ANNOTATION: vector of complex amplitudes.
+ * \param tms: `complex double **` ANNOTATION: T-matrix.
+ * \param ws: `complex double *` ANNOTATION: scattering amplitudes.
  * \param cil: `CIL *` Pointer to a CIL structure.
  *
  * This function builds the AC vector using TMS and WS.
@@ -168,18 +168,18 @@ void sampoa(dcomplex *ac, dcomplex **tms, dcomplex *ws, CIL *cil);
 
 /*! C++ porting of WAMFF
  *
- * \param wk: `complex double *` QUESTION: definition?
- * \param x: `double`
- * \param y: `double`
- * \param z: `double`
- * \param lm: `int`
- * \param apfafa: `double` QUESTION: definition?
- * \param tra: `double` QUESTION: definition?
- * \param spd: `double` QUESTION: definition?
- * \param rir: `double` QUESTION: definition?
- * \param ftcn: `double` QUESTION: definition?
- * \param lmode: `int` QUESTION: definition?
- * \param pmf: `double` QUESTION: definition?
+ * \param wk: `complex double *` ANNOTATION: incident amplitudes.
+ * \param x: `double` ANNOTATION: X coordinate.
+ * \param y: `double` ANNOTATION: Y coordinate.
+ * \param z: `double` ANNOTATION: Z coordinate.
+ * \param lm: `int` ANNOTATION: maximum multipole truncation order.
+ * \param apfafa: `double` ANNOTATION: Normalized aperture.
+ * \param tra: `double` ANNOTATION: Lens transmission.
+ * \param spd: `double` ANNOTATION: Cover slip thickness.
+ * \param rir: `double` ANNOTATION: External over oil refractive index ratio.
+ * \param ftcn: `double` ANNOTATION: Refraction factor.
+ * \param lmode: `int` ANNOTATION: Laser mode.
+ * \param pmf: `double` ANNOTATION: aperture correction.
  */
 void wamff(
 	   dcomplex *wk, double x, double y, double z, int lm, double apfafa,

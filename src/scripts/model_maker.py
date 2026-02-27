@@ -598,8 +598,8 @@ def print_help():
 #  radii of the particle monomers and of the equivalent mass sphere, to
 #  assist in the selection of the proper starting orders.
 #
-#  \parameter scatterer: `dict` A dictionary for the scatterer configuration.
-#  \parameter geometry: `dict` A dictionary for the geometry configuration.
+#  \param scatterer: `dict` A dictionary for the scatterer configuration.
+#  \param geometry: `dict` A dictionary for the geometry configuration.
 def print_model_summary(scatterer, geometry):
     avgX = 0.0
     avgY = 0.0
@@ -877,6 +877,16 @@ def random_compact(scatterer, geometry, seed, max_rad):
             sph_index += 1
     return current_n
 
+## \brief Perform a preliminary test of the resources required by the model.
+#
+#  The resolution of models requires the availability of memory resources
+#  that increase as a function of the model complexity. This function aims
+#  at evaluating the complexity of the model and estimate whether the
+#  declared system resources are sufficient to run the calculation.
+#
+#  \param model: `dict` Model description dictionary.
+#  \param gconf: `dict` Geometry description dictionary.
+#  \param sconf: `dict` Scattering description dictionary.
 def test_system_resources(model, gconf, sconf):
     le = gconf['le'] if (gconf['application'] != "SPH") else 0
     li = gconf['li']

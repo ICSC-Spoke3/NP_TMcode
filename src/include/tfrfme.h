@@ -33,7 +33,7 @@ protected:
   //! NLMMT = 2 * LM * (LM + 2)
   int _nlmmt;
 
-  //! QUESTION: definition?
+  //! ANNOTATION: incident amplitudes.
   dcomplex *_wk;
 
   /*! \brief Load a Swap1 instance from a HDF5 binary file.
@@ -95,7 +95,7 @@ public:
   /*! \brief Calculate the necessary amount of memory to create a new instance.
    *
    * \param lm: `int` Maximum field expansion order.
-   * \param nkv: `int` Number of vector coordinates. QUESTION: correct?
+   * \param nkv: `int` ANNOTATION: Number of wave vectors.
    * \return size: `long` The necessary memory size in bytes.
    */
   static long get_size(int lm, int nkv);
@@ -132,23 +132,23 @@ protected:
   int _last_matrix;
   //! Number of beam description wave numbers.
   int _nkv;
-  //! QUESTION: definition?
+  //! ANNOTATION: normalized aperture.
   double _apfafa;
-  //! QUESTION: definition?
+  //! ANNOTATION: aperture correction.
   double _pmf;
-  //! QUESTION: definition?
+  //! ANNOTATION: cover slip thickness.
   double _spd;
-  //! QUESTION: definition?
+  //! ANNOTATION: external over oil refractive index ratio.
   double _rir;
-  //! QUESTION: definition?
+  //! ANNOTATION: refraction factor.
   double _ftcn;
-  //! QUESTION: definition?
+  //! ANNOTATION: cover correction factor.
   double _fshmx;
-  //! QUESTION: definition?
+  //! ANNOTATION: maximum Cartesian extension of wave.
   double _vxyzmx;
-  //! Cartesian displacement. QUESTION: correct?
+  //! ANNOTATION: Cartesian displacement.
   double _delxyz;
-  //! QUESTION: definition?
+  //! ANNOTATION: maximum wave number.
   double _vknmx;
   //! Wave number grid spacing.
   double _delk;
@@ -192,31 +192,31 @@ public:
   const int &last_matrix = _last_matrix;
   //! Read-only view on the number of beam description wave numbers.
   const int &nkv = _nkv;
-  //! QUESTION: definition?
+  //! ANNOTATION: wave number vector.
   double *vkv;
-  //! QUESTION: definition?
+  //! ANNOTATION: Vectorized VKZ matrix.
   double *vec_vkzm;
-  //! QUESTION: definition?
+  //! ANNOTATION: Normalized aperture.
   const double &apfafa = _apfafa;
-  //! QUESTION: definition?
+  //! ANNOTATION: Aperture correction.
   const double &pmf = _pmf;
-  //! QUESTION: definition?
+  //! ANNOTATION: Cover slip thickness.
   const double &spd = _spd;
-  //! QUESTION: definition?
+  //! ANNOTATION: External over oil refractive index.
   const double &rir = _rir;
-  //! QUESTION: definition?
+  //! ANNOTATION: Refraction factor.
   const double &ftcn = _ftcn;
-  //! QUESTION: definition?
+  //! ANNOTATION: Cover slip correction factor.
   const double &fshmx = _fshmx;
-  //! QUESTION: definition?
+  //! ANNOTATION: Maximum Cartesian extension of wave.
   const double &vxyzmx = _vxyzmx;
-  //! Cartesian displacement. QUESTION: correct?
+  //! ANNOTATION: Cartesian displacement.
   const double &delxyz = _delxyz;
-  //! QUESTION: definition?
+  //! ANNOTATION: Maximum wave number.
   const double &vknmx = _vknmx;
-  //! QUESTION: definition?
+  //! ANNOTATION: Wave number variation.
   const double &delk = _delk;
-  //! QUESTION: definition?
+  //! ANNOTATION: Squared wave number variation.
   const double &delks = _delks;
   //! NLMMT = LM * (LM + 2) * 2
   const int &nlmmt = _nlmmt;
@@ -330,11 +330,11 @@ protected:
   double _ff;
   //! Lens transmission.
   double _tra;
-  //! QUESTION: definition?
+  //! ANNOTATION: Cover slip thickness.
   double _spd;
-  //! QUESTION: definition?
+  //! ANNOTATION: Cover slip correction factor.
   double _frsh;
-  //! QUESTION: definition?
+  //! ANNOTATION: Oil refractive index.
   double _exril;
   //! Vector of computed x positions
   double *xv;
@@ -380,7 +380,7 @@ public:
   const int& lmode = _lmode;
   //! Read-only view on maximum field expansion order.
   const int& lm = _lm;
-  //! QUESTION: definition?
+  //! ANNOTATION: Number of wave vectors.
   const int& nkv = _nkv;
   //! Read-only view on number of computed X coordinates.
   const int& nxv = _nxv;
@@ -398,20 +398,20 @@ public:
   const double& ff = _ff;
   //! Read-only view on lens transmission.
   const double& tra = _tra;
-  //! QUESTION: definition?
+  //! ANNOTATION: Cover slip thickness.
   const double& spd = _spd;
-  //! QUESTION: definition?
+  //! ANNOTATION: Cover slip correction.
   const double& frsh = _frsh;
-  //! QUESTION: definition?
+  //! ANNOTATION: Oil refractive index.
   const double& exril = _exril;
-  //! QUESTION: definition?
+  //! ANNOTATION: Vectorised WSUM matrix.
   dcomplex *vec_wsum;
   
   /*! \brief Trapping configuration instance constructor.
    *
    * \param lmode: `int` Order expansion mode flag.
    * \param lm: `int` Maximum field expansion order.
-   * \param nkv: `int` Number of wave vector coordinates. QUESTION: correct?
+   * \param nkv: `int` ANNOTATION: Number of wave vectors.
    * \param nxv: `int` Number of computed X coordinates.
    * \param nyv: `int` Number of computed Y coordinates.
    * \param nzv: `int` Number of computed Z coordinates.
@@ -437,7 +437,7 @@ public:
   /*! \brief Calculate the necessary amount of memory to create a new instance.
    *
    * \param lm: `int` Maximum field expansion order.
-   * \param nkv: `int` Number of radial vector coordinates. QUESTION: correct?
+   * \param nkv: `int` ANNOTATION: Number of wave vectors.
    * \param nxv: `int` Number of computed X coordinates.
    * \param nyv: `int` Number of computed Y coordinates.
    * \param nzv: `int` Number of computed Z coordinates.
