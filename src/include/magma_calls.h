@@ -14,7 +14,8 @@
    this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
  */
 
-/*! \file magma_calls.h
+/**
+ * \file magma_calls.h
  *
  * \brief C++ interface to MAGMA calls.
  *
@@ -25,30 +26,63 @@
 #ifndef INCLUDE_MAGMA_CALLS_H_
 #define INCLUDE_MAGMA_CALLS_H_
 
-/*! \brief Invert a complex matrix with double precision elements.
- *
- * call magma_zinvert1() to do the actual inversion
+/**
+ * \brief Invert a complex matrix with double precision elements.
  *
  * \param mat: Matrix of complex. The matrix to be inverted.
  * \param n: `np_int` The number of rows and columns of the [n x n] matrix.
  * \param jer: `int &` Reference to an integer return flag.
  * \param device_id: `int` ID of the device for matrix inversion offloading.
+ * \param rs: `const RuntimeSettings &` Runtime settings instance.
  */
-void magma_zinvert(dcomplex **mat, np_int n, int &jer, int device_id=0);
+void magma_zinvert(
+  dcomplex **mat, np_int n, int &jer, int device_id=0,
+  const RuntimeSettings& rs=RuntimeSettings()
+);
 
-/*! \brief Auxiliary function to Invert a complex matrix with double precision elements.
+/**
+ * \brief Perform Newton-Schulz iterative refinement of matrix inversion.
  *
- * Use MAGMA to perform an in-place matrix inversion for a complex
- * matrix with double precision elements.
+ * In this function the residual of the inversion of a matrix A is evaluated as:
  *
- * \param inva: reference to the pointer to the first element of the matrix to be inverted on entry, inverted matrix on exit.
- * \param n: `np_int` The number of rows and columns of the [n x n] matrix.
- * \param jer: `int &` Reference to an integer return flag.
- * \param device_id: `int` ID of the device for matrix inversion offloading.
+ * R = A^-1 A - I
+ *
+ * and the convergence of refinement is estimated through the largest element
+ * modulus left in R.
+ *
+ * \param rs: `const RuntimeSettings &` Runtime settings instance. [IN]
+ * \param a: `magmaDoubleComplex *` Pointer to the first element of the non-inverted matrix on host. [IN]
+ * \param m: `const magma_int_t` Number of rows / columns in a. [IN]
+ * \param d_a: `magmaDoubleComplex *` Pointer to the matrix on the GPU. [IN/OUT]
+ * \param queue: `magma_queue_t` GPU communication queue. [IN]
+ * \return err: `magma_int_t` An error code (MAGMA_SUCCESS, if everything was fine).
  */
-void magma_zinvert1(dcomplex * &inva, np_int n, int &jer, int device_id);
+magma_int_t magma_newton(
+  const RuntimeSettings& rs, magmaDoubleComplex* a, const magma_int_t m,
+  magmaDoubleComplex* d_a, magma_queue_t queue
+);
 
-/*! \brief Invert a complex matrix with double precision elements, applying iterative refinement of the solution
+/**
+ * \brief Perform norm-based Newton-Schulz iterative refinement of matrix inversion.
+ *
+ * In this function the residual of the inversion of a matrix A is evaluated as:
+ *
+ * R = A A^-1 A - A
+ *
+ * and the convergence of refinement is estimated through the norm of R.
+ *
+ * \param rs: `const RuntimeSettings &` Runtime settings instance. [IN]
+ * \param a: `magmaDoubleComplex *` Pointer to the first element of the non-inverted matrix on host. [IN]
+ * \param m: `const magma_int_t` Number of rows / columns in a. [IN]
+ * \param d_a: `magmaDoubleComplex *` Pointer to the matrix on the GPU. [IN/OUT]
+ * \param queue: `magma_queue_t` GPU communication queue. [IN]
+ */
+magma_int_t magma_newton_norm(
+  const RuntimeSettings& rs, magmaDoubleComplex* a, const magma_int_t m,
+  magmaDoubleComplex* d_a, magma_queue_t queue
+);
+
+/* \brief Invert a complex matrix with double precision elements, applying iterative refinement of the solution
  *
  * call magma_zinvert1() to perform the first matrix inversion, then magma_refine() to do the refinement (only if maxrefiters is >0)
  *
@@ -62,9 +96,9 @@ void magma_zinvert1(dcomplex * &inva, np_int n, int &jer, int device_id);
  * \param output_path: `const string &` Path where the output needs to be placed.
  * \param jxi488: `int` Index of the current wavelength calculation.
  */
-void magma_zinvert_and_refine(dcomplex **mat, np_int n, int &jer, int &maxrefiters, double &accuracygoal, int refinemode, int device_id, const string& output_path, int jxi488);
+//void magma_zinvert_and_refine(dcomplex **mat, np_int n, int &jer, int &maxrefiters, double &accuracygoal, int refinemode, int device_id, const string& output_path, int jxi488);
 
-/*! \brief Apply iterative refinement of the solution of a matrix inversion.
+/* \brief Apply iterative refinement of the solution of a matrix inversion.
  *
  * Iteratively compute and apply a correction to the inverse `inva` of the complex
  * matrix `aorig`, for a maximum number of `maxiters` times, or until achieving a
@@ -81,6 +115,6 @@ void magma_zinvert_and_refine(dcomplex **mat, np_int n, int &jer, int &maxrefite
  * \param output_path: `const string &` Path where the output needs to be placed.
  * \param jxi488: `int` Index of the current wavelength calculation.
  */
-void magma_refine(dcomplex *aorig, dcomplex *inva, np_int n, int &jer, int &maxrefiters, double &accuracygoal, int refinemode, int device_id, const string& output_path, int jxi488);
+// void magma_refine(dcomplex *aorig, dcomplex *inva, np_int n, int &jer, int &maxrefiters, double &accuracygoal, int refinemode, int device_id, const std::string& output_path, int jxi488);
 
 #endif

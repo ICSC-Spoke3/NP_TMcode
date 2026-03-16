@@ -14,7 +14,8 @@
    this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
  */
 
-/*! \file Configuration.h
+/**
+ * \file Configuration.h
  *
  * \brief Configuration data structures.
  *
@@ -35,10 +36,16 @@
  * `GeometryConfiguration`, on the contrary, describes the properties of
  * the radiation field impinging on the particle. It defines the incoming
  * radiation polarization state, the incident direction and the scattering
- * directions that need to be accounted for. Both classes expose methods to
+ * directions that need to be accounted for. It also stores information
+ * concerning the locations of the single spheres and a set of runtime
+ * options read from the model input file. Both classes expose methods to 
  * read the required configuration data from input files formatted according
  * to the same rules expected by the original code. In addition, they offer
  * perform I/O operations towards proprietary and standard binary formats.
+ *
+ * Additional functions and auxiliary classes are defined to manage the runtime
+ * settings, the communication with MPI, and the sanity checks on input and
+ * system resources.
  */
 
 #ifndef INCLUDE_CONFIGURATION_H_
@@ -110,7 +117,7 @@ protected:
   //! \brief Vector of spherical components Z coordinates.
   double *_sph_z;
   //! \brief Flag for matrix inversion refinement.
-  short _refine_flag;
+  bool _refine_flag;
   //! \brief Flag for dynamic order management.
   short _dyn_order_flag;
   //! \brief Host RAM in GB
@@ -119,6 +126,12 @@ protected:
   double _gpu_ram_gb;
   //! \brief Sphere overlap tolerance;
   double _tolerance;
+  //! \brief Inversion algorithm (0 - LU, 1 - SVD, 2 - RBT)
+  short _invert_mode;
+  //! \brief Desired numerical accuracy for matrix inversion.
+  double _accuracy_goal;
+  //! \brief Maximum number of refinement iterations.
+  int _ref_iters;
 
 public:
   //! \brief Read-only view on number of spherical components.
@@ -168,17 +181,24 @@ public:
   //! \brief Read-only view on scattered field final elevation.
   const double& sc_phi_end = _sc_phi_end;
   //! \brief Read-only view on flag for matrix inversion refinement.
-  const short& refine_flag = _refine_flag;
+  const bool& refine_flag = _refine_flag;
   //! \brief Read-only view on flag for dynamic order management.
   const short& dyn_order_flag = _dyn_order_flag;
-  //! \brief Read-only view on host RAM in GB
+  //! \brief Read-only view on host RAM in GB.
   const double& host_ram_gb = _host_ram_gb;
-  //! \brief Read-only view on GPU RAM in GB
+  //! \brief Read-only view on GPU RAM in GB.
   const double& gpu_ram_gb = _gpu_ram_gb;
-  //! \brief Read-only view on sphere overlap tolerance
+  //! \brief Read-only view on sphere overlap tolerance.
   const double& tolerance = _tolerance;
+  //! \brief Read-only view on inversion algorithm.
+  const short& invert_mode = _invert_mode;
+  //! \brief Read-only view on desired numerical accuracy for matrix inversion.
+  const double& accuracy_goal = _accuracy_goal;
+  //! \brief Read-only view on maximum number of refinement iterations.
+  const int& ref_iters = _ref_iters;
   
-  /*! \brief Build a scattering geometry configuration structure.
+  /**
+   * \brief Build a scattering geometry configuration structure.
    *
    * \param nsph: `int` Number of spheres to be used in calculation.
    * \param lm: `int` Maximum field angular momentum expansion order.
@@ -221,20 +241,23 @@ public:
 			int jwtm
 			);
   
-  /*! \brief Build a scattering geometry configuration structure copying it from an existing one.
+  /**
+   * \brief Build a scattering geometry configuration structure copying it from an existing one.
    *
    * \param rhs: `GeometryConfiguration` preexisting object to copy from.
    */
   GeometryConfiguration(const GeometryConfiguration& rhs);
 
 #ifdef MPI_VERSION
-  /*! \brief Build a scattering geometry configuration structure copying it via MPI from MPI process 0.
+  /**
+   * \brief Build a scattering geometry configuration structure copying it via MPI from MPI process 0.
    *
    * \param rhs: `mixMPI *` pointer to the mpidata instance to use for the MPI communications.
    */
   GeometryConfiguration(const mixMPI *mpidata);
 
-  /*! \brief Broadcast over MPI the GeometryConfiguration instance from MPI process 0 to all others.
+  /**
+   * \brief Broadcast over MPI the GeometryConfiguration instance from MPI process 0 to all others.
    *
    * When using MPI, the initial GeometryConfiguration instance created by MPI process 0
    * needs to be replicated on all other processes. This function sends it using
@@ -246,11 +269,13 @@ public:
   void mpibcast(const mixMPI *mpidata);
 #endif
 
-  /*! \brief Destroy a GeometryConfiguration instance.
+  /**
+   * \brief Destroy a GeometryConfiguration instance.
    */
   ~GeometryConfiguration();
 
-  /*! \brief Build geometry configuration from legacy configuration input file.
+  /**
+   * \brief Build geometry configuration from legacy configuration input file.
    *
    * To allow for consistency tests and backward compatibility, geometry
    * configurations can be built from legacy configuration files. This function
@@ -263,36 +288,108 @@ public:
    */
   static GeometryConfiguration *from_legacy(const std::string& file_name);
   
-  /*! \brief Get the X coordinate of a sphere by its index.
+  /**
+   * \brief Get the X coordinate of a sphere by its index.
    *
    * This is a specialized function to access the X coordinate of a sphere through
    * its index.
    *
-   * \param index: `int` Index of the scale to be retrieved.
+   * \param index: `int` Index of the sphere (0-based).
    * \return scale: `double` The X coordinate of the requested sphere.
    */
   double get_sph_x(int index) { return _sph_x[index]; }
   
-  /*! \brief Get the Y coordinate of a sphere by its index.
+  /**
+   * \brief Get the Y coordinate of a sphere by its index.
    *
    * This is a specialized function to access the Y coordinate of a sphere through
    * its index.
    *
-   * \param index: `int` Index of the scale to be retrieved.
+   * \param index: `int` Index of the sphere (0-based).
    * \return scale: `double` The Y coordinate of the requested sphere.
    */
   double get_sph_y(int index) { return _sph_y[index]; }
   
-  /*! \brief Get the Z coordinate of a sphere by its index.
+  /**
+   * \brief Get the Z coordinate of a sphere by its index.
    *
    * This is a specialized function to access the Z coordinate of a sphere through
    * its index.
    *
-   * \param index: `int` Index of the scale to be retrieved.
+   * \param index: `int` Index of the sphere (0-based).
    * \return scale: `double` The Z coordinate of the requested sphere.
    */
   double get_sph_z(int index) { return _sph_z[index]; }
 
+};
+
+/**
+ * \brief A class to represent runtime settings.
+ *
+ * DEVELOPMENT NOTE: this class does not need MPI / OpenMP interface
+ * methods, because it is designed to be a shared memory read-only
+ * structure, independently constructed by each MPI process, immedately
+ * after getting its GeometryConfiguration instance.
+ */
+class RuntimeSettings {
+protected:
+  //! \brief Inversion mode flag.
+  short _invert_mode;
+  //! \brief Target matrix inversion accuracy.
+  double _accuracy_goal;
+  //! \brief GPU memory in GiB.
+  double _gpu_ram_gb;
+  //! \brief Host system memory in GiB.
+  double _host_ram_gb;
+  //! \brief Maximum number of refinement iterations.
+  int _max_ref_iters;
+  //! \brief Refinement flag.
+  bool _use_refinement;
+
+public:
+  //! \brief Flag for LU factorization inversion.
+  const static short INV_MODE_LU = 0;
+  //! \brief Flag for linear system solver.
+  const static short INV_MODE_GESV = 1;
+  //! \brief Flag for random butterfly transformation inversion.
+  const static short INV_MODE_RBT = 2;
+  //! \brief Flag for singular value decomposition.
+  const static short INV_MODE_SVD = 3;
+
+  //! \brief Read-only view on inversion mode flag.
+  const short& invert_mode = _invert_mode;
+  //! \brief Read-only view on target matrix inversion accuracy.
+  const double& accuracy_goal = _accuracy_goal;
+  //! \brief Read-only view on GPU memory in GiB.
+  const double& gpu_ram_gb = _gpu_ram_gb;
+  //! \brief Read-only view on host system memory in GiB.
+  const double& host_ram_gb = _host_ram_gb;
+  //! \brief Read-only view on maximum number of refinement iterations.
+  const int& max_ref_iters = _max_ref_iters;
+  //! \brief Read-only view on refinement flag.
+  const bool& use_refinement = _use_refinement;
+  //! \brief Pointer to a Logger instance.
+  const Logger *logger;
+
+  /**
+   * \brief Default RuntimeSettings instance constructor.
+   */
+  RuntimeSettings();
+
+  /**
+   * \brief RuntimeSettings instance constructor.
+   *
+   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
+   * \param ptr_logger: `Logger *` Pointer to a Logger instance (optional).
+   */
+  RuntimeSettings(GeometryConfiguration *gconf, Logger *ptr_logger=NULL);
+
+  /**
+   * \brief Update matrix inversion accuracy to new value.
+   *
+   * \param goal: `const double` Desired new accuracy value.
+   */
+  void set_accuracy_goal(const double goal) { _accuracy_goal = goal; }
 };
 
 /**
@@ -335,7 +432,8 @@ protected:
   //! \brief Flag to control whether to add an external layer.
   bool _use_external_sphere;
 
-  /*! \brief Build configuration from a HDF5 binary input file.
+  /**
+   * \brief Build configuration from a HDF5 binary input file.
    *
    * This is the function called by the public method `from_binary()` in case of
    * HDF5 mode selection. This function creates a configuration structure from
@@ -347,7 +445,8 @@ protected:
    */
   static ScattererConfiguration *from_hdf5(const std::string& file_name);
   
-  /*! \brief Build configuration from legacy binary input file.
+  /**
+   * \brief Build configuration from legacy binary input file.
    *
    * This is the function called by the public method `from_binary()` in case of
    * legacy mode selection. This function creates a configuration structure from
@@ -360,7 +459,8 @@ protected:
    */
   static ScattererConfiguration *from_legacy(const std::string& file_name);
 
-  /*! \brief Write the scatterer configuration data to HDF5 binary output.
+  /**
+   * \brief Write the scatterer configuration data to HDF5 binary output.
    *
    * This function is invoked by the public method `write_binary()` with the
    * "HDF5" format mode. It undertakes the task of writing the configuration
@@ -370,7 +470,8 @@ protected:
    */
   void write_hdf5(const std::string& file_name);
   
-  /*! \brief Write the scatterer configuration data to legacy binary output.
+  /**
+   * \brief Write the scatterer configuration data to legacy binary output.
    *
    * This function is invoked by the public method `write_binary()` with the
    * "LEGACY" format mode. It undertakes the task of writing the configuration
@@ -404,7 +505,8 @@ public:
   //! \brief Matrix of fractional transition radii with size [CONFIGURATIONS x LAYERS].
   double **_rcf;
   
-  /*! \brief Build a scatterer configuration structure.
+  /**
+   * \brief Build a scatterer configuration structure.
    *
    * Prepare a default configuration structure by allocating the necessary
    * memory structures.
@@ -445,7 +547,8 @@ public:
 			 double xip
   );
   
-  /*! \brief Build a scatterer configuration structure copying its contents from a preexisting one.
+  /**
+   * \brief Build a scatterer configuration structure copying its contents from a preexisting one.
    *
    * Prepare a default configuration structure by allocating the necessary
    * memory structures.
@@ -456,13 +559,15 @@ public:
   ScattererConfiguration(const ScattererConfiguration& rhs);
 
 #ifdef MPI_VERSION
-  /*! \brief Build a scatterer configuration structure copying it via MPI from MPI process 0.
+  /**
+   * \brief Build a scatterer configuration structure copying it via MPI from MPI process 0.
    *
    * \param rhs: `mixMPI *` pointer to the mpidata instance to use for the MPI communications.
    */
   ScattererConfiguration(const mixMPI *mpidata);
 
-  /*! \brief Broadcast over MPI the ScattererConfiguration instance from MPI process 0 to all others.
+  /**
+   * \brief Broadcast over MPI the ScattererConfiguration instance from MPI process 0 to all others.
    *
    * When using MPI, the initial ScattererConfiguration instance created by MPI process 0
    * needs to be replicated on all other processes. This function sends it using
@@ -474,11 +579,13 @@ public:
   void mpibcast(const mixMPI *mpidata);
 #endif
 
-  /*! \brief Destroy a scatterer configuration instance.
+  /**
+   * \brief Destroy a scatterer configuration instance.
    */
   ~ScattererConfiguration();
 
-  /*! \brief Build configuration from binary configuration input file.
+  /**
+   * \brief Build configuration from binary configuration input file.
    *
    * The configuration step can save configuration data as a binary file. The original
    * FORTRAN code used this possibility to manage communication between the configuring
@@ -495,7 +602,8 @@ public:
    */
   static ScattererConfiguration* from_binary(const std::string& file_name, const std::string& mode = "LEGACY");
 
-  /*! \brief Build scatterer configuration from legacy configuration input file.
+  /**
+   * \brief Build scatterer configuration from legacy configuration input file.
    *
    * To allow for consistency tests and backward compatibility, ScattererConfiguration
    * objects can be built from legacy configuration files. This function replicates
@@ -508,7 +616,8 @@ public:
    */
   static ScattererConfiguration* from_dedfb(const std::string& file_name);
 
-  /*! \brief Get the dielectric constant of a material for a specific wavelength.
+  /**
+   * \brief Get the dielectric constant of a material for a specific wavelength.
    *
    * Dielectric constants are stored in a 3D complex matrix, whose dimensions map
    * to [NUMBER_OF_CONFIGURATIONS x NUMBER_OF_SPHERES x NUMBER_OF_SCALES]. This
@@ -521,7 +630,8 @@ public:
    */
   dcomplex get_dielectric_constant(int i, int j, int k) { return _dc0_matrix[i][j][k]; }
   
-  /*! \brief Get the ID of a configuration from the index of the sphere.
+  /**
+   * \brief Get the ID of a configuration from the index of the sphere.
    *
    * This is a specialized function to get a configuration ID through the index of
    * the sphere it applies to.
@@ -531,19 +641,22 @@ public:
    */
   int get_iog(int index) { return _iog_vec[index]; }
   
-  /*! \brief Get the maximum radius of the sphere components.
+  /**
+   * \brief Get the maximum radius of the sphere components.
    *
    * \return radius: `double` The radius of the largest sphere.
    */
   double get_max_radius();
   
-  /*! \brief Get the minimum radius of the sphere components.
+  /**
+   * \brief Get the minimum radius of the sphere components.
    *
    * \return radius: `double` The radius of the smallest sphere.
    */
   double get_min_radius();
   
-  /*! \brief Get the number of layers for a given configuration.
+  /**
+   * \brief Get the number of layers for a given configuration.
    *
    * This is a specialized function to get the number of layers in a specific
    * configuration.
@@ -553,14 +666,16 @@ public:
    */
   int get_nshl(int index) { return _nshl_vec[index]; }
 
-  /*! \brief Get the radius of the smallest sphere containing the particle.
+  /**
+   * \brief Get the radius of the smallest sphere containing the particle.
    *
    * \param gc: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
    * \return radius: `double` The radius of the sphere containing the particle.
    */
   double get_particle_radius(GeometryConfiguration *gc);
   
-  /*! \brief Get the radius of a sphere by its index.
+  /**
+   * \brief Get the radius of a sphere by its index.
    *
    * This is a specialized function to get the radius of a sphere through its
    * index.
@@ -570,7 +685,8 @@ public:
    */
   double get_radius(int index);
   
-  /*! \brief Get the value of a scale by its index.
+  /**
+   * \brief Get the value of a scale by its index.
    *
    * This is a specialized function to access a scale (generally a wavelength),
    * through its index.
@@ -581,7 +697,8 @@ public:
    */
   double get_rcf(int row, int column) { return _rcf[row][column]; }
 
-  /*! \brief Get the value of a scale by its index.
+  /**
+   * \brief Get the value of a scale by its index.
    *
    * This is a specialized function to access a scale (generally a wavelength),
    * through its index.
@@ -591,7 +708,8 @@ public:
    */
   double get_scale(int index) { return _scale_vec[index]; }
   
-  /*! \brief Get the radius of a sphere type by its index.
+  /**
+   * \brief Get the radius of a sphere type by its index.
    *
    * This is a specialized function to get the radius of a sphere type through its
    * index. Sphere types range from 0 to NUM_CONFIGURATIONS - 1.
@@ -601,14 +719,16 @@ public:
    */
   double get_type_radius(int index) { return _radii_of_spheres[index]; }
   
-  /*! \brief Print the contents of the configuration object to terminal.
+  /**
+   * \brief Print the contents of the configuration object to terminal.
    *
    * In case of quick debug testing, `ScattererConfiguration.print()` allows printing
    * a formatted summary of the configuration data to terminal.
    */
   void print();
 
-  /*! \brief Write the scatterer configuration data to binary output.
+  /**
+   * \brief Write the scatterer configuration data to binary output.
    *
    * The execution work-flow may be split in a configuration step and one or more
    * calculation steps. In case the calculation is not being run all-in-one, it can
@@ -623,7 +743,8 @@ public:
    */
   void write_binary(const std::string& file_name, const std::string& mode="LEGACY");
 
-  /*! \brief Write the scatterer configuration data to formatted text output.
+  /**
+   * \brief Write the scatterer configuration data to formatted text output.
    *
    * Writing configuration to formatted text is an optional operation, which may turn
    * out to be useful for consistency checks. As a matter of fact, formatted configuration
@@ -635,7 +756,8 @@ public:
    */
   void write_formatted(const std::string& file_name);
 
-  /*! \brief Test whether two instances of ScattererConfiguration are equal.
+  /**
+   * \brief Test whether two instances of ScattererConfiguration are equal.
    *
    * ScattererConfiguration objects can be obtained in a variety of manner. They can
    * be constructed manually, through the class constructor, they can be read from
@@ -650,35 +772,37 @@ public:
 
 };
 
-  /*! \brief Check the presence of overlapping spheres in an aggregate.
-   *
-   * The theoretical implementation of the code is based on the assumption that the
-   * spherical monomers that compose the aggregate do not overlap in space. Small
-   * violations of this assumption do not critically affect the results, but they
-   * need to be reported. This function performs a scan of the aggregate and returns
-   * a summary of any potential overlap, if detected.
-   *
-   * \param sconf: `ScattererConfiguration *` Pointer to a ScattererConfiguration instance.
-   * \param gconf: `GeometryConfiguration *` Pointer to a GeometryConfiguration instance.
-   * \param tolerance: `const double` A tolerance value below which overlap is ignored.
-   * \return overlaps: `int *` A vector containing the number of overlaps and a list of
-   * overlapping sphere indices.
-   */
+/**
+ * \brief Check the presence of overlapping spheres in an aggregate.
+ *
+ * The theoretical implementation of the code is based on the assumption that the
+ * spherical monomers that compose the aggregate do not overlap in space. Small
+ * violations of this assumption do not critically affect the results, but they
+ * need to be reported. This function performs a scan of the aggregate and returns
+ * a summary of any potential overlap, if detected.
+ *
+ * \param sconf: `ScattererConfiguration *` Pointer to a ScattererConfiguration instance.
+ * \param gconf: `GeometryConfiguration *` Pointer to a GeometryConfiguration instance.
+ * \param tolerance: `const double` A tolerance value below which overlap is ignored.
+ * \return overlaps: `int *` A vector containing the number of overlaps and a list of
+ * overlapping sphere indices.
+ */
 int *check_overlaps(
   ScattererConfiguration *sconf, GeometryConfiguration *gconf, const double tolerance=0.0
 );
 
-  /*! \brief Get the overlap among two spheres.
-   *
-   * This function computes the thickness of the compenetration between
-   * two spheres, in order to compare it with the current tolerance settings.
-   *
-   * \param sconf: `ScattererConfiguration *` Pointer to a ScattererConfiguration instance.
-   * \param gconf: `GeometryConfiguration *` Pointer to a GeometryConfiguration instance.
-   * \param index_0: `const int` Index of the first sphere.
-   * \param index_1: `const int` Index of the second sphere.
-   * \return overlap: `double` The thickness of the overlapping layer in meters.
-   */
+/**
+ * \brief Get the overlap among two spheres.
+ *
+ * This function computes the thickness of the compenetration between
+ * two spheres, in order to compare it with the current tolerance settings.
+ *
+ * \param sconf: `ScattererConfiguration *` Pointer to a ScattererConfiguration instance.
+ * \param gconf: `GeometryConfiguration *` Pointer to a GeometryConfiguration instance.
+ * \param index_0: `const int` Index of the first sphere.
+ * \param index_1: `const int` Index of the second sphere.
+ * \return overlap: `double` The thickness of the overlapping layer in meters.
+ */
 double get_overlap(
   ScattererConfiguration *sconf, GeometryConfiguration *gconf,
   const int index_0, const int index_1

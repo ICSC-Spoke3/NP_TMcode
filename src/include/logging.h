@@ -81,7 +81,7 @@ class Logger {
    *
    * \param message: `string` The message to be printed.
    */
-  void err(const std::string& message);
+  void err(const std::string& message) const;
 
   /*! \brief Print a summary of recurrent messages and clear the stack.
    *
@@ -94,7 +94,7 @@ class Logger {
    * \param message: `string` The message to be printed.
    * \param level: `int` The priority level (default is `LOG_INFO = 1`).
    */
-  void log(const std::string& message, int level=LOG_INFO);
+  void log(const std::string& message, int level=LOG_INFO) const;
   
   /*! \brief Push a recurrent message to the message stack.
    *

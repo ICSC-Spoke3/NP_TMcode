@@ -26,27 +26,27 @@ using namespace std;
 #include "../include/types.h"
 #endif
 
+#ifndef INCLUDE_LOGGING_H_
+#include "../include/logging.h"
+#endif
+
+#ifndef INCLUDE_CONFIGURATION_H_
+#include "../include/Configuration.h"
+#endif
+
 #ifdef USE_LAPACK
-// define by hand for a first test
-//#define USE_REFINEMENT 1
 #ifndef INCLUDE_LAPACK_CALLS_H_
 #include "../include/lapack_calls.h"
 #endif
 #endif
 
 #ifdef USE_MAGMA
-// define by hand for a first test
-//#define USE_REFINEMENT 1
 #ifndef INCLUDE_MAGMA_CALLS_H_
 #include "../include/magma_calls.h"
 #endif
 #endif
 
-// define by hand for a first test
-//#define USE_CUBLAS 1
 #ifdef USE_CUBLAS
-// define by hand for a first test
-//#define USE_REFINEMENT 1
 #ifndef INCLUDE_CUBLAS_CALLS_H_
 #include "../include/cublas_calls.h"
 #endif
@@ -62,29 +62,17 @@ extern void lucin(dcomplex **am, const np_int nddmst, np_int n, int &ier);
 
 using namespace std;
 
-void invert_matrix(dcomplex **mat, np_int size, int &ier, int &maxrefiters, double &accuracygoal, int refinemode, const string& output_path, int jxi488, np_int max_size, int target_device) {
+void invert_matrix(
+  dcomplex **mat, np_int size, int &ier, const string& output_path, int jxi488, np_int max_size,
+  int target_device, const RuntimeSettings& rs
+) {
   ier = 0;
 #ifdef USE_MAGMA
-#ifdef USE_REFINEMENT
-  // try using the iterative refinement to obtain a more accurate solution
-  // we pass to magma_zinvert_and_refine() the accuracygoal in, get the actual
-  // accuracy back out
-  magma_zinvert_and_refine(mat, size, ier, maxrefiters, accuracygoal, refinemode, target_device, output_path, jxi488);
-#else
-  magma_zinvert(mat, size, ier, target_device);
-#endif  
+  magma_zinvert(mat, size, ier, target_device, rs);
 #elif defined USE_CUBLAS
-#ifdef USE_REFINEMENT
-  cublas_zinvert_and_refine(mat, size, maxrefiters, accuracygoal, refinemode, target_device);
-#else
-  cublas_zinvert(mat, size, target_device);
-#endif
+  cublas_zinvert(mat, size, target_device, rs);
 #elif defined USE_LAPACK
-#ifdef USE_REFINEMENT
-  zinvert_and_refine(mat, size, ier, maxrefiters, accuracygoal, refinemode);
-#else
-  zinvert(mat, size, ier);
-#endif
+  zinvert(mat, size, ier, rs);
 #else
   lucin(mat, size, size, ier);
 #endif

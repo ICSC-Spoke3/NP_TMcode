@@ -133,14 +133,8 @@ public:
   int lastxi;
   //! \brief ID of the GPU used by one MPI process.
   int proc_device;
-  //! \brief Refinement mode selction flag.
-  int refinemode;
   //! \brief flag defining a first iteration
   bool is_first_scale;
-  //! \brief Maximum number of refinement iterations.
-  int maxrefiters;
-  //! \brief Required accuracy level.
-  double accuracygoal;
 
   /*! \brief `ClusterIterationData` default instance constructor.
    *
@@ -319,14 +313,8 @@ public:
   int lastxi;
   //! \brief ID of the GPU used by one MPI process.
   int proc_device;
-  //! \brief Refinement mode selction flag.
-  int refinemode;
   //! \brief flag defining a first iteration
   bool is_first_scale;
-  //! \brief Maximum number of refinement iterations.
-  int maxrefiters;
-  //! \brief Required accuracy level.
-  double accuracygoal;
 
   /*! \brief `InclusionIterationData` default instance constructor.
    *

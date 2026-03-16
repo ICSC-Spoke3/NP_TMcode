@@ -42,6 +42,10 @@
 #include "../include/types.h"
 #endif
 
+#ifndef INCLUDE_LOGGING_H_
+#include "../include/logging.h"
+#endif
+
 #ifndef INCLUDE_CONFIGURATION_H_
 #include "../include/Configuration.h"
 #endif

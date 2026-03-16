@@ -14,7 +14,8 @@
    this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
  */
 
-/*! \file cublas_calls.h
+/**
+ * \file cublas_calls.h
  *
  * \brief C++ interface to CUBLAS calls.
  *
@@ -23,29 +24,19 @@
 #ifndef INCLUDE_CUBLAS_CALLS_H_
 #define INCLUDE_CUBLAS_CALLS_H_
 
-/*! \brief Invert a complex matrix with double precision elements.
+/**
+ * \brief Invert a complex matrix with double precision elements.
  *
- * Use CUBLAS to perform an in-place matrix inversion for a complex
+ * Use cuBLAS to perform an in-place matrix inversion for a complex
  * matrix with double precision elements.
  *
  * \param mat: Matrix of complex. The matrix to be inverted.
  * \param n: `np_int` The number of rows and columns of the [n x n] matrix.
  * \param device_id: `int` ID of the device for matrix inversion offloading.
+ * \param rs: `const RuntimeSettings&` Runtime settings instance.
  */
-void cublas_zinvert(dcomplex **mat, np_int n, int device_id);
-
-/*! \brief Invert a complex matrix with double precision elements, applying iterative refinement of the solution
- *
- * Use CUBLAS to perform matrix inversion for a complex
- * matrix with double precision elements.
- *
- * \param mat: Matrix of complex. The matrix to be inverted.
- * \param n: `np_int` The number of rows and columns of the [n x n] matrix.
- * \param maxrefiters: `int` Maximum number of refinement iterations to apply.
- * \param accuracygoal: `double &` Accuracy to achieve in iterative refinement, defined as the module of the maximum difference between the identity matrix and the matrix product of the (approximate) inverse times the original matrix. On return, it contains the actually achieved accuracy.
- * \param refinemode: `int` Flag to choose the refinement mode.
- * \param device_id: `int` ID of the device for matrix inversion offloading.
- */
-void cublas_zinvert_and_refine(dcomplex **mat, np_int n, int &maxrefiters, double &accuracygoal, int refinemode, int device_id);
+void cublas_zinvert(
+  dcomplex **mat, np_int n, int device_id, const RuntimeSettings& rs=RuntimeSettings()
+);
 
 #endif

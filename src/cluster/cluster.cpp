@@ -234,6 +234,21 @@ void cluster(const string& config_file, const string& data_file, const string& o
       sprintf(virtual_line, "%.5lg m.\n", sconf->get_particle_radius(gconf));
       message = "INFO: particle radius is " + (string)virtual_line;
       logger->log(message);
+      if (gconf->invert_mode == RuntimeSettings::INV_MODE_LU) {
+	message = "INFO: using LU factorization for inversion.\n";
+	logger->log(message);
+      } else if(gconf->invert_mode == RuntimeSettings::INV_MODE_GESV) {
+	message = "INFO: using GESV system solver for inversion.\n";
+	logger->log(message);
+      } else if(gconf->invert_mode == RuntimeSettings::INV_MODE_RBT) {
+	message = "INFO: using RBT for inversion.\n";
+	logger->log(message);
+      } else if(gconf->invert_mode == RuntimeSettings::INV_MODE_SVD) {
+	//message = "INFO: using SVD for inversion.\n";
+	message = "ERROR: SVD inversion mode not yet implemented!\n";
+	logger->log(message);
+	exit(1);
+      }
       // Overlapping spheres test
       double tolerance = gconf->tolerance;
       if (tolerance < 0.0) {
@@ -376,7 +391,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
       }
 
       int jxi488;
-      int initialmaxrefiters = cid->maxrefiters;
       int jer = 0;
 
       //==================================================
@@ -747,6 +761,7 @@ int cluster_jxi488_cycle(
   string message = "INFO: running scale iteration " + to_string(jxi488) + " of " + to_string(nxi) + ".\n";
   Logger *logger = new Logger(LOG_DEBG);
   logger->log(message);
+  RuntimeSettings rs(gconf, logger);
   chrono::duration<double> elapsed;
   chrono::time_point<chrono::high_resolution_clock> interval_start, interval_end;
   int jer = 0;
@@ -826,7 +841,6 @@ int cluster_jxi488_cycle(
 	cid->update_orders(sconf->_rcf, new_li, new_le);
 	is_first_scale = true;
 	jaw = 1;
-	cid->refinemode = 2;
       }
     }
   }
@@ -929,23 +943,7 @@ int cluster_jxi488_cycle(
 #ifdef USE_NVTX
   nvtxRangePush("Invert the matrix");
 #endif
-  // we put the accuracygoal in, get the actual accuracy back out
-  double actualaccuracy = cid->accuracygoal;
-  invert_matrix(cid->am, ndit, jer, cid->maxrefiters, actualaccuracy, cid->refinemode, output_path, jxi488, mxndm, cid->proc_device);
-  // in principle, we should check whether the returned actualaccuracy is indeed lower than the accuracygoal, and do something about it if not
-  if (gconf->refine_flag > 0) {
-    if (cid->refinemode==2) {
-      message = "DEBUG: iterative refinement enabled at run-time.\n";
-      logger->log(message, LOG_DEBG);
-      message = "INFO: calibration obtained accuracy " + to_string(actualaccuracy) + " (" + to_string(cid->accuracygoal) + " requested) in " + to_string(cid->maxrefiters) + " refinement iterations\n";
-      logger->log(message);
-      if (actualaccuracy > 1e-1) {
-	printf("Accuracy worse than 0.1, stopping");
-	exit(1);
-      }
-    }
-  }
-  cid->refinemode = 0;
+  invert_matrix(cid->am, ndit, jer, output_path, jxi488, mxndm, cid->proc_device, rs);
 #ifdef DEBUG_AM
   VirtualAsciiFile *outam2 = new VirtualAsciiFile();
   string outam2_name = output_path + "/c_AM2_JXI" + to_string(jxi488) + ".txt";
@@ -1744,11 +1742,6 @@ ClusterIterationData::ClusterIterationData(GeometryConfiguration *gconf, Scatter
 
   // the first time the object is used, it will be a "first iteration", to ensure data structures are properly initialised.
   is_first_scale = 1;
-  // In the first iteration, if refinement is enabled, determine the number of refinement iterations required to arrive at the target accuracy (if achievable in a reasonable number of iterations)
-  refinemode = 2;
-  // maxrefiters and accuracygoal should be configurable and preferably set somewhere else
-  maxrefiters = 20;
-  accuracygoal = 1e-6;
 }
 
 ClusterIterationData::ClusterIterationData(const ClusterIterationData& rhs) {
@@ -1893,9 +1886,6 @@ ClusterIterationData::ClusterIterationData(const ClusterIterationData& rhs) {
 
   proc_device = rhs.proc_device;
   is_first_scale = rhs.is_first_scale;
-  refinemode = rhs.refinemode;
-  maxrefiters = rhs.maxrefiters;
-  accuracygoal = rhs.accuracygoal;
 }
 
 #ifdef MPI_VERSION
@@ -2029,10 +2019,7 @@ ClusterIterationData::ClusterIterationData(const mixMPI *mpidata, const int devi
 #else
   proc_device = 0;
 #endif
-  MPI_Bcast(&refinemode, 1, MPI_INT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&is_first_scale, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
-  MPI_Bcast(&maxrefiters, 1, MPI_INT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(&accuracygoal, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 
 void ClusterIterationData::mpibcast(const mixMPI *mpidata) {
@@ -2101,10 +2088,7 @@ void ClusterIterationData::mpibcast(const mixMPI *mpidata) {
   MPI_Bcast(&vk, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&xiblock, 1, MPI_INT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&number_of_scales, 1, MPI_INT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(&refinemode, 1, MPI_INT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&is_first_scale, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
-  MPI_Bcast(&maxrefiters, 1, MPI_INT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(&accuracygoal, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 #endif
 
@@ -2190,14 +2174,13 @@ long ClusterIterationData::get_size(GeometryConfiguration *gconf, ScattererConfi
   37 root pointers
 
   double scan; double cfmp; double sfmp; double cfsp; double sfsp; double sqsfi; double vk; double wn; double xip;
-  double accuracygoal;
-  10 double values
+  9 double values
   
   dcomplex arg;
   1 dcomplex value
 
-  int number_of_scales; int xiblock; int firstxi; int lastxi; int proc_device; int refinemode; int maxrefiters;
-  7 int values
+  int number_of_scales; int xiblock; int firstxi; int lastxi; int proc_device;
+  5 int values
   
   bool is_first_scale;
   1 boolean value
@@ -2231,9 +2214,9 @@ long ClusterIterationData::get_size(GeometryConfiguration *gconf, ScattererConfi
   const np_int ndit = 2 * ndi;
   const int lm = (gconf->li > gconf->le) ? gconf->li : gconf->le;
   long result = sizeof(long) * 37;
-  result += sizeof(double) * 10;
+  result += sizeof(double) * 9;
   result += sizeof(dcomplex);
-  result += sizeof(int) * 7;
+  result += sizeof(int) * 5;
   result += sizeof(bool);
   result += sizeof(long) * (44 + 6 * lm + ndit);
   result += sizeof(double) * (132 + 5 * nsph + 12 * lm);

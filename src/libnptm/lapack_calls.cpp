@@ -18,179 +18,180 @@
  *
  * \brief Implementation of the interface with LAPACK libraries.
  */
+
+
+#ifdef USE_LAPACK
+
+#include <string>
+
 #ifndef INCLUDE_TYPES_H_
 #include "../include/types.h"
 #endif
 
-/*
-#ifdef USE_LAPACK
 #ifdef USE_MKL
 #include <mkl_lapacke.h>
 #else
 #include <lapacke.h>
 #endif
-*/
 
-#ifdef USE_LAPACK
+
+#ifndef INCLUDE_LOGGING_H_
+#include "../include/logging.h"
+#endif
+
+#ifndef INCLUDE_CONFIGURATION_H_
+#include "../include/Configuration.h"
+#endif
 
 #ifndef INCLUDE_LAPACK_CALLS_H_
 #include "../include/lapack_calls.h"
 #endif
 
-#include <limits>
+extern "C" void zcopy_(np_int *n, lcomplex *arr1, np_int *inc1, lcomplex *arr2, np_int *inc2);
+extern "C" void zgemm_(
+  char *transa, char *transb, np_int *l, np_int *m, np_int *n, lcomplex *alpha, lcomplex *a,
+  np_int *lda, lcomplex *b, np_int *ldb, lcomplex *beta, lcomplex *c, np_int *ldc
+);
+extern "C" void zaxpy_(
+  np_int *n, lcomplex *alpha, lcomplex *arr1, np_int *inc1, lcomplex *arr2, np_int *inc2
+);
+extern "C" np_int izamax_(np_int *n, lcomplex *arr1, np_int *inc1);
 
-#ifdef USE_MKL
-  extern "C" void zcopy_(np_int *n, MKL_Complex16 *arr1, np_int *inc1, MKL_Complex16 *arr2,
-		     np_int *inc2);
-  extern "C" void zgemm_(char *transa, char *transb, np_int *l, np_int *m, np_int *n,
-		     MKL_Complex16 *alpha, MKL_Complex16 *a, np_int *lda,
-		     MKL_Complex16 *b, np_int *ldb, MKL_Complex16 *beta,
-		     MKL_Complex16 *c, np_int *ldc);
-  extern "C" void zaxpy_(np_int *n, MKL_Complex16 *alpha, MKL_Complex16 *arr1, np_int *inc1,
-		     MKL_Complex16 *arr2, np_int *inc2);
-  extern "C" np_int izamax_(np_int *n, MKL_Complex16 *arr1, np_int *inc1);
-#else
-  extern "C" void zcopy_(np_int *n, dcomplex *arr1, np_int *inc1, dcomplex *arr2, np_int *inc2);
-  extern "C" void zgemm_(char *transa, char *transb, np_int *l, np_int *m, np_int *n,
-		     dcomplex *alpha, dcomplex *a, np_int *lda,
-		     dcomplex *b, np_int *ldb, dcomplex *beta,
-		     dcomplex *c, np_int *ldc);
-  extern "C" void zaxpy_(np_int *n, dcomplex *alpha, dcomplex *arr1, np_int *inc1,
-		     dcomplex *arr2, np_int *inc2);
-  extern "C" np_int izamax_(np_int *n, dcomplex *arr1, np_int *inc1);
-#endif
+using namespace std;
 
-void zinvert(dcomplex **mat, np_int n, int &jer) {
+void zinvert(dcomplex **mat, np_int n, int &jer, const RuntimeSettings& rs) {
   jer = 0;
-  dcomplex *arr = &(mat[0][0]);
-  const dcomplex uim = 0.0 + 1.0 * I;
-
-#ifdef USE_MKL
-  MKL_Complex16 *arr2 = (MKL_Complex16 *) arr;
-#endif
-  
-  np_int* IPIV = new np_int[n]();
-  
-#ifdef USE_MKL
-  LAPACKE_zgetrf(LAPACK_ROW_MAJOR, n, n, arr2, n, IPIV);
-  LAPACKE_zgetri(LAPACK_ROW_MAJOR, n, arr2, n, IPIV);
-#else
-  LAPACKE_zgetrf(LAPACK_ROW_MAJOR, n, n, arr, n, IPIV);
-  LAPACKE_zgetri(LAPACK_ROW_MAJOR, n, arr, n, IPIV);
-#endif
-
-  delete[] IPIV;
+  char buffer[128];
+  string message;
+  lapack_int info, inc1 = 1;
+  lcomplex *arr = &(mat[0][0]);
+  lcomplex *arr_orig;
+  lcomplex lapack_one = 1.0 + I * 0.0;
+  np_int nn = n * n;
+  if (rs.use_refinement && rs.invert_mode != RuntimeSettings::INV_MODE_RBT) {
+    lapack_int inc1 = 1;
+    arr_orig = new lcomplex[nn];
+    zcopy_(&nn, arr, &inc1, arr_orig, &inc1);
+  }
+  if (rs.invert_mode == RuntimeSettings::INV_MODE_LU) {
+    // >>> LU INVERSION SECTION <<<
+    np_int* IPIV = new np_int[n];
+    LAPACKE_zgetrf(LAPACK_ROW_MAJOR, n, n, arr, n, IPIV);
+    LAPACKE_zgetri(LAPACK_ROW_MAJOR, n, arr, n, IPIV);
+    delete[] IPIV;
+    if (rs.use_refinement) {
+      info = lapack_newton(rs, arr_orig, n, arr);
+    }
+    // >>> END OF LU INVERSION SECTION <<<
+  } else if (rs.invert_mode == RuntimeSettings::INV_MODE_GESV) {
+    // >>> GESV INVERSION SECTION <<<
+    lcomplex *id = new lcomplex[nn]();
+    lapack_int *piv = new lapack_int[n];
+    for (lapack_int i = 0; i < n; i++) {
+      id[i * (n + 1)] = lapack_one;
+    }
+    LAPACKE_zgesv(LAPACK_ROW_MAJOR, n, n, arr, n, piv, id, n);
+    if (info != LAPACK_SUCCESS) {
+      message = "ERROR: call to zgesv_() returned info code " + to_string(info) + "!\n";
+      rs.logger->err(message);
+      exit(1);
+    }
+    delete[] piv; // free host memory
+    if (rs.use_refinement) {
+      info = lapack_newton(rs, arr_orig, n, id);
+    }
+    zcopy_(&nn, id, &inc1, arr, &inc1);
+    delete[] id;
+    // >>> END OF GESV INVERSION SECTION <<<
+  } else if (rs.invert_mode == RuntimeSettings::INV_MODE_RBT) {
+    // >>> RBT INVERSION SECTION <<<
+    // RBT inversion not implemented
+    message = "ERROR: not implemented!\n";
+    rs.logger->err(message);
+    exit(1);
+    // >>> END OF RBT INVERSION SECTION <<<
+  } else if (rs.invert_mode == RuntimeSettings::INV_MODE_SVD) {
+    // >>> SVD INVERSION SECTION <<<
+    // SVD inversion not implemented
+    message = "ERROR: not implemented!\n";
+    rs.logger->err(message);
+    exit(1);
+    // >>> END OF SVD INVERSION SECTION <<<
+  } // inversion mode switch
+  if (rs.use_refinement && rs.invert_mode != RuntimeSettings::INV_MODE_RBT) {
+    delete[] arr_orig;
+  }
 }
 
-void zinvert_and_refine(dcomplex **mat, np_int n, int &jer, int &maxiters, double &accuracygoal, int refinemode) {
-
-  jer = 0;
-#ifdef USE_MKL
-  MKL_Complex16 *arr = (MKL_Complex16 *) &(mat[0][0]);
-#else
-  dcomplex *arr = &(mat[0][0]);
-#endif
-  np_int nn = n*n;
-  np_int incx = 1;
-  np_int incx0 = 0;
-#ifdef USE_MKL
-  MKL_Complex16 *arr_orig = NULL;
-  MKL_Complex16 *arr_residual = NULL;
-  MKL_Complex16 *arr_refine = NULL;
-  MKL_Complex16 *id = NULL;
-#else
-  dcomplex *arr_orig = NULL;
-  dcomplex *arr_residual = NULL;
-  dcomplex *arr_refine = NULL;
-  dcomplex *id = NULL;
-#endif
-  if (maxiters>0) {
-#ifdef USE_MKL
-    arr_orig = new MKL_Complex16[nn];
-    arr_residual = new MKL_Complex16[nn];
-    arr_refine = new MKL_Complex16[nn];
-    id = new MKL_Complex16[1];
-    id[0].real =  1;
-    id[0].imag =  0;
-#else
-    arr_orig = new dcomplex[nn];
-    arr_residual = new dcomplex[nn];
-    arr_refine = new dcomplex[nn];
-    id = new dcomplex[1];
-    id[0] = (dcomplex) 1;
-#endif
-    zcopy_(&nn, arr, &incx, arr_orig, &incx);
-  }
-  // const dcomplex uim = 0.0 + 1.0 * I;
-  
-  np_int* IPIV = new np_int[n]();
-  
-  LAPACKE_zgetrf(LAPACK_ROW_MAJOR, n, n, arr, n, IPIV);
-  LAPACKE_zgetri(LAPACK_ROW_MAJOR, n, arr, n, IPIV);
-  delete[] IPIV;
-
-  if (maxiters>0) {
-    bool iteraterefine = true;
-    char transa = 'N';
-#ifdef USE_MKL
-    MKL_Complex16 dczero;
-    dczero.real = 0;
-    dczero.imag = 0;
-    MKL_Complex16 dcone;
-    dcone.real = 1;
-    dcone.imag = 0;
-    MKL_Complex16 dcmone;
-    dcmone.real = -1;
-    dcmone.imag = 0;
-#else
-    dcomplex dczero = 0;
-    dcomplex dcone = 1;
-    dcomplex dcmone = -1;
-#endif
-    // multiply minus the original matrix times the inverse matrix
-    // NOTE: factors in zgemm are swapped because zgemm is designed for column-major
-    // Fortran-style arrays, whereas our arrays are C-style row-major.
-    zgemm_(&transa, &transa, &n, &n, &n, &dcmone, arr, &n, arr_orig, &n, &dczero, arr_residual, &n);
-    np_int incy = n+1;
-    zaxpy_(&n, &dcone, id, &incx0, arr_residual, &incy);
-    double oldmax = 0;
-    if (refinemode >0) {
-      np_int maxindex = izamax_(&nn, arr_residual, &incx);
-#ifdef USE_MKL
-      oldmax = cabs(arr_residual[maxindex].real + I*arr_residual[maxindex].imag);
-#else
-      oldmax = cabs(arr_residual[maxindex]);
-#endif
-      printf("Initial max residue = %g\n", oldmax);
-      if (oldmax < accuracygoal) iteraterefine = false;
-    }
-    int iter;
-    for (iter=0; (iter<maxiters) && iteraterefine; iter++) {
-      zgemm_(&transa, &transa, &n, &n, &n, &dcone, arr_residual, &n, arr, &n, &dczero, arr_refine, &n);
-      zaxpy_(&nn, &dcone, arr_refine, &incx, arr, &incx);
-	// zcopy_(&nn, arr_refine, &incx, arr, &incx);
-      zgemm_(&transa, &transa, &n, &n, &n, &dcmone, arr, &n, arr_orig, &n, &dczero, arr_residual, &n);
-      zaxpy_(&n, &dcone, id, &incx0, arr_residual, &incy);
-      if ((refinemode==2) || ((refinemode==1) && (iter == (maxiters-1)))) {
-	np_int maxindex = izamax_(&nn, arr_residual, &incx);
-#ifdef USE_MKL
-	double newmax = cabs(arr_residual[maxindex].real + I*arr_residual[maxindex].imag);
-#else
-	double newmax = cabs(arr_residual[maxindex]);
-#endif
-	printf("Max residue after %d iterations = %g\n", iter+1, newmax);
-	if ((refinemode==2) && ((newmax > oldmax)||(newmax < accuracygoal))) iteraterefine = false;
-	oldmax = newmax; 
+lapack_int lapack_newton(
+  const RuntimeSettings& rs, lcomplex* a_orig, lapack_int m, lcomplex* a
+) {
+  lapack_int err = LAPACK_SUCCESS;
+  string message;
+  char buffer[128];
+  char lapackNoTrans = 'N';
+  const int max_ref_iters = rs.max_ref_iters;
+  lcomplex lapack_zero = 0.0 + I * 0.0;
+  lcomplex lapack_one = 1.0 + I * 0.0;
+  lcomplex lapack_mone = -1.0 + I * 0.0;
+  lapack_int mm = m * m;
+  lapack_int incx, incy;
+  lcomplex *ax, *r;
+  lcomplex *id_diag = new lcomplex[m];
+  double oldmax = 2.0e+16, curmax = 1.0e+16;
+  for (lapack_int hi = 0; hi < m; hi++)
+    id_diag[hi] = lapack_one;
+  ax = new lcomplex[mm];
+  r = new lcomplex[mm];
+  double max_residue, target_residue;
+  incx = 1;
+  lapack_int maxindex = izamax_(&mm, a, &incx) - 1;
+  lcomplex lapackmax = a[maxindex];
+  curmax = cabs(lapackmax); //cabs(magmamax.x + I * magmamax.y);
+  target_residue = curmax * rs.accuracy_goal;
+  sprintf(buffer, "INFO: largest matrix value has modulus %.5le; target residue is %.5le.\n", curmax, target_residue);
+  message = buffer;
+  rs.logger->log(message);
+  for (int ri = 0; ri < max_ref_iters; ri++) {
+    oldmax = curmax;
+    // Compute -A*X
+    zgemm_(
+      &lapackNoTrans, &lapackNoTrans, &m, &m, &m, &lapack_mone, a, &m,
+      a_orig, &m, &lapack_zero, ax, &m
+    );
+    // Transform -A*X into (I - A*X)
+    incx = 1;
+    incy = m + 1;
+    zaxpy_(&m, &lapack_one, id_diag, &incx, ax, &incy);
+    maxindex = izamax_(&mm, ax, &incx) - 1;
+    lapackmax = ax[maxindex];
+    curmax = cabs(lapackmax);
+    sprintf(buffer, "DEBUG: iteration %d has residue %.5le; target residue is %.5le.\n", ri, curmax, target_residue);
+    message = buffer;
+    rs.logger->log(message, LOG_DEBG);
+    if (curmax < 0.99 * oldmax) {
+      // Compute R = (I - A*X)*X
+      zgemm_(
+        &lapackNoTrans, &lapackNoTrans, &m, &m, &m, &lapack_one, a, &m,
+	ax, &m, &lapack_zero, r, &m
+      );
+      // Set X = X + R
+      zaxpy_(&mm, &lapack_one, r, &incx, a, &incx);
+      if (curmax < target_residue) {
+	message = "DEBUG: good news - optimal convergence achieved. Stopping.\n";
+	rs.logger->log(message, LOG_DEBG);
+	break; // ri for
       }
+    } else {
+      message = "WARN: not so good news - cannot improve further. Stopping.\n";
+      rs.logger->log(message, LOG_WARN);
+      break; // ri for
     }
-    if (refinemode==2) maxiters = iter;
-    accuracygoal = oldmax;
-    delete[] id;
-    delete[] arr_refine;
-    delete[] arr_orig;
-    delete[] arr_residual;
   }
-
+  delete[] id_diag;
+  delete[] ax;
+  delete[] r;
+  return err;
 }
 
 #endif
