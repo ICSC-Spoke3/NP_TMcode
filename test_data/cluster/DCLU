@@ -8,3 +8,5 @@
  0
 0
 # This is a comment line
+USE_REFINEMENT=0
+INVERSION=LU

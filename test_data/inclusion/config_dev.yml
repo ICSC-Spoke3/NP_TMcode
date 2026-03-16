@@ -4,6 +4,10 @@ system_settings:
   # Limit on GPU RAM use in Gb ( 0 for no configuration limit)
   max_gpu_ram  : 0
 
+runtime:
+  refinement   : 0
+  dyn_orders   : 0
+
 input_settings:
   # Folder to write the code input configuration files
   input_folder : "."
