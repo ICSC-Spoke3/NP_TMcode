@@ -5,7 +5,7 @@ system_settings:
   max_gpu_ram  : 0
 
 runtime:
-  refinement   : 0
+  refinement   : 1
   dyn_orders   : 0
 
 input_settings:

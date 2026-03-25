@@ -64,7 +64,7 @@ void magma_zinvert(dcomplex **mat, np_int n, int &jer, int device_id, const Runt
   magmaDoubleComplex *a = (magmaDoubleComplex *)mat[0]; // pointer to first element on host
   string message;
   char buffer[128];
-  magma_int_t err = MAGMA_SUCCESS;
+  magma_int_t err = MAGMA_SUCCESS, ref_err = MAGMA_SUCCESS;
   magma_queue_t queue = NULL;
   magma_device_t dev = (magma_device_t)device_id;
   magma_queue_create(dev, &queue);
@@ -99,9 +99,14 @@ void magma_zinvert(dcomplex **mat, np_int n, int &jer, int device_id, const Runt
     delete[] piv; // delete piv created by magma_zgetrf()
     magma_free(dwork);
     if (rs.use_refinement) {
-      err = magma_newton(rs, a, m, d_a, queue);
+      // magma_newton makes a back-up copy of the unrefined inverted
+      // matrix on the host. If refinement fails, the err flag is set
+      // to a non-zero value, to prevent corrupting the inverted matrix.
+      ref_err = magma_newton(rs, a, m, d_a, queue);
     }
-    magma_zgetmatrix(m, m, d_a , m, a, m, queue); // copy d_a -> a
+    if (ref_err == MAGMA_SUCCESS) { // Refinement did improve the inversion accuracy, so we retireve the refined matrix.
+      magma_zgetmatrix(m, m, d_a , m, a, m, queue); // copy d_a -> a
+    }
     magma_free(d_a);
     // >>> END OF LU INVERSION <<<
   } else if (rs.invert_mode == RuntimeSettings::INV_MODE_GESV) {
@@ -132,9 +137,14 @@ void magma_zinvert(dcomplex **mat, np_int n, int &jer, int device_id, const Runt
     delete[] piv; // free host memory
     magma_free(d_a);
     if (rs.use_refinement) {
-      err = magma_newton(rs, a, m, d_id, queue);
+      // magma_newton makes a back-up copy of the unrefined inverted
+      // matrix on the host. If refinement fails, the err flag is set
+      // to a non-zero value, to prevent corrupting the inverted matrix.
+      ref_err = magma_newton(rs, a, m, d_id, queue);
     }
-    magma_zgetmatrix(m, m, d_id , m, a, m, queue); // copy d_id -> a
+    if (ref_err == MAGMA_SUCCESS) { // Refinement did improve the inversion accuracy, so we retireve the refined matrix.
+      magma_zgetmatrix(m, m, d_id , m, a, m, queue); // copy d_id -> a
+    }
     magma_free(d_id);
     // >>> END OF GESV INVERSION <<<
   } else if (rs.invert_mode == RuntimeSettings::INV_MODE_RBT) {
@@ -193,15 +203,8 @@ void magma_zinvert(dcomplex **mat, np_int n, int &jer, int device_id, const Runt
     delete[] h_rwork;
     delete[] h_iwork;
     delete[] h_a;
-    sprintf(buffer, "%.5le", h_s[0]);
-    message = "DEBUG: s[0] = ";
-    message += buffer;
-    message += "; s[";
-    message += to_string(m - 1);
-    message += "] = ";
-    sprintf(buffer, "%.5le", h_s[m - 1]);
-    message += buffer;
-    message += ".\n";
+    sprintf(buffer, "DEBUG: s[0] = %.5le; s[%s] = %.5le.\n", h_s[0], to_string(m - 1).c_str(), h_s[m - 1]);
+    message = buffer;
     rs.logger->log(message, LOG_DEBG);
     
     // Step 2: Upload decomposed matix to GPU
@@ -251,11 +254,16 @@ void magma_zinvert(dcomplex **mat, np_int n, int &jer, int device_id, const Runt
 
     // Step 5: refine inversion
     if (rs.use_refinement) {
-      err = magma_newton(rs, a, m, d_a, queue);
+      // magma_newton makes a back-up copy of the unrefined inverted
+      // matrix on the host. If refinement fails, the err flag is set
+      // to a non-zero value, to prevent corrupting the inverted matrix.
+      ref_err = magma_newton(rs, a, m, d_a, queue);
     }
 
     // Step 6: get result back to host
-    magma_zgetmatrix(m, m, d_a , m, a, m, queue); // copy d_a -> a
+    if (ref_err == MAGMA_SUCCESS) { // Refinement did improve the inversion accuracy, so we retireve the refined matrix.
+      magma_zgetmatrix(m, m, d_a , m, a, m, queue); // copy d_a -> a
+    }
     magma_free(d_a);
     // >>> END OF SVD INVERSION <<<
   }
@@ -263,109 +271,11 @@ void magma_zinvert(dcomplex **mat, np_int n, int &jer, int device_id, const Runt
   jer = (int)err;
 }
 
-magma_int_t magma_newton_norm(
-  const RuntimeSettings& rs, magmaDoubleComplex* a, const magma_int_t m,
-  magmaDoubleComplex* d_a, magma_queue_t queue
-) {
-  magma_int_t err;
-  string message;
-  char buffer[128];
-  const int max_ref_iters = rs.max_ref_iters;
-  const magmaDoubleComplex magma_zero = MAGMA_Z_MAKE(0.0, 0.0);
-  const magmaDoubleComplex magma_one = MAGMA_Z_MAKE(1.0, 0.0);
-  const magmaDoubleComplex magma_mone = MAGMA_Z_MAKE(-1.0, 0.0);
-  const magmaDoubleComplex magma_two = MAGMA_Z_MAKE(2.0, 0.0);
-  const magma_int_t mm = m * m;
-  magmaDoubleComplex *d_a_orig, *d_ax, *d_axa;
-  magmaDoubleComplex *h_id_diag = new magmaDoubleComplex[m];
-  magmaDoubleComplex *d_id_diag;
-  for (magma_int_t hi = 0; hi < m; hi++)
-    h_id_diag[hi] = magma_one;
-  err = magma_zmalloc(&d_id_diag, m);
-  if (err != MAGMA_SUCCESS) {
-    message = "ERROR: could not allocate d_id_diag!\n";
-    rs.logger->err(message);
-    exit(1);
-  }
-  magma_zsetvector(m, h_id_diag, 1, d_id_diag, 1, queue);
-  delete[] h_id_diag;
-  double norm = 1.0e+16, old_norm = 2.0e+16;
-  err = magma_zmalloc(&d_a_orig, mm);
-  if (err != MAGMA_SUCCESS) {
-    message = "ERROR: could not allocate d_a_orig!\n";
-    rs.logger->err(message);
-    exit(1);
-  }
-  magma_zsetmatrix(m, m, a, m, d_a_orig, m, queue); // copy a -> d_a_orig
-  err = magma_zmalloc(&d_ax, mm);
-  if (err != MAGMA_SUCCESS) {
-    message = "ERROR: could not allocate d_ax!\n";
-    rs.logger->err(message);
-    exit(1);
-  }
-  err = magma_zmalloc(&d_axa, mm);
-  if (err != MAGMA_SUCCESS) {
-    message = "ERROR: could not allocate d_axa!\n";
-    rs.logger->err(message);
-    exit(1);
-  }
-  double normA = magma_dznrm2(mm, d_a_orig, 1, queue);
-  if (normA == 0.0) normA = 1.0;
-  for (int ri = 0; ri < max_ref_iters; ri++) {
-    // Compute A*X
-    magmablas_zgemm(
-      MagmaNoTrans, MagmaNoTrans, m, m, m, magma_one, d_a_orig, m,
-      d_a, m, magma_zero, d_ax, m, queue
-    );
-    // Compute A*X*A
-    magmablas_zgemm(
-      MagmaNoTrans, MagmaNoTrans, m, m, m, magma_one, d_ax, m,
-      d_a_orig, m, magma_zero, d_axa, m, queue
-    );
-    // Now we use d_axa in place of R: d_axa = A*X*A - A
-    magma_zaxpy(mm, magma_mone, d_a_orig, 1, d_axa, 1, queue);
-    // Compute the norm of R
-    norm = magma_dznrm2(mm, d_axa, 1, queue);
-    double relative_res = norm / normA;
-    sprintf(buffer, "%.5le", relative_res);
-    message = "INFO: refinement iteration " + to_string(ri) + " achieved relative residual of "
-      + buffer + ".\n";
-    rs.logger->log(message);
-    if (norm < 0.99 * old_norm) {
-      // Transform d_ax in 2*I - A*X
-      magma_zscal(mm, magma_mone, d_ax, 1, queue);
-      magma_zaxpy(m, magma_two, d_id_diag, 1, d_ax, m + 1, queue);
-      // Replace d_axa with X*(2*I - A*X)
-      magma_zgemm(
-        MagmaNoTrans, MagmaNoTrans, m, m, m, magma_one, d_a, m,
-	d_ax, m, magma_zero, d_axa, m, queue
-      );
-      // Set d_a = X*(2*I - A*X)
-      magma_zcopy(mm, d_axa, 1, d_a, 1, queue);
-      old_norm = norm;
-      if (relative_res < 1.0e-16) {
-	message = "DEBUG: good news - optimal convergence achieved. Stopping.\n";
-	rs.logger->log(message, LOG_DEBG);
-	break; // ri for
-      }
-    } else {
-      message = "WARN: not so good news - cannot improve further. Stopping.\n";
-      rs.logger->log(message, LOG_WARN);
-      break; // ri for
-    }
-  }
-  magma_free(d_a_orig);
-  magma_free(d_ax);
-  magma_free(d_axa);
-  magma_free(d_id_diag);
-  return err;
-}
-
 magma_int_t magma_newton(
   const RuntimeSettings& rs, magmaDoubleComplex* a, const magma_int_t m,
   magmaDoubleComplex* d_a, magma_queue_t queue
 ) {
-  magma_int_t err;
+  magma_int_t err = MAGMA_SUCCESS;
   string message;
   char buffer[128];
   const int max_ref_iters = rs.max_ref_iters;
@@ -395,6 +305,7 @@ magma_int_t magma_newton(
     exit(1);
   }
   magma_zsetmatrix(m, m, a, m, d_a_orig, m, queue); // copy a -> d_a_orig
+  magma_zgetmatrix(m, m, d_a, m, a, m, queue); // copy pre-refinement d_a -> a
   err = magma_zmalloc(&d_ax, mm);
   if (err != MAGMA_SUCCESS) {
     message = "ERROR: could not allocate d_ax!\n";
@@ -407,49 +318,72 @@ magma_int_t magma_newton(
     rs.logger->err(message);
     exit(1);
   }
-  double max_residue, target_residue;
   magma_int_t maxindex = magma_izamax(mm, d_a, 1, queue) - 1;
+  magma_queue_sync(queue);
   magmaDoubleComplex magmamax = magma_mone;
   magma_zgetvector(1, d_a + maxindex, 1, &magmamax, 1, queue);
-  curmax = MAGMA_Z_ABS(magmamax); //cabs(magmamax.x + I * magmamax.y);
-  target_residue = curmax * rs.accuracy_goal;
-  sprintf(buffer, "INFO: largest matrix value has modulus %.5le; target residue is %.5le.\n", curmax, target_residue);
+  curmax = MAGMA_Z_ABS(magmamax);
+  sprintf(buffer, "INFO: largest matrix value has modulus %.5le.\n", curmax);
   message = buffer;
   rs.logger->log(message);
   for (int ri = 0; ri < max_ref_iters; ri++) {
     oldmax = curmax;
     // Compute -A*X
     magmablas_zgemm(
-      MagmaNoTrans, MagmaNoTrans, m, m, m, magma_mone, d_a_orig, m,
-      d_a, m, magma_zero, d_ax, m, queue
+      MagmaNoTrans, MagmaNoTrans, m, m, m, magma_mone, d_a, m,
+      d_a_orig, m, magma_zero, d_ax, m, queue
     );
     // Transform -A*X into (I - A*X)
     magma_zaxpy(m, magma_one, d_id_diag, 1, d_ax, m + 1, queue);
     maxindex = magma_izamax(mm, d_ax, 1, queue) - 1;
+    magma_queue_sync(queue);
     magma_zgetvector(1, d_ax + maxindex, 1, &magmamax, 1, queue);
-    curmax = cabs(magmamax.x + I * magmamax.y);
-    sprintf(buffer, "DEBUG: iteration %d has residue %.5le; target residue is %.5le.\n", ri, curmax, target_residue);
+    curmax = MAGMA_Z_ABS(magmamax);
+    sprintf(buffer, "DEBUG: iteration %d has residue %.5le; target residue is %.5le.\n", ri, curmax, rs.accuracy_goal);
     message = buffer;
     rs.logger->log(message, LOG_DEBG);
-    if (curmax < 0.99 * oldmax) {
-      // Compute R = (A*X - I)*X
-      magmablas_zgemm(
-        MagmaNoTrans, MagmaNoTrans, m, m, m, magma_one, d_ax, m,
-	d_a, m, magma_zero, d_r, m, queue
-      );
-      // Set X = X + R
-      magma_zaxpy(mm, magma_one, d_r, 1, d_a, 1, queue);
-      if (curmax < target_residue) {
-	message = "DEBUG: good news - optimal convergence achieved. Stopping.\n";
-	rs.logger->log(message, LOG_DEBG);
+    if (curmax < 0.5) { // Safe conditions for Newton-Schultz iteration.
+      if (curmax < 0.95 * oldmax) { // Newton-Schultz iteration is improving and can proceed.
+	// Compute R = X*(A*X - I)
+	magmablas_zgemm(
+          MagmaNoTrans, MagmaNoTrans, m, m, m, magma_one, d_ax, m,
+	  d_a, m, magma_zero, d_r, m, queue
+        );
+	// Set X = X + R
+	magma_zaxpy(mm, magma_one, d_r, 1, d_a, 1, queue);
+	if (curmax < rs.accuracy_goal) {
+	  message = "DEBUG: good news - optimal convergence achieved. Stopping.\n";
+	  rs.logger->log(message, LOG_DEBG);
+	  err = MAGMA_SUCCESS;
+	  break; // ri for
+        }
+      } else {
+	if (curmax > 0.1) {
+	  sprintf(buffer, "INFO: iteration %d achieved limiting residue %.5le. Cannot reach goal. Reverting.\n", ri, curmax);
+	  message = buffer;
+	  rs.logger->log(message);
+	  err = 1;
+	} else {
+	  sprintf(buffer, "WARN: iteration %d achieved limiting residue %.5le. Stopping.\n", ri, curmax);
+	  message = buffer;
+	  rs.logger->log(message, LOG_WARN);
+	}
 	break; // ri for
       }
-    } else {
-      message = "WARN: not so good news - cannot improve further. Stopping.\n";
-      rs.logger->log(message, LOG_WARN);
+    } else { // curmax > 0.5. Newton-Schultz iteration is dangerous.
+      if (curmax < oldmax) {
+	sprintf(buffer, "WARN: iteration %d has residue %.5le. Iterating is dangerous. Stopping.\n", ri, curmax);
+	message = buffer;
+	rs.logger->log(message, LOG_WARN);
+      } else {
+	err = 1;
+	sprintf(buffer, "INFO: iteration %d has residue %.5le. Reverting to unrefined and stopping.\n", ri, curmax);
+	message = buffer;
+	rs.logger->log(message);
+      }
       break; // ri for
     }
-  }
+  } // end of ri for
   magma_free(d_a_orig);
   magma_free(d_ax);
   magma_free(d_r);
