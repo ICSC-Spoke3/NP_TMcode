@@ -335,6 +335,10 @@ def load_model(model_file, rnd_attempts):
         # Create the gconf dict
         use_refinement = True
         dyn_orders = True
+        inv_accuracy = 1.0e-07
+        inv_mode = "LU"
+        ref_iters = 5
+        tolerance = 0.0
         try:
             use_refinement = False if int(model['runtime']['refinement']) == 0 else True
         except KeyError:
@@ -343,6 +347,22 @@ def load_model(model_file, rnd_attempts):
             dyn_orders = False if int(model['runtime']['dyn_orders']) == 0 else True
         except KeyError:
             dyn_orders = True
+        try:
+            inv_accuracy = float(model['runtime']['inv_accuracy'])
+        except KeyError:
+            inv_accuracy = 1.0e-07
+        try:
+            inv_mode = model['runtime']['inv_mode']
+        except KeyError:
+            inv_mode = "LU"
+        try:
+            ref_iters = int(model['runtime']['ref_iterations'])
+        except KeyError:
+            ref_iters = 5
+        try:
+            tolerance = float(model['runtime']['tolerance'])
+        except KeyError:
+            tolerance = 0.0
         str_polar = model['radiation_settings']['polarization']
         if (str_polar not in ["LINEAR", "CIRCULAR"]):
             print("ERROR: %s is not a recognized polarization state."%str_polar)
@@ -355,6 +375,10 @@ def load_model(model_file, rnd_attempts):
         }
         gconf['use_refinement'] = use_refinement
         gconf['dyn_orders'] = dyn_orders
+        gconf['inv_accuracy'] = inv_accuracy
+        gconf['inv_mode'] = inv_mode
+        gconf['ref_iters'] = ref_iters
+        gconf['tolerance'] = tolerance
         gconf['max_host_ram_gb'] = 0
         try:
             gconf['max_host_ram_gb'] = float(model['system_settings']['max_host_ram'])
@@ -1043,6 +1067,18 @@ def write_legacy_gconf(conf):
     else:
         str_line = "USE_DYN_ORDERS=0\n"
     output.write(str_line)
+    if (conf['tolerance'] != 0.0):
+        str_line = "TOLERANCE={0:.5le}\n".format(conf['tolerance'])
+        output.write(str_line)
+    if (conf['inv_mode'] != "LU"):
+        str_line = "INVERSION={0:s}\n".format(conf['inv_mode'])
+        output.write(str_line)
+    if (conf['inv_accuracy'] != 1.0e-07):
+        str_line = "INV_ACCURACY={0:.5lE}\n".format(conf['inv_accuracy'])
+        output.write(str_line)
+    if (conf['ref_iters'] != 5):
+        str_line = "REF_ITERS={0:d}\n".format(conf['ref_iters'])
+        output.write(str_line)
     max_host_ram_gb = conf['max_host_ram_gb']
     if (max_host_ram_gb > 0.0):
         str_line = "HOST_RAM_GB={0:.3f}\n".format(max_host_ram_gb)

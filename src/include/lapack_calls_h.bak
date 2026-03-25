@@ -23,18 +23,7 @@
 #ifndef INCLUDE_LAPACK_CALLS_H_
 #define INCLUDE_LAPACK_CALLS_H_
 
-#ifndef LAPACK_SUCCESS
-#define LAPACK_SUCCESS 0
-#endif
-
-#ifdef USE_MKL
-typedef MKL_Complex16 lcomplex;
-#else
-typedef dcomplex lcomplex;
-#endif // USE_MKL
-
-/**
- * \brief Invert a complex matrix with double precision elements.
+/*! \brief Invert a complex matrix with double precision elements.
  *
  * Use LAPACKE64 to perform an in-place matrix inversion for a complex
  * matrix with double precision elements.
@@ -42,28 +31,21 @@ typedef dcomplex lcomplex;
  * \param mat: Matrix of complex. The matrix to be inverted.
  * \param n: `np_int` The number of rows and columns of the [n x n] matrix.
  * \param jer: `int &` Reference to an integer return flag.
- * \param rs: `const RuntimeSettings &` Runtime settings instance.
  */
-void zinvert(dcomplex **mat, np_int n, int &jer, const RuntimeSettings& rs=RuntimeSettings());
+void zinvert(dcomplex **mat, np_int n, int &jer);
 
-/**
- * \brief Perform Newton-Schulz iterative refinement of matrix inversion.
+/*! \brief Invert a complex matrix with double precision elements, using iterative refinement to improve accuracy.
  *
- * In this function the residual of the inversion of a matrix A is evaluated as:
+ * Use LAPACKE64 to perform an in-place matrix inversion for a complex
+ * matrix with double precision elements.
  *
- * R = A^-1 A - I
- *
- * and the convergence of refinement is estimated through the largest element
- * modulus left in R.
- *
- * \param rs: `const RuntimeSettings &` Runtime settings instance. [IN]
- * \param a_orig: `lcomplex *` Pointer to the first element of the non-inverted matrix. [IN]
- * \param m: `const lapack_int` Number of rows / columns in a. [IN]
- * \param a: `lcomplex *` Pointer to the inverted matrix. [IN/OUT]
- * \return err: `lapack_int` An error code (LAPACK_SUCCESS, if everything was fine).
+ * \param mat: Matrix of complex. The matrix to be inverted.
+ * \param n: `np_int` The number of rows and columns of the [n x n] matrix.
+ * \param jer: `int &` Reference to an integer return flag.
+ * \param maxrefiters: `int` Maximum number of refinement iterations.
+ * \param accuracygoal: `double &` Accuracy to achieve in iterative refinement, defined as the module of the maximum difference between the identity matrix and the matrix product of the (approximate) inverse times the original matrix. On return, it contains the actually achieved accuracy.
+ * \param refinemode: `int` Flag to control the refinement mode.
  */
-lapack_int lapack_newton(
-  const RuntimeSettings& rs, lcomplex* a_orig, const lapack_int m, lcomplex* a
-);
+void zinvert_and_refine(dcomplex **mat, np_int n, int &jer, int &maxrefiters, double &accuracygoal, int refinemode);
 
 #endif

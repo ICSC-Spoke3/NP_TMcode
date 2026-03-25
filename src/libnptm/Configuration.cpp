@@ -26,7 +26,7 @@
 #include <hdf5.h>
 #include <regex>
 #include <string>
-#include <string.h>
+#include <cstring>
 #ifdef USE_MPI
 #ifndef MPI_VERSION
 #include <mpi.h>
@@ -49,6 +49,10 @@
 #include "../include/Parsers.h"
 #endif
 
+#ifndef INCLUDE_LOGGING_H_
+#include "../include/logging.h"
+#endif
+
 #ifndef INCLUDE_CONFIGURATION_H_
 #include "../include/Configuration.h"
 #endif
@@ -62,6 +66,8 @@
 #endif
 
 using namespace std;
+
+// >>> GeometryConfiguration CLASS IMPLEMENTATION <<<
 
 GeometryConfiguration::GeometryConfiguration(
   int nsph, int lm, int in_pol, int npnt, int npntts, int isam,
@@ -97,11 +103,14 @@ GeometryConfiguration::GeometryConfiguration(
   _sph_x = x;
   _sph_y = y;
   _sph_z = z;
-  _refine_flag = 0;
+  _refine_flag = false;
   _dyn_order_flag = 1;
   _host_ram_gb = 0.0;
   _gpu_ram_gb = 0.0;
   _tolerance = -1.0;
+  _invert_mode = 0;
+  _accuracy_goal = 1.0e-07;
+  _ref_iters = 5;
 }
 
 GeometryConfiguration::GeometryConfiguration(const GeometryConfiguration& rhs)
@@ -142,6 +151,9 @@ GeometryConfiguration::GeometryConfiguration(const GeometryConfiguration& rhs)
   _host_ram_gb = rhs._host_ram_gb;
   _gpu_ram_gb = rhs._gpu_ram_gb;
   _tolerance = rhs._tolerance;
+  _invert_mode = rhs._invert_mode;
+  _accuracy_goal = rhs._accuracy_goal;
+  _ref_iters = rhs._ref_iters;
 }
 
 #ifdef MPI_VERSION
@@ -177,11 +189,14 @@ GeometryConfiguration::GeometryConfiguration(const mixMPI *mpidata) {
   MPI_Bcast(_sph_x, _number_of_spheres, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(_sph_y, _number_of_spheres, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(_sph_z, _number_of_spheres, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Bcast(&_refine_flag, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_refine_flag, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_dyn_order_flag, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_host_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_gpu_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_tolerance, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_invert_mode, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_accuracy_goal, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_ref_iters, 1, MPI_INT, 0, MPI_COMM_WORLD);
 }
 
 void GeometryConfiguration::mpibcast(const mixMPI *mpidata) {
@@ -213,11 +228,14 @@ void GeometryConfiguration::mpibcast(const mixMPI *mpidata) {
   MPI_Bcast(_sph_x, _number_of_spheres, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(_sph_y, _number_of_spheres, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(_sph_z, _number_of_spheres, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Bcast(&_refine_flag, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_refine_flag, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_dyn_order_flag, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_host_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_gpu_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_tolerance, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_invert_mode, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_accuracy_goal, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_ref_iters, 1, MPI_INT, 0, MPI_COMM_WORLD);
 }
 #endif
 
@@ -354,12 +372,13 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
   while (num_lines > last_read_line) {
     str_target = file_lines[last_read_line++];
     bool is_parsed = false;
-    if (str_target.size() > 15) {
+    int str_target_size = str_target.size();
+    if (str_target_size > 15) {
       if (str_target.substr(0, 15).compare("USE_REFINEMENT=") == 0) {
 	re = regex("[0-9]+");
 	regex_search(str_target, m, re);
 	short refine_flag = (short)stoi(m.str());
-	conf->_refine_flag = refine_flag;
+	if (refine_flag > 0) conf->_refine_flag = true;
 	is_parsed = true;
       }
       if (str_target.substr(0, 15).compare("USE_DYN_ORDERS=") == 0) {
@@ -370,25 +389,52 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
 	is_parsed = true;
       }
     }
-    if (str_target.size() > 12) {
+    if (str_target_size > 13) {
+      if (str_target.substr(0, 13).compare("INV_ACCURACY=") == 0) {
+	int accuracy_goal = (double)stod(str_target.substr(13, str_target.length()));
+	conf->_accuracy_goal = accuracy_goal;
+	is_parsed = true;
+      }
+    }
+    if (str_target_size > 12) {
       if (str_target.substr(0, 12).compare("HOST_RAM_GB=") == 0) {
 	double ram_gb = (double)stod(str_target.substr(12, str_target.length()));
 	conf->_host_ram_gb = ram_gb;
 	is_parsed = true;
       }
     }
-    if (str_target.size() > 11) {
+    if (str_target_size > 11) {
       if (str_target.substr(0, 11).compare("GPU_RAM_GB=") == 0) {
 	double ram_gb = (double)stod(str_target.substr(11, str_target.length()));
 	conf->_gpu_ram_gb = ram_gb;
 	is_parsed = true;
       }
     }
-    if (str_target.size() > 10) {
+    if (str_target_size > 10) {
       if (str_target.substr(0, 10).compare("TOLERANCE=") == 0) {
 	double tolerance = (double)stod(str_target.substr(10, str_target.length()));
 	conf->_tolerance = tolerance;
 	is_parsed = true;
+      }
+      if (str_target.substr(0, 10).compare("INVERSION=") == 0) {
+	string str_inv_mode = str_target.substr(10, str_target.length());
+	short inv_mode = 0;
+	if (str_inv_mode.compare("LU") == 0) inv_mode = RuntimeSettings::INV_MODE_LU;
+	else if (str_inv_mode.compare("GESV") == 0) inv_mode = RuntimeSettings::INV_MODE_GESV;
+	else if (str_inv_mode.compare("RBT") == 0) inv_mode = RuntimeSettings::INV_MODE_RBT;
+	else if (str_inv_mode.compare("SVD") == 0) inv_mode = RuntimeSettings::INV_MODE_SVD;
+	else {
+	  throw(UnrecognizedConfigurationException("ERROR: unrecognized option \"" + str_target + "\"!\n"));
+	}
+	conf->_invert_mode = inv_mode;
+	is_parsed = true;
+      }
+      if (str_target.substr(0, 10).compare("REF_ITERS=") == 0) {
+	int ref_iters = (int)stoi(str_target.substr(10, str_target.length()));
+	if (ref_iters > 0) {
+	  conf->_ref_iters = ref_iters;
+	  is_parsed = true;
+	}
       }
     }
     if (!is_parsed) {
@@ -405,7 +451,31 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
   delete[] file_lines;
   return conf;
 }
+// >>> END OF GeometryConfiguration CLASS IMPLEMENTATION <<<
 
+// >>> RuntimeSettings CLASS IMPLEMENTATION <<<
+RuntimeSettings::RuntimeSettings() {
+  _invert_mode = RuntimeSettings::INV_MODE_LU;
+  _accuracy_goal = 1.0e-07;
+  _gpu_ram_gb = 0.0;
+  _host_ram_gb = 0.0;
+  _max_ref_iters = 5;
+  _use_refinement = false;
+  logger = NULL;
+}
+
+RuntimeSettings::RuntimeSettings(GeometryConfiguration *gconf, Logger *ptr_logger) {
+  _invert_mode = gconf->invert_mode;
+  _accuracy_goal = gconf->accuracy_goal; // TODO: make this option configurable.
+  _gpu_ram_gb = gconf->gpu_ram_gb;
+  _host_ram_gb = gconf->host_ram_gb;
+  _max_ref_iters = gconf->ref_iters; // TODO: make this option configurable.
+  _use_refinement = gconf->refine_flag;
+  logger = ptr_logger;
+}
+// >>> END OF RuntimeSettings CLASS IMPLEMENTATION <<<
+
+// >>> ScattererConfiguration CLASS IMPLEMENTATION <<<
 ScattererConfiguration::ScattererConfiguration(
   int nsph, int configs, double *scale_vector, int nxi,
   const std::string& variable_name, int *iog_vector,
@@ -1577,6 +1647,7 @@ bool ScattererConfiguration::operator ==(const ScattererConfiguration &other) {
   }
   return true;
 }
+// >>> END OF ScattererConfiguration CLASS IMPLEMENTATION <<<
 
 int *check_overlaps(
   ScattererConfiguration *sconf, GeometryConfiguration *gconf,

@@ -31,19 +31,18 @@
 
 using namespace std;
 
-/*! \brief Perform in-place matrix inversion.
+/**
+ * \brief Perform in-place matrix inversion.
  *
  * \param mat: `complex double **` The matrix to be inverted (must be a square matrix).
  * \param size: `np_int` The size of the matrix (i.e. the number of its rows or columns).
  * \param ier: `int &` Reference to an integer variable for returning a result flag.
- * \param maxrefiters: `int &` Reference to the maximum number of refinement iterations.
- * \param accuracygoal: `double &` Reference to the requested accuracy level.
- * \param refinemode: `int` Flag for refinement mode selection.
  * \param output_path: `const string &` Path where the output needs to be placed.
  * \param jxi488: `int` Index of the current wavelength calculation.
  * \param max_size: `np_int` The maximum expected size (required by some call-backs, optional, defaults to 0).
  * \param target_device: `int` ID of target GPU, if available (defaults to 0).
+ * \param rs: `const RuntimeSettings &` Runtime options instance (optional).
  */
-void invert_matrix(dcomplex **mat, np_int size, int &ier, int &maxrefiters, double &accuracygoal, int refinemode, const string& output_path, int jxi488, np_int max_size=0, int target_device=0);
+void invert_matrix(dcomplex **mat, np_int size, int &ier, const string& output_path, int jxi488, np_int max_size=0, int target_device=0, const RuntimeSettings& rs=RuntimeSettings());
 
 #endif

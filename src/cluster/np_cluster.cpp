@@ -14,7 +14,8 @@
    this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
  */
 
-/*! \file np_cluster.cpp
+/**
+ * \file np_cluster.cpp
  *
  * \brief Cluster of spheres scattering problem handler.
  *
@@ -45,6 +46,10 @@
 #include "../include/types.h"
 #endif
 
+#ifndef INCLUDE_LOGGING_H_
+#include "../include/logging.h"
+#endif
+
 #ifndef INCLUDE_CONFIGURATION_H_
 #include "../include/Configuration.h"
 #endif
@@ -57,7 +62,8 @@ using namespace std;
 
 extern void cluster(const string& config_file, const string& data_file, const string& output_path, const mixMPI *mpidata);
 
-/*! \brief Main program entry point.
+/**
+ * \brief Main program entry point.
  *
  * This is the starting point of the execution flow. Here we may choose
  * how to configure the code, e.g. by loading a legacy configuration file

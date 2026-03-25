@@ -39,7 +39,7 @@ Logger::~Logger() {
   delete last_message;
 }
 
-void Logger::err(const std::string& message) {
+void Logger::err(const std::string& message) const {
   fprintf(err_output, "%s", message.c_str());
   fflush(err_output);
 }
@@ -60,7 +60,7 @@ void Logger::flush(int level) {
   repetitions = 0;
 }
 
-void Logger::log(const std::string& message, int level) {
+void Logger::log(const std::string& message, int level) const {
   if (level == LOG_ERRO) err(message);
   else {
     if (level >= log_threshold) {
