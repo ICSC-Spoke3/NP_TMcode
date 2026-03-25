@@ -391,7 +391,7 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
     }
     if (str_target_size > 13) {
       if (str_target.substr(0, 13).compare("INV_ACCURACY=") == 0) {
-	int accuracy_goal = (double)stod(str_target.substr(13, str_target.length()));
+	double accuracy_goal = (double)stod(str_target.substr(13, str_target.length()));
 	conf->_accuracy_goal = accuracy_goal;
 	is_parsed = true;
       }
