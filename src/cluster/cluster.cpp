@@ -44,6 +44,10 @@
 #include <cuda_runtime.h>
 #endif
 
+#ifdef USE_MAGMA
+#include "magma_v2.h"
+#endif
+
 #ifndef INCLUDE_TYPES_H_
 #include "../include/types.h"
 #endif
@@ -100,6 +104,18 @@
 #include "../include/IterationData.h"
 #endif
 
+#ifndef INCLUDE_COMMONS_H_
+#include "../include/Commons.h"
+#endif
+
+#ifdef USE_TARGET_OFFLOAD
+#ifdef USE_MAGMA
+#ifndef INCLUDE_MAGMA_CALLS_H_
+#include "../include/magma_calls.h"
+#endif // INCLUDE_MAGMA_CALLS
+#endif // USE_MAGMA
+#endif // USE_TARGET_OFFLOAD
+
 using namespace std;
 
 /*! \brief Main calculation loop.
@@ -117,9 +133,8 @@ using namespace std;
  *  \param cid: `ClusterIterationData *` Pointer to a `ClusterIterationData` object.
  *  \param oi: `ClusterOutputInfo *` Pointer to a `ClusterOutputInfo` object.
  *  \param output_path: `const string &` Path to the output directory.
- *  \param vtppoanp: `VirtualBinaryFile *` Pointer to a `VirtualBinaryFile` object.
  */
-int cluster_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf, ScatteringAngles *sa, ClusterIterationData *cid, ClusterOutputInfo *oi, const string& output_path, VirtualBinaryFile *vtppoanp);
+int cluster_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf, ScatteringAngles *sa, ClusterIterationData *cid, ClusterOutputInfo *oi, const string& output_path);
 
 /*! \brief C++ implementation of CLU
  *
@@ -151,6 +166,9 @@ void cluster(const string& config_file, const string& data_file, const string& o
   const magma_int_t d_array_max_size = 32; // TEMPORARY: can become configurable parameter
   magma_device_t *device_array = new magma_device_t[d_array_max_size];
   magma_int_t num_devices;
+#ifdef USE_TARGET_OFFLOAD
+  cudaDeviceSetLimit(cudaLimitStackSize, 4096);
+#endif // USE TARGET_OFFLOAD
   magma_getdevices(device_array, d_array_max_size, &num_devices);
   device_count = (int)num_devices;
   delete[] device_array;
@@ -230,6 +248,10 @@ void cluster(const string& config_file, const string& data_file, const string& o
     int nsph = gconf->number_of_spheres;
     // Sanity check on number of sphere consistency, should always be verified
     if (s_nsph == nsph) {
+      message = (gconf->offload_flag) ?
+	"INFO: target offload is enabled.\n" :
+	"INFO: target offload is disabled.\n";
+      logger->log(message);
       char virtual_line[256];
       sprintf(virtual_line, "%.5lg m.\n", sconf->get_particle_radius(gconf));
       message = "INFO: particle radius is " + (string)virtual_line;
@@ -243,12 +265,11 @@ void cluster(const string& config_file, const string& data_file, const string& o
       } else if(gconf->invert_mode == RuntimeSettings::INV_MODE_RBT) {
 	message = "INFO: using RBT for inversion.\n";
 	logger->log(message);
-      } else if(gconf->invert_mode == RuntimeSettings::INV_MODE_SVD) {
-	//message = "INFO: using SVD for inversion.\n";
-	message = "ERROR: SVD inversion mode not yet implemented!\n";
-	logger->log(message);
-	exit(1);
       }
+      // else if(gconf->invert_mode == RuntimeSettings::INV_MODE_SVD) {
+      // 	message = "INFO: using SVD for inversion.\n";
+      // 	logger->log(message);
+      // }
       // Overlapping spheres test
       double tolerance = gconf->tolerance;
       if (tolerance < 0.0) {
@@ -354,8 +375,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
       double exri = sqrt(exdc);
 
       // Create empty virtual binary file
-      VirtualBinaryFile *vtppoanp = new VirtualBinaryFile();
-      string tppoan_name = output_path + "/c_TPPOAN";
 #ifdef USE_MAGMA
       logger->log("INFO: using MAGMA calls.\n", LOG_INFO);
 #elif defined USE_CUBLAS
@@ -374,17 +393,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
       int nph = p_scattering_angles->nph;
       int nphs = p_scattering_angles->nphs;
 
-      //========================
-      // write a block of info to virtual binary file
-      //========================
-      vtppoanp->append_line(VirtualBinaryLine(iavm));
-      vtppoanp->append_line(VirtualBinaryLine(isam));
-      vtppoanp->append_line(VirtualBinaryLine(inpol));
-      vtppoanp->append_line(VirtualBinaryLine(nxi));
-      vtppoanp->append_line(VirtualBinaryLine(nth));
-      vtppoanp->append_line(VirtualBinaryLine(nph));
-      vtppoanp->append_line(VirtualBinaryLine(nths));
-      vtppoanp->append_line(VirtualBinaryLine(nphs));
       if (sconf->idfc < 0) {
 	cid->vk = cid->xip * cid->wn;
 	p_output->vec_vk[0] = cid->vk;
@@ -392,13 +400,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
 
       int jxi488;
       int jer = 0;
-
-      //==================================================
-      // do the first outputs here, so that I open here the new files, afterwards I only append
-      //==================================================
-      // How should we handle this, when first iteration is not treated specially anymore? This should be ok, just write what was put in vtppoanp on initialisation, even if no actual calc was done yet. This creates the file nonetheless, 
-      vtppoanp->write_to_disk(output_path + "/c_TPPOAN");
-      delete vtppoanp;
 
       // here go the calls that send data to be duplicated on other MPI processes from process 0 to others, using MPI broadcasts, but only if MPI is actually used
 #ifdef MPI_VERSION
@@ -417,7 +418,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
       int myMPIblock = ompnumthreads;
       // Define here shared arrays of virtual ascii and binary files, so that thread 0 will be able to access them all later
       ClusterOutputInfo **p_outarray = NULL;
-      VirtualBinaryFile **vtppoanarray = NULL;
 
 #ifdef USE_NVTX
       nvtxRangePush("Parallel loop");
@@ -440,7 +440,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	if (myompthread == 0) {
 	  // Initialise some shared variables only on thread 0
 	  p_outarray = new ClusterOutputInfo*[ompnumthreads];
-	  vtppoanarray = new VirtualBinaryFile*[ompnumthreads];
 	  myMPIblock = ompnumthreads;
 	  myMPIstride = myMPIblock;
 	}
@@ -469,7 +468,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	// To test parallelism, I will now start feeding this function with "clean" copies of the parameters, so that they will not be changed by previous iterations, and each one will behave as the first one. Define all (empty) variables here, so they have the correct scope, then they get different definitions depending on thread number
 	ClusterIterationData *cid_2 = NULL;
 	ClusterOutputInfo *p_output_2 = NULL;
-	VirtualBinaryFile *vtppoanp_2 = NULL;
 	// for threads other than the 0, create distinct copies of all relevant data, while for thread 0 just define new references / pointers to the original ones
 	if (myompthread == 0) {
 	  cid_2 = cid;
@@ -493,9 +491,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
 #pragma omp barrier
 	  int myjxi488 = ixi488+myompthread;
 	  // each thread opens new virtual files and stores their pointers in the shared array
-	  vtppoanp_2 = new VirtualBinaryFile();
-	  // each thread puts a copy of the pointers to its virtual files in the shared arrays
-	  vtppoanarray[myompthread] = vtppoanp_2;
 #pragma omp barrier
 
 	  // each MPI process handles a number of contiguous scales corresponding to its number of OMP threads at this omp level of parallelism
@@ -505,7 +500,7 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	      p_output_2 = new ClusterOutputInfo(sconf, gconf, mpidata, myjxi488, 1);
 	      p_outarray[myompthread] = p_output_2;
 	    }
-	    int jer = cluster_jxi488_cycle(myjxi488, sconf, gconf, p_scattering_angles, cid_2, p_output_2, output_path, vtppoanp_2);
+	    int jer = cluster_jxi488_cycle(myjxi488, sconf, gconf, p_scattering_angles, cid_2, p_output_2, output_path);
 	  } else {
 	    if (myompthread > 0) {
 	      // If there is no input for this thread, mark to skip.
@@ -524,8 +519,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	      p_outarray[0]->insert(*(p_outarray[ti]));
 	      delete p_outarray[ti];
 	      p_outarray[ti] = NULL;
-	      vtppoanarray[0]->append(*(vtppoanarray[ti]));
-	      delete vtppoanarray[ti];
 	    }
 	  }
 #pragma omp barrier
@@ -540,8 +533,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	    // if this is the very first time, we should actually use
 	    // ->write_to_disk, not ->append_to_disk
 	    // ******************************************************
-	    vtppoanarray[0]->append_to_disk(output_path + "/c_TPPOAN");
-	    delete vtppoanarray[0];
 
 #ifdef MPI_VERSION
 	    if (mpidata->mpirunning) {
@@ -556,10 +547,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
 		// delete p_output;
 		
 		// get the data from process rr, creating a new virtual binary file
-		VirtualBinaryFile *vtppoanp = new VirtualBinaryFile(mpidata, rr);
-		// append to disk and delete virtual binary file
-		vtppoanp->append_to_disk(output_path + "/c_TPPOAN");
-		delete vtppoanp;
 		int test = MPI_Barrier(MPI_COMM_WORLD);
 	      }
 	    }
@@ -576,7 +563,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
 #pragma omp barrier
 	if (myompthread == 0) {
 	  delete[] p_outarray;
-	  delete[] vtppoanarray;
 	}
 	{
 	  string message = "INFO: Closing thread-local output files of thread " + to_string(myompthread) + " and syncing threads.\n";
@@ -630,7 +616,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
     // Create this variable and initialise it with a default here, so that it is defined anyway, with or without OpenMP support enabled
     int ompnumthreads = 1;
     ClusterOutputInfo **p_outarray = NULL;
-    VirtualBinaryFile **vtppoanarray = NULL;
     int myjxi488startoffset;
     int myMPIstride = ompnumthreads;
     int myMPIblock = ompnumthreads;
@@ -653,13 +638,11 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	MPI_Bcast(&myMPIstride, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	// allocate virtual files for each thread
 	p_outarray = new ClusterOutputInfo*[ompnumthreads];
-	vtppoanarray = new VirtualBinaryFile*[ompnumthreads];
       }
 #pragma omp barrier
       // To test parallelism, I will now start feeding this function with "clean" copies of the parameters, so that they will not be changed by previous iterations, and each one will behave as the first one. Define all (empty) variables here, so they have the correct scope, then they get different definitions depending on thread number
       ClusterIterationData *cid_2 = NULL;
       ClusterOutputInfo *p_output_2 = NULL;
-      VirtualBinaryFile *vtppoanp_2 = NULL;
       // PLACEHOLDER
       // for threads other than the 0, create distinct copies of all relevant data, while for thread 0 just define new references / pointers to the original ones
       if (myompthread == 0) {
@@ -677,9 +660,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
 #pragma omp barrier
 	int myjxi488 = ixi488 + myjxi488startoffset + myompthread;
 	// each thread opens new virtual files and stores their pointers in the shared array
-	vtppoanp_2 = new VirtualBinaryFile();
-	// each thread puts a copy of the pointers to its virtual files in the shared arrays
-	vtppoanarray[myompthread] = vtppoanp_2;
 #pragma omp barrier
 	if (myompthread==0) logger->log("Syncing OpenMP threads and starting one iteration block on wavelengths\n");
 	// ok, now I can actually start the parallel calculations
@@ -697,7 +677,7 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	    p_output_2 = new ClusterOutputInfo(sconf, gconf, mpidata, myjxi488, iterstodo);
 	    p_outarray[0] = p_output_2;
 	  }
-	  int jer = cluster_jxi488_cycle(myjxi488, sconf, gconf, p_scattering_angles, cid_2, p_output_2, output_path, vtppoanp_2);
+	  int jer = cluster_jxi488_cycle(myjxi488, sconf, gconf, p_scattering_angles, cid_2, p_output_2, output_path);
 	} else {
 	  p_outarray[myompthread] = new ClusterOutputInfo(1);
 	}
@@ -709,8 +689,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	    p_outarray[0]->insert(*(p_outarray[ti]));
 	    delete p_outarray[ti];
 	    p_outarray[ti] = NULL;
-	    vtppoanarray[0]->append(*(vtppoanarray[ti]));
-	    delete vtppoanarray[ti];
 	  }
 	  // thread 0 sends the collected virtualfiles to thread 0 of MPI process 0, then deletes them
 	  for (int rr=1; rr<mpidata->nprocs; rr++) {
@@ -718,8 +696,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	      p_outarray[0]->mpisend(mpidata);
 	      delete p_outarray[0];
 	      p_outarray[0] = NULL;
-	      vtppoanarray[0]->mpisend(mpidata);
-	      delete vtppoanarray[0];
 	    }
 	    int test = MPI_Barrier(MPI_COMM_WORLD);
 	  }
@@ -730,7 +706,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
 #pragma omp barrier
       if (myompthread == 0) {
 	delete[] p_outarray;
-	delete[] vtppoanarray;
       }
       delete cid_2;
 
@@ -752,7 +727,7 @@ void cluster(const string& config_file, const string& data_file, const string& o
 int cluster_jxi488_cycle(
   int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf,
   ScatteringAngles *sa, ClusterIterationData *cid, ClusterOutputInfo *output,
-  const string& output_path, VirtualBinaryFile *vtppoanp
+  const string& output_path
 ) {
   int nxi = sconf->number_of_scales;
   const dcomplex cc0 = 0.0 + I * 0.0;
@@ -808,7 +783,7 @@ int cluster_jxi488_cycle(
   const int max_le = gconf->le;
   const double alamb = 2.0 * pi / cid->vk;
   double size_par_li = 2.0 * pi * sqrt(exdc) * sconf->get_max_radius() / alamb;
-  int recommended_li = 4 + (int)ceil(size_par_li + 4.05 * pow(size_par_li, 1.0 / 3.0));
+  int recommended_li = 2 + (int)ceil(size_par_li + 4.05 * pow(size_par_li, 1.0 / 3.0));
   double size_par_le = 2.0 * pi * sqrt(exdc) * sconf->get_particle_radius(gconf) / alamb;
   int recommended_le = 1 + (int)ceil(size_par_le + 11.0 * pow(size_par_le, 1.0 / 3.0));
   if (recommended_li != cid->c1->li || recommended_le != cid->c1->le) {
@@ -900,10 +875,6 @@ int cluster_jxi488_cycle(
 #ifdef USE_NVTX
   nvtxRangePop();
 #endif
-  interval_start = chrono::high_resolution_clock::now();
-#ifdef USE_NVTX
-  nvtxRangePush("Calculate inverted matrix");
-#endif
 #ifdef DEBUG_AM
   /* now, before cms, output am to p_outam0 */
   VirtualAsciiFile *outam0 = new VirtualAsciiFile();
@@ -917,77 +888,161 @@ int cluster_jxi488_cycle(
   write_dcomplex_matrix(outam0, cid->am, ndit, ndit);
   outam0->write_to_disk(outam0_name);
   delete outam0;
-#endif
-  cms(cid->am, cid->c1);
-#ifdef DEBUG_AM
-  VirtualAsciiFile *outam1 = new VirtualAsciiFile();
-  string outam1_name = output_path + "/c_AM1_JXI" + to_string(jxi488) + ".txt";
-  sprintf(virtual_line, " AM matrix after CMS before LUCIN\n");
-  outam1->append_line(virtual_line);
-  sprintf(virtual_line, " %d\n", ndit);
-  outam1->append_line(virtual_line);  
-  sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
-  outam1->append_line(virtual_line);
-  write_dcomplex_matrix(outam1, cid->am, ndit, ndit, " %5d %5d (%17.8lE,%17.8lE)\n", 1);
-  outam1->write_to_disk(outam1_name);
-  delete outam1;
-#endif
-#ifdef USE_NVTX
-  nvtxRangePop();
-#endif
-  interval_end = chrono::high_resolution_clock::now();
-  elapsed = interval_end - interval_start;
-  message = "INFO: matrix calculation for scale " + to_string(jxi488) + " took " + to_string(elapsed.count()) + "s.\n";
-  logger->log(message);
-  interval_start = chrono::high_resolution_clock::now();
-#ifdef USE_NVTX
-  nvtxRangePush("Invert the matrix");
-#endif
-  invert_matrix(cid->am, ndit, jer, output_path, jxi488, mxndm, cid->proc_device, rs);
-#ifdef DEBUG_AM
-  VirtualAsciiFile *outam2 = new VirtualAsciiFile();
-  string outam2_name = output_path + "/c_AM2_JXI" + to_string(jxi488) + ".txt";
-  sprintf(virtual_line, " AM matrix after LUCIN before ZTM\n");
-  outam2->append_line(virtual_line);
-  sprintf(virtual_line, " %d\n", ndit);
-  outam2->append_line(virtual_line);  
-  sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
-  outam2->append_line(virtual_line);
-  write_dcomplex_matrix(outam2, cid->am, ndit, ndit);
-  outam2->write_to_disk(outam2_name);
-  delete outam2;
-#endif
-#ifdef USE_NVTX
-  nvtxRangePop();
-#endif
-  interval_end = chrono::high_resolution_clock::now();
-  elapsed = interval_end - interval_start;
-  message = "INFO: matrix inversion for scale " + to_string(jxi488) + " took " + to_string(elapsed.count()) + "s.\n";
-  logger->log(message);
-  if (jer != 0) {
-    message = "ERROR: matrix inversion ended with error code " + to_string(jer) + ".\n";
+#endif // DEBUG_AM
+  if (rs.use_offload) {
+    // whenever rs.use_offload == true, USE_TARGET_OFFLOAD is defined, but we
+    // have to check for the compilation flag in order to avoid the compiler
+    // to walk the code, if the offload library functions are not available
+#ifdef USE_TARGET_OFFLOAD
+#ifdef USE_MAGMA
+    const int ind3j_size = (cid->c1->lm + 1) * cid->c1->lm;
+    const int nv3j = cid->c1->nv3j;
+    const int nsphmo = nsph - 1;
+    const int ncou = nsph * nsphmo;
+    const int litpo = li + li + 1;
+    const int litpos = litpo * litpo;
+    const int lmtpo = cid->c1->lmtpo;
+    const int lmtpos = cid->c1->lmtpos;
+    const int rsize = li * nsph;
+    const magma_int_t ndi = nsph * li * (li + 2);
+    const magma_int_t nlem = cid->c1->nlem;
+    const magma_int_t nlemt = nlem + nlem;
+    magmaDoubleComplex* vec_am = (magmaDoubleComplex *)(cid->am[0]);
+    magmaDoubleComplex *rmi = (magmaDoubleComplex *)(cid->c1->rmi[0]);
+    magmaDoubleComplex *rei = (magmaDoubleComplex *)(cid->c1->rei[0]);
+    double *rxx = cid->c1->rxx;
+    double *ryy = cid->c1->ryy;
+    double *rzz = cid->c1->rzz;
+    int *ind3j = cid->c1->ind3j[0];
+    double *v3j0 = cid->c1->v3j0;
+    magmaDoubleComplex *vh = (magmaDoubleComplex *)(cid->c1->vh);
+    magmaDoubleComplex *vyhj = (magmaDoubleComplex *)(cid->c1->vyhj);
+    magmaDoubleComplex *vj0 = (magmaDoubleComplex *)(cid->c1->vj0);
+    magmaDoubleComplex *vyj0 = (magmaDoubleComplex *)(cid->c1->vyj0);
+    magmaDoubleComplex *gis_v = (magmaDoubleComplex *)(cid->c1->gis[0]);
+    magmaDoubleComplex *gls_v = (magmaDoubleComplex *)(cid->c1->gls[0]);
+    magmaDoubleComplex *sam_v = (magmaDoubleComplex *)(cid->c1->sam[0]);
+    magmaDoubleComplex *vec_am0m = (magmaDoubleComplex *)(cid->c1->am0m[0]);
+    magma_queue_t queue = NULL;
+    magma_device_t device_id = (magma_device_t)(cid->proc_device);
+    magma_queue_create(device_id, &queue);
+#pragma omp target data map(to: rxx[0:nsph], ryy[0:nsph], rzz[0:nsph]) \
+  map(to: ind3j[0:ind3j_size], v3j0[0:nv3j], vh[0:ncou*litpo]) \
+  map(to: vyhj[0:ncou*litpos], vj0[0:nsph*lmtpo], vyj0[0:nsph*lmtpos]) \
+  map(to: rmi[0:rsize], rei[0:rsize]) map(tofrom:vec_am[0:ndit*ndit]) \
+  device(cid->proc_device)
+    {
+      // Initialize uninverted matrix on GPU
+      magma_cms(
+        vec_am, cid->c1, rxx, ryy, rzz, ind3j, v3j0, vh, vyhj, vj0, vyj0, rmi, rei, cid->proc_device
+      );
+      magma_zinvert_resident(vec_am, (magma_int_t)ndit, jer, queue, cid->proc_device, rs);
+      magma_queue_sync(queue);
+      
+      if (jer != 0) {
+	sprintf(virtual_line, "ERROR: matrix inversion returned code %d!\n", jer);
+	message = virtual_line;
+	logger->err(message);
+      }
+    } // end of target data region
+    magma_queue_destroy(queue);
+    magma_ztm(
+      vec_am, cid->c1, rxx, ryy, rzz, ind3j, v3j0, vh, vyhj, vj0, vyj0, sam_v,
+      gis_v, gls_v, vec_am0m, cid->proc_device
+    );
+#else // NO_USE_MAGMA but USE_TARGET_OFFLOAD
+    // TODO: implement full offload pipeline without MAGMA
+    cms_flat(cid->am[0], cid->c1);
+    invert_matrix(cid->am, ndit, jer, output_path, jxi488, mxndm, cid->proc_device, rs);
+    ztm(cid->am, cid->c1);
+#endif // USE_MAGMA
+#else // NO_USE_TARGET_OFFLOAD
+    message = "ERROR: offload required, but not supported!\n"; // should never occur
     logger->err(message);
-    return jer;
-    // break; // jxi488 loop: goes to memory clean
+    exit(1);
+#endif // USE_TARGET_OFFLOAD
+  } else {
+#ifdef USE_NVTX
+    nvtxRangePush("Calculate inverted matrix");
+#endif
+    interval_start = chrono::high_resolution_clock::now();
+    cms(cid->am[0], cid->c1);
+#ifdef DEBUG_AM
+    VirtualAsciiFile *outam1 = new VirtualAsciiFile();
+    string outam1_name = output_path + "/c_AM1_JXI" + to_string(jxi488) + ".txt";
+    string outam1_ppm_name = output_path + "/c_AM1_JXI" + to_string(jxi488) + ".ppm";
+    sprintf(virtual_line, " AM matrix after CMS before LUCIN\n");
+    outam1->append_line(virtual_line);
+    sprintf(virtual_line, " %d\n", ndit);
+    outam1->append_line(virtual_line);  
+    sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
+    outam1->append_line(virtual_line);
+    write_dcomplex_matrix(outam1, cid->am, ndit, ndit, " %5d %5d (%17.8lE,%17.8lE)\n", 1);
+    outam1->write_to_disk(outam1_name);
+    delete outam1;
+    write_matrix_as_ppm(cid->am[0], ndit, ndit, outam1_ppm_name);
+#endif // DEBUG_AM
+#ifdef USE_NVTX
+    nvtxRangePop();
+#endif // USE_NVTX
+    interval_end = chrono::high_resolution_clock::now();
+    elapsed = interval_end - interval_start;
+    message = "INFO: matrix calculation for scale " + to_string(jxi488) + " took " + to_string(elapsed.count()) + "s.\n";
+    logger->log(message);
+    interval_start = chrono::high_resolution_clock::now();
+#ifdef USE_NVTX
+    nvtxRangePush("Invert the matrix");
+#endif // USE_NVTX
+    invert_matrix(cid->am, ndit, jer, output_path, jxi488, mxndm, cid->proc_device, rs);
+#ifdef DEBUG_AM
+    VirtualAsciiFile *outam2 = new VirtualAsciiFile();
+    string outam2_name = output_path + "/c_AM2_JXI" + to_string(jxi488) + ".txt";
+    string outam2_ppm_name = output_path + "/c_AM2_JXI" + to_string(jxi488) + ".ppm";
+    sprintf(virtual_line, " AM matrix after LUCIN before ZTM\n");
+    outam2->append_line(virtual_line);
+    sprintf(virtual_line, " %d\n", ndit);
+    outam2->append_line(virtual_line);  
+    sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
+    outam2->append_line(virtual_line);
+    write_dcomplex_matrix(outam2, cid->am, ndit, ndit);
+    outam2->write_to_disk(outam2_name);
+    delete outam2;
+    write_matrix_as_ppm(cid->am[0], ndit, ndit, outam2_ppm_name);
+#endif // DEBUG_AM
+#ifdef USE_NVTX
+    nvtxRangePop();
+#endif // USE_NVTX
+    interval_end = chrono::high_resolution_clock::now();
+    elapsed = interval_end - interval_start;
+    message = "INFO: matrix inversion for scale " + to_string(jxi488) + " took " + to_string(elapsed.count()) + "s.\n";
+    logger->log(message);
+    if (jer != 0) {
+      message = "ERROR: matrix inversion ended with error code " + to_string(jer) + ".\n";
+      logger->err(message);
+      return jer;
+      // break; // jxi488 loop: goes to memory clean
+    }
+    ztm(cid->am, cid->c1);
+#ifdef DEBUG_AM
+    VirtualAsciiFile *outam3 = new VirtualAsciiFile();
+    string outam3_name = output_path + "/c_AM3_JXI" + to_string(jxi488) + ".txt";
+    string outam3_ppm_name = output_path + "/c_AM3_JXI" + to_string(jxi488) + ".ppm";
+    sprintf(virtual_line, " AM0M matrix after ZTM\n");
+    outam3->append_line(virtual_line);
+    sprintf(virtual_line, " %d\n", ndit);
+    outam3->append_line(virtual_line);  
+    sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
+    outam3->append_line(virtual_line);
+    write_dcomplex_matrix(outam3, cid->c1->am0m, 2 * cid->c1->nlem, 2 * cid->c1->nlem);
+    outam3->write_to_disk(outam3_name);
+    delete outam3;
+    write_matrix_as_ppm(cid->c1->am0m[0], 2 * cid->c1->nlem, 2 * cid->c1->nlem, outam3_ppm_name);
+#endif // DEBUG_AM
   }
   interval_start = chrono::high_resolution_clock::now();
 #ifdef USE_NVTX
   nvtxRangePush("Average calculation");
-#endif
-  ztm(cid->am, cid->c1);
-#ifdef DEBUG_AM
-  VirtualAsciiFile *outam3 = new VirtualAsciiFile();
-  string outam3_name = output_path + "/c_AM3_JXI" + to_string(jxi488) + ".txt";
-  sprintf(virtual_line, " AM matrix after ZTM\n");
-  outam3->append_line(virtual_line);
-  sprintf(virtual_line, " %d\n", ndit);
-  outam3->append_line(virtual_line);  
-  sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
-  outam3->append_line(virtual_line);
-  write_dcomplex_matrix(outam3, cid->am, ndit, ndit);
-  outam3->write_to_disk(outam3_name);
-  delete outam3;
-#endif
+#endif // USE_NVTX
   if (idfc >= 0) {
     if (jxi488 == jwtm) {
       int nlemt = 2 * cid->c1->nlem;
@@ -1058,7 +1113,6 @@ int cluster_jxi488_cycle(
   output->vec_qschut[jindex - 1] = qschu;
   output->vec_pschut[jindex - 1] = pschu;
   output->vec_s0magt[jindex - 1] = s0mag;
-  vtppoanp->append_line(VirtualBinaryLine(cid->vk));
   pcrsm0(cid->vk, exri, inpol, cid->c1);
   apcra(cid->zpv, cid->c1->le, cid->c1->am0m, inpol, sqk, cid->gapm, cid->gappm);
 #ifdef USE_NVTX
@@ -1160,45 +1214,9 @@ int cluster_jxi488_cycle(
 	    jw = 1;
 	  }
 	  // label 196
-	  vtppoanp->append_line(VirtualBinaryLine(th));
-	  vtppoanp->append_line(VirtualBinaryLine(ph));
-	  vtppoanp->append_line(VirtualBinaryLine(ths));
-	  vtppoanp->append_line(VirtualBinaryLine(phs));
-	  vtppoanp->append_line(VirtualBinaryLine(cid->scan));
 	  if (jaw != 0) {
 	    jaw = 0;
 	    mextc(cid->vk, exri, cid->c1->fsacm, cid->cextlr, cid->cext);
-	    // We now have some implicit loops writing to binary
-	    for (int i = 0; i < 4; i++) {
-	      for (int j = 0; j < 4; j++) {
-		double value = cid->cext[i][j];
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
-	    for (int i = 0; i < 2; i++) {
-	      double value = cid->c1->scscm[i];
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = real(cid->c1->scscpm[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = imag(cid->c1->scscpm[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = cid->c1->ecscm[i];
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = real(cid->c1->ecscpm[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = imag(cid->c1->ecscpm[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	    }
-	    for (int i = 0; i < 3; i++) {
-	      for (int j = 0; j < 2; j++) {
-		double value = cid->gapm[i][j];
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = real(cid->gappm[i][j]);
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = imag(cid->gappm[i][j]);
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
 	    int jlr = 2;
 	    for (int ilr210 = 1; ilr210 <= 2; ilr210++) {
 	      int ipol = (ilr210 % 2 == 0) ? 1 : -1;
@@ -1221,13 +1239,6 @@ int cluster_jxi488_cycle(
 	      double s0magm = cabs(s0m) * cs0;
 	      double rfinrm = real(cid->c1->fsacm[ilr210 - 1][ilr210 - 1]) / real(cid->c1->tfsas);
 	      double extcrm = imag(cid->c1->fsacm[ilr210 - 1][ilr210 - 1]) / imag(cid->c1->tfsas);
-	      // if (inpol == 0) {
-	      // sprintf(virtual_line, "   LIN %2d\n", ipol);
-	      // output->append_line(virtual_line);
-	      // } else { // label 206
-	      // sprintf(virtual_line, "  CIRC %2d\n", ipol);
-	      // output->append_line(virtual_line);
-	      // }
 	      // label 208
 	      if (ipol == -1) {
 		output->vec_scc1[jindex - 1] = scasm;
@@ -1343,101 +1354,8 @@ int cluster_jxi488_cycle(
 	  mmulc(cid->c1->vint, cid->cmullr, cid->cmul);
 	  if (jw != 0) {
 	    jw = 0;
-	    // Some implicit loops writing to binary.
-	    for (int i = 0; i < 4; i++) {
-	      for (int j = 0; j < 4; j++) {
-		double value = cid->cext[i][j];
-		// tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
-	    for (int i = 0; i < 2; i++) {
-	      double value = cid->c1->scsc[i];
-	      // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = real(cid->c1->scscp[i]);
-	      // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = imag(cid->c1->scscp[i]);
-	      // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = cid->c1->ecsc[i];
-	      // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = real(cid->c1->ecscp[i]);
-	      // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = imag(cid->c1->ecscp[i]);
-	      // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	    }
-	    for (int i = 0; i < 3; i++) {
-	      for (int j = 0; j < 2; j++) {
-		double value = cid->gap[i][j];
-		// tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = real(cid->gapp[i][j]);
-		// tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = imag(cid->gapp[i][j]);
-		// tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
-	    for (int i = 0; i < 2; i++) {
-	      for (int j = 0; j < 3; j++) {
-		double value = cid->tqce[i][j];
-		// tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = real(cid->tqcpe[i][j]);
-		// tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = imag(cid->tqcpe[i][j]);
-		// tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
-	    for (int i = 0; i < 2; i++) {
-	      for (int j = 0; j < 3; j++) {
-		double value = cid->tqcs[i][j];
-		// tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = real(cid->tqcps[i][j]);
-		// tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = imag(cid->tqcps[i][j]);
-		// tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
-	    for (int i = 0; i < 3; i++) {
-	      double value = cid->u[i];
-	      // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = cid->up[i];
-	      // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = cid->un[i];
-	      // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	    }
 	  }
 	  // label 254
-	  for (int i = 0; i < 16; i++) {
-	    double value = real(cid->c1->vint[i]);
-	    // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	    vtppoanp->append_line(VirtualBinaryLine(value));
-	    value = imag(cid->c1->vint[i]);
-	    // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	    vtppoanp->append_line(VirtualBinaryLine(value));
-	  }
-	  for (int i = 0; i < 4; i++) {
-	    for (int j = 0; j < 4; j++) {
-	      double value = cid->cmul[i][j];
-	      // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	    }
-	  }
 	  int jlr = 2;
 	  for (int ilr290 = 1; ilr290 <= 2; ilr290++) {
 	    int ipol = (ilr290 % 2 == 0) ? 1 : -1;
@@ -1579,23 +1497,6 @@ int cluster_jxi488_cycle(
 	  }
 	  if (iavm != 0) {
 	    mmulc(cid->c1->vintm, cid->cmullr, cid->cmul);
-	    // Some implicit loops writing to binary.
-	    for (int i = 0; i < 16; i++) {
-	      double value;
-	      value = real(cid->c1->vintm[i]);
-	      // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = imag(cid->c1->vintm[i]);
-	      // tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	    }
-	    for (int i = 0; i < 4; i++) {
-	      for (int j = 0; j < 4; j++) {
-		double value = cid->cmul[i][j];
-		// tppoan.write(reinterpret_cast<char *>(&value), sizeof(double));
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
 	    // label 318
 	    for (int i = 0; i < 4; i++) {
 	      oindex = 16 * (jindex - 1) + 4 * i; // if IAVM fails, try adding directions

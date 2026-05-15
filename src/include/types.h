@@ -66,8 +66,11 @@ typedef __complex__ double dcomplex;
 #endif // lapack_int
 #endif // np_int
 
-//! \brief Macro to compute the conjugate of a complex number.
+//! \brief Macro to compute the conjugate of a double precision complex number.
 #define dconjg(z) ( (__real__ (z) - I * (__imag__ (z))) )
+
+//! \brief Macro to compute the magnitude of a double precision complex number.
+#define dcabs(z) ( std::sqrt(__real__ (z) * __real__ (z) + __imag__ (z) * __imag__ (z)) )
 
 /*! \brief Get the imaginary part of double precision complex number.
  *

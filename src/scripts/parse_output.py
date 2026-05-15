@@ -143,20 +143,20 @@ def parse_legacy_oclu(config):
     file_line = "first line" # a string to parse the OCLU file lines
     if ('ALL' in config['selection'] or 'ICS' in config['selection']):
         out20 = open(root_name + "_ics.csv", "w") # open a file for integrated cross sections
-        out20.write("Wavelength,ScaSec,AbsSec,ExtSec\n")
+        out20.write("Wavelength_m,ScaSec_m2,AbsSec_m2,ExtSec_m2\n")
     if ('ALL' in config['selection'] or 'DCS' in config['selection']):
         out31 = open(root_name + "_dcs1.csv", "w") # open a file for differential cross-sections in state -1
-        out31.write("Wavelength,THi,THs,PHi,PHs,ScaSec,AbsSec,ExtSec\n")
+        out31.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,ScaSec_m2,AbsSec_m2,ExtSec_m2\n")
         out32 = open(root_name + "_dcs2.csv", "w") # open a file for differential cross-sections in state +1
-        out32.write("Wavelength,THi,THs,PHi,PHs,ScaSec,AbsSec,ExtSec\n")
+        out32.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,ScaSec_m2,AbsSec_m2,ExtSec_m2\n")
     if ('ALL' in config['selection'] or 'IRP' in config['selection']):
         out40 = open(root_name + "_irp.csv", "w") # open a file for integrated radiation pressure forces
-        out40.write("Wavelength,CosAv,RaPr\n")
+        out40.write("Wavelength_m,CosAv,RaPr_m2\n")
     if ('ALL' in config['selection'] or 'DRP' in config['selection']):
         out51 = open(root_name + "_drp1.csv", "w") # open a file for differential radiation pressure forces in state -1
-        out51.write("Wavelength,THi,THs,PHi,PHs,CosAv,RaPr,Fl,Fr,Fk,Fx,Fy,Fz,TQEl,TQEr,TQEk,TQEx,TQEy,TQEz,TQSl,TQSr,TQSk,TQSx,TQSy,TQSz\n")
+        out51.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,CosAv,RaPr_m2,Fl_m2,Fr_m2,Fk_m2,Fx_m2,Fy_m2,Fz_m2,TQEl_m2,TQEr_m2,TQEk_m2,TQEx_m2,TQEy_m2,TQEz_m2,TQSl_m2,TQSr_m2,TQSk_m2,TQSx_m2,TQSy_m2,TQSz_m2\n")
         out52 = open(root_name + "_drp2.csv", "w") # open a file for differential radiation pressure forces in state +1
-        out52.write("Wavelength,THi,THs,PHi,PHs,CosAv,RaPr,Fl,Fr,Fk,Fx,Fy,Fz,TQEl,TQEr,TQEk,TQEx,TQEy,TQEz,TQSl,TQSr,TQSk,TQSx,TQSy,TQSz\n")
+        out52.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,CosAv,RaPr_m2,Fl_m2,Fr_m2,Fk_m2,Fx_m2,Fy_m2,Fz_m2,TQEl_m2,TQEr_m2,TQEk_m2,TQEx_m2,TQEy_m2,TQEz_m2,TQSl_m2,TQSr_m2,TQSk_m2,TQSx_m2,TQSy_m2,TQSz_m2\n")
 
     # Define the quantities that you need to extract
     alam = 0.0

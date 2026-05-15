@@ -132,6 +132,8 @@ protected:
   double _accuracy_goal;
   //! \brief Maximum number of refinement iterations.
   int _ref_iters;
+  //! \brief Flag to use target offload, if available.
+  bool _offload_flag;
 
 public:
   //! \brief Read-only view on number of spherical components.
@@ -196,6 +198,8 @@ public:
   const double& accuracy_goal = _accuracy_goal;
   //! \brief Read-only view on maximum number of refinement iterations.
   const int& ref_iters = _ref_iters;
+  //! \brief Read-only view on flag to use target offload, if available.
+  const bool& offload_flag = _offload_flag;
   
   /**
    * \brief Build a scattering geometry configuration structure.
@@ -345,6 +349,8 @@ protected:
   int _max_ref_iters;
   //! \brief Refinement flag.
   bool _use_refinement;
+  //! \brief Offload flag.
+  bool _use_offload;
 
 public:
   //! \brief Flag for LU factorization inversion.
@@ -368,6 +374,8 @@ public:
   const int& max_ref_iters = _max_ref_iters;
   //! \brief Read-only view on refinement flag.
   const bool& use_refinement = _use_refinement;
+  //! \brief Read-only view on offload flag.
+  const bool& use_offload = _use_offload;
   //! \brief Pointer to a Logger instance.
   const Logger *logger;
 

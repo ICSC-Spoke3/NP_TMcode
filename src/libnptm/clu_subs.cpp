@@ -19,6 +19,8 @@
  * \brief C++ implementation of CLUSTER subroutines.
  */
 
+#include <cstring>
+
 #ifndef INCLUDE_TYPES_H_
 #include "../include/types.h"
 #endif
@@ -52,6 +54,8 @@
 #endif
 
 using namespace std;
+
+const double four_pi = 8.0 * acos(0.0);
 
 void apc(
   double ****zpv, int le, dcomplex **am0m, dcomplex **w,
@@ -396,9 +400,28 @@ dcomplex cdtp(dcomplex z, dcomplex *vec_am, int i, int jf, int k, int nj, np_int
   return result;
 }
 
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp begin declare target device_type(any)
-// #endif
+double cgev(int ipamo, int mu, int l, int m) {
+  double xd, xn;
+  if (ipamo == 0) {
+    if (mu != 0) {
+      xd = 2.0 * l * (l + 1);
+      xn = (mu < 0) ? 1.0 * (l + m) * (l - m + 1)
+	: 1.0 * (l - m) * (l + m + 1);
+      double result = sqrt(xn / xd);
+      return (mu <= 0) ? result : -result;
+    } else { // mu == 0
+      return -1.0 * m / sqrt(1.0 * (l + 1) * l);
+    }
+    return 0.0;
+  } else { // ipamo != 0
+    xd = 2.0 * l * (l * 2 - 1);
+    xn = (mu == 0) ? 2.0 * (l - m) * (l + m)
+      : ((mu < 0) ? 1.0 * (l - 1 + m) * (l + m) : 1.0 * (l - 1 - m) * (l - m));
+    return sqrt(xn / xd);
+  }
+}
+
+/*
 double cgev(int ipamo, int mu, int l, int m) {
   double result = 0.0;
   double xd = 0.0, xn = 0.0;
@@ -432,23 +455,26 @@ double cgev(int ipamo, int mu, int l, int m) {
   }
   return result;
 }
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp end declare target
-// #endif
+*/
 
-void cms(dcomplex **am, ParticleDescriptor *c1) {
-  const dcomplex cc0 = 0.0 + 0.0 * I;
-  int ndi = c1->nsph * c1->nlim;
+void cms(dcomplex *am, ParticleDescriptor *c1) {
+  const int nsph = c1->nsph;
+  const int nlim = c1->nlim;
+  const int li = c1->li;
+  const int ndi = nsph * nlim;
+  const int ndit = ndi + ndi;
+  const int nsphmo = nsph - 1;
+  const int lmtpo = c1->lmtpo;
+  
   // int nbl = 0;
-  int nsphmo = c1->nsph - 1;
-  for (int n1 = 1; n1 <= nsphmo; n1++) { // GPU portable?
-    int in1 = (n1 - 1) * c1->nlim;
+  for (int n1 = 1; n1 <= nsphmo; n1++) {
+    int in1 = (n1 - 1) * nlim;
     int n1po = n1 + 1;
-    for (int n2 = n1po; n2 <= c1->nsph; n2++) {
-      int in2 = (n2 - 1) * c1->nlim;
+    for (int n2 = n1po; n2 <= nsph; n2++) {
+      int in2 = (n2 - 1) * nlim;
       // nbl++;
-      int nbl = ((n1 - 1) * (2 * c1->nsph - n1)) / 2 + n2 - n1;
-      for (int l1 = 1; l1 <= c1->li; l1++) {
+      int nbl = ((n1 - 1) * (2 * nsph - n1)) / 2 + n2 - n1;
+      for (int l1 = 1; l1 <= li; l1++) {
 	int l1po = l1 + 1;
 	int il1 = l1po * l1;
 	int l1tpo = l1po + l1;
@@ -460,13 +486,14 @@ void cms(dcomplex **am, ParticleDescriptor *c1) {
 	  int i1e = in1 + ilm1e;
 	  int j1 = in2 + ilm1;
 	  int j1e = in2 + ilm1e;
-	  for (int l2 = 1; l2 <= c1->li; l2++) {
+	  for (int l2 = 1; l2 <= li; l2++) {
 	    int l2po = l2 + 1;
 	    int il2 = l2po * l2;
 	    int l2tpo = l2po + l2;
-	    int ish = ((l2 + l1) % 2 == 0) ? 1 : -1;
-	    int isk = -ish;
+	    double rsh = ((l2 + l1) % 2 == 0) ? 1.0 : -1.0;
+	    double rsk = -rsh;
 	    for (int im2 = 1; im2 <= l2tpo; im2++) {
+	      double rac3j[lmtpo];
 	      int m2 = im2 - l2po;
 	      int ilm2 = il2 + m2;
 	      int ilm2e = ilm2 + ndi;
@@ -474,26 +501,26 @@ void cms(dcomplex **am, ParticleDescriptor *c1) {
 	      int i2e = in2 + ilm2e;
 	      int j2 = in1 + ilm2;
 	      int j2e = in1 + ilm2e;
-	      dcomplex cgh = ghit(0, 0, nbl, l1, m1, l2, m2, c1);
-	      dcomplex cgk = ghit(0, 1, nbl, l1, m1, l2, m2, c1);
-	      am[i1 - 1][i2 - 1] = cgh;
-	      am[i1 - 1][i2e - 1] = cgk;
-	      am[i1e - 1][i2 - 1] = cgk;
-	      am[i1e - 1][i2e - 1] = cgh;
-	      am[j1 - 1][j2 - 1] = cgh * (1.0 * ish);
-	      am[j1 - 1][j2e - 1] = cgk * (1.0 * isk);
-	      am[j1e - 1][j2 - 1] = cgk * (1.0 * isk);
-	      am[j1e - 1][j2e - 1] = cgh * (1.0 * ish);
-	    }
-	  }
+	      dcomplex cgh = ghit(0, 0, nbl, l1, m1, l2, m2, c1, rac3j);
+	      dcomplex cgk = ghit(0, 1, nbl, l1, m1, l2, m2, c1, rac3j);
+	      am[(i1 - 1) * ndit + i2 - 1] = cgh;
+	      am[(i1 - 1) * ndit + i2e - 1] = cgk;
+	      am[(i1e - 1) * ndit + i2 - 1] = cgk;
+	      am[(i1e - 1) * ndit + i2e - 1] = cgh;
+	      am[(j1 - 1) * ndit + j2 - 1] = cgh * rsh;
+	      am[(j1 - 1) * ndit + j2e - 1] = cgk * rsk;
+	      am[(j1e - 1) * ndit + j2 - 1] = cgk * rsk;
+	      am[(j1e - 1) * ndit + j2e - 1] = cgh * rsh;
+	    } // im2 loop
+	  } // l2 loop
 	} // im1 loop
       } // l1 loop
     } // n2 loop
   } // n1 loop
-#pragma omp parallel for
-  for (int n1 = 1; n1 <= c1->nsph; n1++) { // GPU portable?
-    int in1 = (n1 - 1) * c1->nlim;
-    for (int l1 = 1; l1 <= c1->li; l1++) {
+#pragma omp parallel for collapse(2)
+  for (int n1 = 1; n1 <= nsph; n1++) {
+    for (int l1 = 1; l1 <= li; l1++) {
+      int in1 = (n1 - 1) * nlim;
       dcomplex dm = c1->rmi[l1 - 1][n1 - 1];
       dcomplex de = c1->rei[l1 - 1][n1 - 1];
       int l1po = l1 + 1;
@@ -504,20 +531,148 @@ void cms(dcomplex **am, ParticleDescriptor *c1) {
 	int ilm1 = il1 + m1;
 	int i1 = in1 + ilm1;
 	int i1e = i1 + ndi;
-	for (int ilm2 = 1; ilm2 <= c1->nlim; ilm2++) {
-	  int i2 = in1 + ilm2;
-	  int i2e = i2 + ndi;
-	  am[i1 - 1][i2 - 1] = cc0;
-	  am[i1 - 1][i2e - 1] = cc0;
-	  am[i1e - 1][i2 - 1] = cc0;
-	  am[i1e - 1][i2e - 1] = cc0;
-	}
-	am[i1 - 1][i1 - 1] = dm;
-	am[i1e - 1][i1e - 1] = de;
+	// The following 0-initializations are overkill, since am is initialized at 0.
+	// for (int ilm2 = 1; ilm2 <= c1->nlim; ilm2++) {
+	//   int i2 = in1 + ilm2;
+	//   int i2e = i2 + ndi;
+	//   am[(i1 - 1) * ndit + i2 - 1] = cc0;
+	//   am[(i1 - 1) * ndit + i2e - 1] = cc0;
+	//   am[(i1e - 1) * ndit + i2 - 1] = cc0;
+	//   am[(i1e - 1) * ndit + i2e - 1] = cc0;
+	// }
+	am[(i1 - 1) * ndit + i1 - 1] = dm;
+	am[(i1e - 1) * ndit + i1e - 1] = de;
       } // im1 loop
     } // l1 loop
   } // n1 loop
 }
+
+#ifdef USE_TARGET_OFFLOAD
+void cms_flat(dcomplex *am, ParticleDescriptor *c1) {
+  const int nsph = c1->nsph;
+  const int nlim = c1->nlim;
+  const int li = c1->li;
+  const int ndi = nsph * nlim;
+  const int ndit = 2 * ndi;
+  const int max_litpo = 2 * li + 1;
+  const int nsphmo = nsph - 1;
+  const int lmtpo = c1->lmtpo;
+  const np_int num_pairs = (nsph * (nsph - 1)) / 2;
+  const np_int total_iters = num_pairs * li * max_litpo * li * max_litpo;
+  const dcomplex cc0 = 0.0 + I * 0.0;
+
+  // Prepare and fill look-up tables
+  int *lut_n1 = new int[num_pairs];
+  int *lut_n2 = new int[num_pairs];
+  for (int n1 = 1; n1 <= nsphmo; n1++) {
+    for (int n2 = n1 + 1; n2 <= nsph; n2++) {
+      int nbl = ((n1 - 1) * (2 * nsph - n1)) / 2 + n2 - n1;
+      lut_n1[nbl - 1] = n1;
+      lut_n2[nbl - 1] = n2;
+    }
+  }
+
+#pragma omp parallel for
+  for (np_int iter = 0; iter < total_iters; ++iter) {
+    np_int t = iter;
+    double rac3j[lmtpo];
+
+    // Index calculation (from innermost to outermost)
+    int im2 = (t % max_litpo) + 1;
+    t /= max_litpo;
+    int l2  = (t % li) + 1;
+    t /= li;
+    int im1 = (t % max_litpo) + 1;
+    t /= max_litpo;
+    int l1  = (t % li) + 1;
+    t /= li;
+    int nbl_idx = (t % num_pairs); // 0-based for look-up tables
+    // Look-up values
+    int n1 = lut_n1[nbl_idx];
+    int n2 = lut_n2[nbl_idx];
+    int nbl = nbl_idx + 1;
+    // Ranges of magnetic quantum numbers
+    int l1po = l1 + 1;
+    int l2po = l2 + 1;
+    int l1tpo = 2 * l1 + 1;
+    int l2tpo = 2 * l2 + 1;
+
+    int il1 = l1po * l1;
+    int in1 = (n1 - 1) * nlim;
+    int in2 = (n2 - 1) * nlim;
+    int il2 = l2po * l2;
+    double rsh = ((l2 + l1) % 2 == 0) ? 1.0 : -1.0;
+    double rsk = -rsh;
+    bool is_valid_iter = (im1 <= l1tpo && im2 <= l2tpo);
+    // Index 1 magnetic quantum numbers
+    int m1 = (is_valid_iter) ? im1 - l1po : 0;
+    int ilm1 = (is_valid_iter) ? il1 + m1 : 0;
+    int ilm1e = (is_valid_iter) ? ilm1 + ndi : 0;
+    int i1 = (is_valid_iter) ? in1 + ilm1 : 0;
+    int i1e = (is_valid_iter) ? in1 + ilm1e : 0;
+    int j1 = (is_valid_iter) ? in2 + ilm1 : 0;
+    int j1e = (is_valid_iter) ? in2 + ilm1e : 0;
+    // End of index 1 magnetic quantum numbers
+    // Index 2 magnetic quantum numbers
+    int m2 = (is_valid_iter) ? im2 - l2po : 0;
+    int ilm2 = (is_valid_iter) ? il2 + m2 : 0;
+    int ilm2e = (is_valid_iter) ? ilm2 + ndi : 0;
+    int i2 = (is_valid_iter) ? in2 + ilm2 : 0;
+    int i2e = (is_valid_iter) ? in2 + ilm2e : 0;
+    int j2 = (is_valid_iter) ? in1 + ilm2 : 0;
+    int j2e = (is_valid_iter) ? in1 + ilm2e : 0;
+    // End of index 2 magnetic quantum numbers
+    dcomplex cgh, cgk;
+    cgh = (is_valid_iter) ?
+      ghit(0, 0, nbl, l1, m1, l2, m2, c1, rac3j) :
+      cc0;
+    cgk = (is_valid_iter) ?
+      ghit(0, 1, nbl, l1, m1, l2, m2, c1, rac3j) :
+      cc0;
+    if (is_valid_iter) {
+      am[(i1 - 1) * ndit + i2 - 1] = cgh;
+      am[(i1 - 1) * ndit + i2e - 1] = cgk;
+      am[(i1e - 1) * ndit + i2 - 1] = cgk;
+      am[(i1e - 1) * ndit + i2e - 1] = cgh;
+      am[(j1 - 1) * ndit + j2 - 1] = cgh * rsh;
+      am[(j1 - 1) * ndit + j2e - 1] = cgk * rsk;
+      am[(j1e - 1) * ndit + j2 - 1] = cgk * rsk;
+      am[(j1e - 1) * ndit + j2e - 1] = cgh * rsh;
+    }
+  }
+
+  delete[] lut_n1;
+  delete[] lut_n2;
+
+  np_int diag_iters = nsph * li * max_litpo;
+#pragma omp parallel for
+  for(np_int iter = 0; iter < diag_iters; ++iter) {
+    np_int t = iter;
+    int im1 = (t % max_litpo) + 1;
+    t /= max_litpo;
+    int l1 = (t % li) + 1;
+    t /= li;
+    int n1 = (t % nsph) + 1;
+    dcomplex result_e, result_m;
+    int in1 = (n1 - 1) * nlim;
+    dcomplex dm = c1->rmi[l1 - 1][n1 - 1];
+    dcomplex de = c1->rei[l1 - 1][n1 - 1];
+    int l1po = l1 + 1;
+    int il1 = l1po * l1;
+    int l1tpo = l1po + l1;
+    int m1 = im1 - l1po;
+    int ilm1 = il1 + m1;
+    int i1 = in1 + ilm1;
+    int i1e = i1 + ndi;
+    result_m = dm;
+    result_e = de;
+    if (im1 <= l1tpo) {
+      am[(i1 - 1) * ndit + i1 - 1] = result_m;
+      am[(i1e - 1) * ndit + i1e - 1] = result_e;
+    }
+  } // iter loop
+}
+#endif // USE_TARGET_OFFLOAD
 
 void crsm1(double vk, double exri, ParticleDescriptor *c1) {
   dcomplex ***svf, ***svw, **svs;
@@ -639,229 +794,9 @@ void crsm1(double vk, double exri, ParticleDescriptor *c1) {
   delete[] svs;
 }
 
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp begin declare target device_type(any)
-// #endif
-dcomplex ghit_d(
-	      int ihi, int ipamo, int nbl, int l1, int m1, int l2, int m2,
-	      ParticleDescriptor *c1, double *rac3j
-) {
-  /* NBL identifies transfer vector going from N2 to N1;
-   * IHI=0 for Hankel, IHI=1 for Bessel, IHI=2 for Bessel from origin;
-   * depending on IHI, IPAM=0 gives H or I, IPAM= 1 gives K or L. */
-  const dcomplex cc0 = 0.0 + 0.0 * I;
-  const dcomplex uim = 0.0 + 1.0 * I;
-  dcomplex csum = cc0, cfun = cc0;
-  dcomplex result = cc0;
-
-  if (ihi == 2) {
-    if (c1->rxx[nbl - 1] == 0.0 && c1->ryy[nbl - 1] == 0.0 && c1->rzz[nbl - 1] == 0.0) {
-      if (ipamo == 0) {
-	if (l1 == l2 && m1 == m2) result = 1.0 + 0.0 * I;
-      }
-      return result;
-    }
-  }
-  // label 10
-  int l1mp = l1 - ipamo;
-  int l1po = l1 + 1;
-  int m1mm2 = m1 - m2;
-  int m1mm2m = (m1mm2 > 0) ? m1mm2 + 1 : 1 - m1mm2;
-  int lminpo = (l2 - l1mp > 0) ? l2 - l1mp + 1 : l1mp - l2 + 1;
-  int lmaxpo = l2 + l1mp + 1;
-  int i3j0in = c1->ind3j[l1mp][l2 - 1];
-  int ilin = -1;
-  if (m1mm2m > lminpo && (m1mm2m - lminpo) % 2 != 0) ilin = 0;
-  int isn = 1;
-  if (m1 % 2 != 0) isn *= -1;
-  if (lminpo % 2 == 0) {
-    isn *= -1;
-    if (l2 > l1mp) isn *= -1;
-  }
-  // label 12
-  int nblmo = nbl - 1;
-  if (ihi != 2) {
-    int nbhj = nblmo * c1->litpo;
-    int nby = nblmo * c1->litpos;
-    if (ihi != 1) {
-      for (int jm24 = 1; jm24 <= 3; jm24++) {
-	csum = cc0;
-	int mu = jm24 - 2;
-	int mupm1 = mu + m1;
-	int mupm2 = mu + m2;
-	if (mupm1 >= -l1mp && mupm1 <= l1mp && mupm2 >= - l2 && mupm2 <= l2) {
-	  int jsn = -isn;
-	  if (mu == 0) jsn = isn;
-	  double cr = cgev(ipamo, mu, l1, m1) * cgev(0, mu, l2, m2);
-	  int i3j0 = i3j0in;
-	  if (mupm1 == 0 && mupm2 == 0) {
-	    int lt14 = lminpo;
-	    while (lt14 <= lmaxpo) {
-	      i3j0++;
-	      int l3 = lt14 - 1;
-	      int ny = l3 * l3 + lt14;
-	      double aors = 1.0 * (l3 + lt14);
-	      double f3j = (c1->v3j0[i3j0 - 1] * c1->v3j0[i3j0 - 1] * sqrt(aors)) * jsn;
-	      cfun = (c1->vh[nbhj + lt14 - 1] * c1->vyhj[nby + ny - 1]) * f3j;
-	      csum += cfun;
-	      jsn *= -1;
-	      lt14 += 2;
-	    }
-	    // goes to 22
-	  } else { // label 16
-	    r3jjr_d(l1mp, l2, -mupm1, mupm2, rac3j);
-	    int il = ilin;
-	    int lt20 = lminpo;
-	    while (lt20 <= lmaxpo) {
-	      i3j0++;
-	      if (m1mm2m <= lt20) {
-		il += 2;
-		int l3 = lt20 - 1;
-		int ny = l3 * l3  + lt20 + m1mm2;
-		double aors = 1.0 * (l3 + lt20);
-		double f3j = (rac3j[il - 1] * c1->v3j0[i3j0 - 1] * sqrt(aors)) * jsn;
-		cfun = (c1->vh[nbhj + lt20 - 1] * c1->vyhj[nby + ny - 1]) * f3j;
-		csum += cfun;
-	      }
-	      // label 20
-	      jsn *= -1;
-	      lt20 += 2;
-	    }
-	  }
-	  // label 22
-	  csum *= cr;
-	  result += csum;
-	}
-	// Otherwise there is nothing to add
-      } // jm24 loop. Should go to 70
-    } else { // label 30, IHI == 1
-      for (int jm44 = 1; jm44 <= 3; jm44++) {
-	csum = cc0;
-	int mu = jm44 - 2;
-	int mupm1 = mu + m1;
-	int mupm2 = mu + m2;
-	if (mupm1 >= -l1mp && mupm1 <= l1mp && mupm2 >= - l2 && mupm2 <= l2) {
-	  int jsn = - isn;
-	  if (mu == 0) jsn = isn;
-	  double cr = cgev(ipamo, mu, l1, m1) * cgev(0, mu, l2, m2);
-	  int i3j0 = i3j0in;
-	  if (mupm1 == 0 && mupm2 == 0) {
-	    int lt34 = lminpo;
-	    while (lt34 <= lmaxpo) {
-	      i3j0++;
-	      int l3 = lt34 - 1;
-	      int ny = l3 * l3 + lt34;
-	      double aors = 1.0 * (l3 + lt34);
-	      double f3j = (c1->v3j0[i3j0 - 1] * c1->v3j0[i3j0 - 1] * sqrt(aors)) * jsn;
-	      cfun = (c1->vh[nbhj + lt34 - 1] * c1->vyhj[nby + ny - 1]) * f3j;
-	      csum += cfun;
-	      jsn *= -1;
-	      lt34 += 2;
-	    }
-	    // goes to 42
-	  } else { // label 36
-	    r3jjr_d(l1mp, l2, -mupm1, mupm2, rac3j);
-	    int il = ilin;
-	    int lt40 = lminpo;
-	    while (lt40 <= lmaxpo) {
-	      i3j0++;
-	      if (m1mm2m <= lt40) {
-		il += 2;
-		int l3 = lt40 - 1;
-		int ny = l3 * l3  + lt40 + m1mm2;
-		double aors = 1.0 * (l3 + lt40);
-		double f3j = (rac3j[il - 1] * c1->v3j0[i3j0 - 1] * sqrt(aors)) * jsn;
-		cfun = (c1->vh[nbhj + lt40 - 1] * c1->vyhj[nby + ny - 1]) * f3j;
-		csum += cfun;
-	      }
-	      // label 40
-	      jsn *= -1;
-	      lt40 += 2;
-	    }
-	  }
-	  // label 42
-	  csum *= cr;
-	  result += csum;
-	}
-	// Otherwise there is nothing to add
-      } // jm44 loop. Should go to 70
-    }
-    // goes to 70
-  } else { // label 50, IHI == 2
-    int nbhj = nblmo * c1->lmtpo;
-    int nby = nblmo * c1->lmtpos;
-    for (int jm64 = 1; jm64 <= 3; jm64++) {
-      csum = cc0;
-      int mu = jm64 - 2;
-      int mupm1 = mu + m1;
-      int mupm2 = mu + m2;
-      if (mupm1 >= -l1mp && mupm1 <= l1mp && mupm2 >= - l2 && mupm2 <= l2) {
-	int jsn = -isn;
-	if (mu == 0) jsn = isn;
-	double cr = cgev(ipamo, mu, l1, m1) * cgev(0, mu, l2, m2);
-	int i3j0 = i3j0in;
-	if (mupm1 == 0 && mupm2 == 0) {
-	  int lt54 = lminpo;
-	  while (lt54 <= lmaxpo) {
-	    i3j0++;
-	    int l3 = lt54 - 1;
-	    int ny = l3 * l3 + lt54;
-	    double aors = 1.0 * (l3 + lt54);
-	    double f3j = (c1->v3j0[i3j0 - 1] * c1->v3j0[i3j0 - 1] * sqrt(aors)) * jsn;
-	    cfun = (c1->vj0[nbhj + lt54 - 1] * c1->vyj0[nby + ny - 1]) * f3j;
-	    csum += cfun;
-	    jsn *= -1;
-	    lt54 += 2;
-	  }
-	  // goes to 62
-	} else { // label 56
-	  r3jjr_d(l1mp, l2, -mupm1, mupm2, rac3j);
-	  int il = ilin;
-	  int lt60 = lminpo;
-	  while (lt60 <= lmaxpo) {
-	    i3j0++;
-	    if (m1mm2m <= lt60) {
-	      il += 2;
-	      int l3 = lt60 - 1;
-	      int ny = l3 * l3  + lt60 + m1mm2;
-	      double aors = 1.0 * (l3 + lt60);
-	      double f3j = (rac3j[il - 1] * c1->v3j0[i3j0 - 1] * sqrt(aors)) * jsn;
-	      cfun = (c1->vj0[nbhj + lt60 - 1] * c1->vyj0[nby + ny - 1]) * f3j;
-	      csum += cfun;
-	    }
-	    // label 60
-	    jsn *= -1;
-	    lt60 += 2;
-	  }
-	}
-	// label 62
-	csum *= cr;
-	result += csum;
-      }
-      // Otherwise there is nothing to add
-    } // jm64 loop. Should go to 70
-  }
-  // label 70
-  const double four_pi = acos(0.0) * 8.0;
-  if (ipamo != 1) {
-    double cr = sqrt(four_pi * (l1 + l1po) * (l2 + l2 + 1));
-    result *= cr;
-  } else {
-    double cr = sqrt(four_pi * (l1 + l1mp) * (l1 + l1po) * (l2 + l2 + 1) / l1po);
-    result *= (cr * uim);
-  }
-  return result;
-}
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp end declare target
-// #endif
-
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp begin declare target device_type(any)
-// #endif
 dcomplex ghit(
-	      int ihi, int ipamo, int nbl, int l1, int m1, int l2, int m2,
-	      ParticleDescriptor *c1
+  int ihi, int ipamo, int nbl, int l1, int m1, int l2, int m2, ParticleDescriptor *c1,
+  double rac3j[]
 ) {
   /* NBL identifies transfer vector going from N2 to N1;
    * IHI=0 for Hankel, IHI=1 for Bessel, IHI=2 for Bessel from origin;
@@ -887,10 +822,8 @@ dcomplex ghit(
   int lminpo = (l2 - l1mp > 0) ? l2 - l1mp + 1 : l1mp - l2 + 1;
   int lmaxpo = l2 + l1mp + 1;
   int i3j0in = c1->ind3j[l1mp][l2 - 1];
-  int ilin = -1;
-  if (m1mm2m > lminpo && (m1mm2m - lminpo) % 2 != 0) ilin = 0;
-  int isn = 1;
-  if (m1 % 2 != 0) isn *= -1;
+  int ilin = (m1mm2m > lminpo && (m1mm2m - lminpo) % 2 != 0) ? 0 : -1;
+  int isn = (m1 % 2 != 0) ? -1 : 1;
   if (lminpo % 2 == 0) {
     isn *= -1;
     if (l2 > l1mp) isn *= -1;
@@ -926,7 +859,7 @@ dcomplex ghit(
 	    }
 	    // goes to 22
 	  } else { // label 16
-	    r3jjr(l1mp, l2, -mupm1, mupm2, c1->rac3j);
+	    r3jjr(l1mp, l2, -mupm1, mupm2, rac3j);
 	    int il = ilin;
 	    int lt20 = lminpo;
 	    while (lt20 <= lmaxpo) {
@@ -936,7 +869,7 @@ dcomplex ghit(
 		int l3 = lt20 - 1;
 		int ny = l3 * l3  + lt20 + m1mm2;
 		double aors = 1.0 * (l3 + lt20);
-		double f3j = (c1->rac3j[il - 1] * c1->v3j0[i3j0 - 1] * sqrt(aors)) * jsn;
+		double f3j = (rac3j[il - 1] * c1->v3j0[i3j0 - 1] * sqrt(aors)) * jsn;
 		cfun = (c1->vh[nbhj + lt20 - 1] * c1->vyhj[nby + ny - 1]) * f3j;
 		csum += cfun;
 	      }
@@ -977,7 +910,7 @@ dcomplex ghit(
 	    }
 	    // goes to 42
 	  } else { // label 36
-	    r3jjr(l1mp, l2, -mupm1, mupm2, c1->rac3j);
+	    r3jjr(l1mp, l2, -mupm1, mupm2, rac3j);
 	    int il = ilin;
 	    int lt40 = lminpo;
 	    while (lt40 <= lmaxpo) {
@@ -987,7 +920,7 @@ dcomplex ghit(
 		int l3 = lt40 - 1;
 		int ny = l3 * l3  + lt40 + m1mm2;
 		double aors = 1.0 * (l3 + lt40);
-		double f3j = (c1->rac3j[il - 1] * c1->v3j0[i3j0 - 1] * sqrt(aors)) * jsn;
+		double f3j = (rac3j[il - 1] * c1->v3j0[i3j0 - 1] * sqrt(aors)) * jsn;
 		cfun = (c1->vj * c1->vyhj[nby + ny - 1]) * f3j;
 		csum += cfun;
 	      }
@@ -1032,7 +965,7 @@ dcomplex ghit(
 	  }
 	  // goes to 62
 	} else { // label 56
-	  r3jjr(l1mp, l2, -mupm1, mupm2, c1->rac3j);
+	  r3jjr(l1mp, l2, -mupm1, mupm2, rac3j);
 	  int il = ilin;
 	  int lt60 = lminpo;
 	  while (lt60 <= lmaxpo) {
@@ -1042,7 +975,7 @@ dcomplex ghit(
 	      int l3 = lt60 - 1;
 	      int ny = l3 * l3  + lt60 + m1mm2;
 	      double aors = 1.0 * (l3 + lt60);
-	      double f3j = (c1->rac3j[il - 1] * c1->v3j0[i3j0 - 1] * sqrt(aors)) * jsn;
+	      double f3j = (rac3j[il - 1] * c1->v3j0[i3j0 - 1] * sqrt(aors)) * jsn;
 	      cfun = (c1->vj0[nbhj + lt60 - 1] * c1->vyj0[nby + ny - 1]) * f3j;
 	      csum += cfun;
 	    }
@@ -1059,7 +992,6 @@ dcomplex ghit(
     } // jm64 loop. Should go to 70
   }
   // label 70
-  const double four_pi = acos(0.0) * 8.0;
   if (ipamo != 1) {
     double cr = sqrt(four_pi * (l1 + l1po) * (l2 + l2 + 1));
     result *= cr;
@@ -1069,9 +1001,6 @@ dcomplex ghit(
   }
   return result;
 }
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp end declare target
-// #endif
 
 void hjv(
 	 double exri, double vk, int &jer, int &lcalc, dcomplex &arg,
@@ -1628,10 +1557,7 @@ void r3j000(int j2, int j3, double *rac3j) {
   }
 }
 
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp begin declare target device_type(any)
-// #endif
-void r3jjr(int j2, int j3, int m2, int m3, double *rac3j) {
+void r3jjr(int j2, int j3, int m2, int m3, double rac3j[]) {
   int jmx = j3 + j2;
   int jdf = j3 - j2;
   int m1 = -m2 - m3;
@@ -1685,8 +1611,7 @@ void r3jjr(int j2, int j3, int m2, int m3, double *rac3j) {
 	  cj = sqrt(ccj * (jsmpos - j1s));
 	  sjt = rac3j[irr - 1] * rac3j[irr - 1];
 	  dj = 1.0 * jf * (j1 * j1po * mdf + idjc);
-	  rac3j[irr - 2] = -(rac3j[irr - 1] * dj
-				 + rac3j[irr] * cjp * j1) / (cj * j1po);
+	  rac3j[irr - 2] = -(rac3j[irr - 1] * dj + rac3j[irr] * cjp * j1) / (cj * j1po);
 	  sjr += (sjt * jf);
 	} // ibr45 loop
       }
@@ -1730,9 +1655,8 @@ void r3jjr(int j2, int j3, int m2, int m3, double *rac3j) {
 	  sjt = rac3j[irl70 - 1] * rac3j[irl70 - 1];
 	  dj = 1.0 * jf * (j1 * j1po * mdf + idjc);
 	  rac3j[irl70] = -(
-			   rac3j[irl70 - 1] * dj
-			   + rac3j[irl70 - 2] * cj * j1po
-			   ) / (cjp * j1);
+	    rac3j[irl70 - 1] * dj + rac3j[irl70 - 2] * cj * j1po
+	  ) / (cjp * j1);
 	  sjl += (sjt * jf);
 	}
       }
@@ -1748,133 +1672,6 @@ void r3jjr(int j2, int j3, int m2, int m3, double *rac3j) {
     }
   }
 }
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp end declare target
-// #endif
-
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp begin declare target device_type(any)
-// #endif
-void r3jjr_d(int j2, int j3, int m2, int m3, double *rac3j) {
-  int jmx = j3 + j2;
-  int jdf = j3 - j2;
-  int m1 = -m2 - m3;
-  int abs_jdf = (jdf >= 0) ? jdf : -jdf;
-  int abs_m1 = (m1 >= 0) ? m1 : -m1;
-  int jmn = (abs_jdf > abs_m1) ? abs_jdf : abs_m1;
-  int njmo = jmx - jmn;
-  int jf = jmx + jmx + 1;
-  int isn = 1;
-  if ((jdf + m1) % 2 != 0) isn = -1;
-  if (njmo <= 0) {
-    double sj = 1.0 * jf;
-    double cnr = (1.0 / sqrt(sj)) * isn;
-    rac3j[0] = cnr;
-  } else { // label 15
-    double sjt = 1.0;
-    double sjr = 1.0 * jf;
-    int jsmpos = (jmx + 1) * (jmx + 1);
-    int jdfs = jdf * jdf;
-    int m1s = m1 * m1;
-    int mdf = m3 - m2;
-    int idjc = m1 * (j3 * (j3 + 1) - j2 * (j2 +1));
-    int j1 = jmx;
-    int j1s = j1 * j1;
-    int j1po = j1 + 1;
-    double ccj = 1.0 * (j1s - jdfs) * (j1s - m1s);
-    double cj = sqrt(ccj * (jsmpos - j1s));
-    double dj = 1.0 * jf * (j1 * j1po * mdf + idjc);
-    if (njmo <= 1) {
-      rac3j[0] = -dj / (cj * j1po);
-      double sj = sjr + (rac3j[0] * rac3j[0]) * (jf - 2);
-      double cnr = (1.0 / sqrt(sj)) * isn;
-      rac3j[1] = cnr;
-      rac3j[0] *= cnr;
-    } else { // label 20
-      double cjp = 0.0;
-      int nj = njmo + 1;
-      int nmat = (nj + 1) / 2;
-      rac3j[nj - 1] = 1.0;
-      rac3j[njmo - 1] = -dj / (cj * j1po);
-      if (nmat != njmo) {
-	int nbr = njmo - nmat;
-	for (int ibr45 = 1; ibr45 <= nbr; ibr45++) {
-	  int irr = nj - ibr45;
-	  jf -= 2;
-	  j1--;
-	  j1s = j1 * j1;
-	  j1po = j1 + 1;
-	  cjp = cj;
-	  ccj = 1.0 * (j1s - jdfs) * (j1s - m1s);
-	  cj = sqrt(ccj * (jsmpos - j1s));
-	  sjt = rac3j[irr - 1] * rac3j[irr - 1];
-	  dj = 1.0 * jf * (j1 * j1po * mdf + idjc);
-	  rac3j[irr - 2] = -(rac3j[irr - 1] * dj
-				 + rac3j[irr] * cjp * j1) / (cj * j1po);
-	  sjr += (sjt * jf);
-	} // ibr45 loop
-      }
-      // label 50
-      double osjt = sjt;
-      sjt = rac3j[nmat - 1] * rac3j[nmat - 1];
-      if (sjt >= osjt) {
-	sjr += (sjt * (jf - 2));
-      } else { // label 55
-	nmat++;
-      }
-      // label 60
-      double racmat = rac3j[nmat - 1];
-      rac3j[0] = 1.0;
-      jf = jmn + jmn + 1;
-      double sjl = 1.0 * jf;
-      j1 = jmn;
-      if (j1 != 0) {
-	j1po = j1 + 1;
-	int j1pos = j1po * j1po;
-	double ccjp = 1.0 * (j1pos - jdfs) * (j1pos - m1s);
-	cjp = sqrt(ccjp * (jsmpos - j1pos));
-	dj = 1.0 * jf * (j1 * j1po * mdf + idjc);
-	rac3j[1] = - dj / (cjp * j1);
-      } else { // label 62
-	cjp = sqrt(1.0 * (jsmpos - 1));
-	dj = 1.0 * mdf;
-	rac3j[1] = -dj / cjp;
-      }
-      // label 63
-      int nmatmo = nmat - 1;
-      if (nmatmo >= 2) {
-	for (int irl70 = 2; irl70 <= nmatmo; irl70++) {
-	  jf += 2;
-	  j1++;
-	  j1po = j1 + 1;
-	  int j1pos = j1po * j1po;
-	  cj = cjp;
-	  double ccjp = 1.0 * (j1pos - jdfs) * (j1pos - m1s);
-	  cjp = sqrt(ccjp * (jsmpos - j1pos));
-	  sjt = rac3j[irl70 - 1] * rac3j[irl70 - 1];
-	  dj = 1.0 * jf * (j1 * j1po * mdf + idjc);
-	  rac3j[irl70] = -(
-			       rac3j[irl70 - 1] * dj
-			       + rac3j[irl70 - 2] * cj * j1po
-			       ) / (cjp * j1);
-	  sjl += (sjt * jf);
-	}
-      }
-      // label 75
-      double ratrac = racmat / rac3j[nmat - 1];
-      double rats = ratrac * ratrac;
-      double sj = sjr + sjl * rats;
-      rac3j[nmat - 1] = racmat;
-      double cnr = (1.0 / sqrt(sj)) * isn;
-      for (int irr80 = nmat; irr80 <= nj; irr80++) rac3j[irr80 - 1] *= cnr;
-      double cnl = cnr * ratrac;
-      for (int irl85 = 1; irl85 <= nmatmo; irl85++) rac3j[irl85 - 1] *= cnl;
-    }
-  }
-}
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp end declare target
-// #endif
 
 void r3jmr(int j1, int j2, int j3, int m1, double *rac3j) {
   int mmx = (j2 < j3 - m1) ? j2 : j3 - m1;
@@ -2446,16 +2243,13 @@ void tqr(
 }
 
 void ztm(dcomplex **am, ParticleDescriptor *c1) {
-  // dcomplex gie, gle, a1, a2, a3, a4, sum1, sum2, sum3, sum4;
   const dcomplex cc0 = 0.0 + 0.0 * I;
-  // int i2 = 0; // old implementation
 #ifdef USE_NVTX
   nvtxRangePush("ZTM starts");
 #endif
 #ifdef USE_NVTX
   nvtxRangePush("ZTM parallel loop 1");
 #endif
-  // C9 *c9_para = new C9(*c9);
   dcomplex *gis_v = c1->gis[0];
   dcomplex *gls_v = c1->gls[0];
   int k2max = c1->li*(c1->li+2);
@@ -2468,15 +2262,11 @@ void ztm(dcomplex **am, ParticleDescriptor *c1) {
   // but if it results im = 0, then we set l = l-1 and im = 2*l+1
   // furthermore if it results im > 2*l+1, then we set
   // im = im -(2*l+1) and l = l+1 (there was a rounding error in a nearly exact root)
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd collapse(3)
-// #else
-// #pragma omp parallel for simd collapse(3)
-// #endif
 #pragma omp parallel for simd collapse(3)
   for (int n2 = 1; n2 <= c1->nsph; n2++) { // GPU portable?
     for (int k2 = 1; k2<=k2max; k2++) {
       for (int k3 = 1; k3<=k3max; k3++) {
+	double rac3j[c1->lmtpo];
 	int l2 = (int) sqrt(k2+1);
 	int im2 = k2 - (l2*l2) + 1;
 	if (im2 == 0) {
@@ -2497,20 +2287,17 @@ void ztm(dcomplex **am, ParticleDescriptor *c1) {
 	  im3 -= 2*l3 + 1;
 	  l3++;
 	}
-	// int l2tpo = l2 + l2 + 1;
-	// int l3tpo = l3 + l3 + 1;
 	int i2 = (n2-1) * c1->li * (c1->li + 2) + l2 * l2 + im2 - 1;
 	int m2 = -l2 - 1 + im2;
 	int i3 = l3 * l3 + im3 - 1;
 	int m3 = -l3 - 1 + im3;
 	int vecindex = (i2 - 1) * c1->nlem + i3 - 1;
-	double *rac3j_local = (double *) malloc(c1->lmtpo*sizeof(double));
-	gis_v[vecindex] = ghit_d(2, 0, n2, l2, m2, l3, m3, c1, rac3j_local);
-	gls_v[vecindex] = ghit_d(2, 1, n2, l2, m2, l3, m3, c1, rac3j_local);
-	free(rac3j_local);
+	gis_v[vecindex] = ghit(2, 0, n2, l2, m2, l3, m3, c1, rac3j);
+	gls_v[vecindex] = ghit(2, 1, n2, l2, m2, l3, m3, c1, rac3j);
       } // close k3 loop, former l3 + im3 loops
     } // close k2 loop, former l2 + im2 loops
   } // close n2 loop
+  // delete[] rac3j;
 #ifdef USE_NVTX
   nvtxRangePop();
 #endif
@@ -2519,11 +2306,6 @@ void ztm(dcomplex **am, ParticleDescriptor *c1) {
 #endif
   dcomplex *am_v = am[0];
   dcomplex *sam_v = c1->sam[0];
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd collapse(2)
-// #else
-// #pragma omp parallel for simd collapse(2)
-// #endif
 #pragma omp parallel for simd collapse(2)
   for (int i1 = 1; i1 <= c1->ndi; i1++) { // GPU portable?
     for (int i3 = 1; i3 <= c1->nlem; i3++) {
@@ -2557,11 +2339,7 @@ void ztm(dcomplex **am, ParticleDescriptor *c1) {
       sam_v[vecind1e + i3e - 1] = sum4;
     } // i3 loop
   } // i1 loop
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd collapse(2)
-// #else
-// #pragma omp parallel for simd collapse(2)
-// #endif 
+  
 #pragma omp parallel for simd collapse(2)
   for (int i1 = 1; i1 <= c1->ndi; i1++) {
     for (int i0 = 1; i0 <= c1->nlem; i0++) {
@@ -2570,12 +2348,8 @@ void ztm(dcomplex **am, ParticleDescriptor *c1) {
       gls_v[vecindex] = dconjg(gls_v[vecindex]);
     } // i0 loop
   } // i1 loop
+  
   dcomplex *vec_am0m = c1->am0m[0];
-// #ifdef USE_TARGET_OFFLOAD
-// #pragma omp target teams distribute parallel for simd collapse(2)
-// #else
-// #pragma omp parallel for simd collapse(2)
-// #endif
 #pragma omp parallel for simd collapse(2)
   for (int i0 = 1; i0 <= c1->nlem; i0++) {
     for (int i3 = 1; i3 <= c1->nlemt; i3++) {
@@ -2598,8 +2372,6 @@ void ztm(dcomplex **am, ParticleDescriptor *c1) {
       int vecind0e = (i0e - 1) * c1->nlemt;
       vec_am0m[vecind0 + i3 - 1] = -sum1;
       vec_am0m[vecind0e + i3 - 1] = -sum2;
-      // c1->am0m[i0 - 1][i3 - 1] = -sum1;
-      // c1->am0m[i0e - 1][i3 - 1] = -sum2;
     } // i3 loop
   } // i0 loop
 #ifdef USE_NVTX

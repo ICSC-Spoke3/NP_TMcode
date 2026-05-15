@@ -243,12 +243,13 @@ void inclusion(const string& config_file, const string& data_file, const string&
       } else if(gconf->invert_mode == RuntimeSettings::INV_MODE_RBT) {
 	message = "INFO: using RBT for inversion.\n";
 	logger->log(message);
-      } else if(gconf->invert_mode == RuntimeSettings::INV_MODE_SVD) {
-	//message = "INFO: using SVD for inversion.\n";
-	message = "ERROR: SVD inversion mode not yet implemented!\n";
-	logger->log(message);
-	exit(1);
       }
+      // else if(gconf->invert_mode == RuntimeSettings::INV_MODE_SVD) {
+      // 	//message = "INFO: using SVD for inversion.\n";
+      // 	message = "ERROR: SVD inversion mode not yet implemented!\n";
+      // 	logger->log(message);
+      // 	exit(1);
+      // }
       // Overlapping spheres test
       double tolerance = gconf->tolerance;
       if (tolerance < 0.0) {
@@ -798,7 +799,7 @@ int inclusion_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryCo
   const int max_le = gconf->le;
   const double alamb = 2.0 * pi / cid->vk;
   double size_par_li = 2.0 * pi * sqrt(exdc) * sconf->get_max_radius() / alamb;
-  int recommended_li = 4 + (int)ceil(size_par_li + 4.05 * pow(size_par_li, 1.0 / 3.0));
+  int recommended_li = 2 + (int)ceil(size_par_li + 4.05 * pow(size_par_li, 1.0 / 3.0));
   double size_par_le = 2.0 * pi * sqrt(exdc) * sconf->get_particle_radius(gconf) / alamb;
   int recommended_le = 1 + (int)ceil(size_par_le + 11.0 * pow(size_par_le, 1.0 / 3.0));
   if (recommended_li != cid->c1->li || recommended_le != cid->c1->le) {
@@ -2081,25 +2082,23 @@ long InclusionIterationData::get_size(GeometryConfiguration *gconf, ScattererCon
 int InclusionIterationData::update_orders(double **rcf, int inner_order, int outer_order) {
   int result = 0;
   int old_lm = c1->lm;
-  ((ParticleDescriptorInclusion *)c1)->update_orders(inner_order, outer_order);
   for (int zi = 0; zi < old_lm; zi++) {
     for (int zj = 0; zj < 3; zj++) {
-      for (int zk = 0; zk < 2; zk++) {
-	delete[] zpv[zi][zj][zk];
-      }
       delete[] zpv[zi][zj];
     }
     delete[] zpv[zi];
   }
   delete[] zpv;
+  delete[] vec_zpv;
+  ((ParticleDescriptorInclusion *)c1)->update_orders(inner_order, outer_order);
+  vec_zpv = new double[c1->lm * 12]();
   zpv = new double***[c1->lm];
   for (int zi = 0; zi < c1->lm; zi++) {
     zpv[zi] = new double**[3];
     for (int zj = 0; zj < 3; zj++) {
       zpv[zi][zj] = new double*[2];
-      for (int zk = 0; zk < 2; zk++) {
-	zpv[zi][zj][zk] = new double[2]();
-      }
+      zpv[zi][zj][0] = vec_zpv + (zi * 12) + (zj * 4);
+      zpv[zi][zj][1] = vec_zpv + (zi * 12) + (zj * 4) + 2;
     }
   }
   instr(rcf, c1);

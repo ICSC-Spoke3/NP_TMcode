@@ -688,7 +688,7 @@ ParticleDescriptorCluster::ParticleDescriptorCluster(GeometryConfiguration *gcon
   _nlim = _li * (_li + 2);
   _nlem = _le * (_le + 2);
   _nlemt = 2 * _nlem;
-  _ncou = _nsph * _nsph - 1;
+  _ncou = _nsph * (_nsph - 1);
   _litpo = _li + _li + 1;
   _litpos = _litpo * _litpo;
   _lmpo = _lm + 1;
@@ -1216,7 +1216,7 @@ long ParticleDescriptorCluster::get_size(GeometryConfiguration* gconf, Scatterer
   const int nlim = li * (li + 2);
   const int nlem = le * (le + 2);
   const int nlemt = 2 * nlem;
-  const int ncou = nsph * nsph - 1;
+  const int ncou = nsph * (nsph - 1);
   const int litpo = li + li + 1;
   const int litpos = litpo * litpo;
   const int lmpo = lm + 1;
@@ -1268,7 +1268,7 @@ ParticleDescriptorInclusion::ParticleDescriptorInclusion(GeometryConfiguration *
   _nlim = _li * (_li + 2);
   _nlem = _le * (_le + 2);
   _nlemt = 2 * _nlem;
-  _ncou = _nsph * _nsph - 1;
+  _ncou = _nsph * (_nsph - 1);
   _litpo = _li + _li + 1;
   _litpos = _litpo * _litpo;
   _lmpo = _lm + 1;
@@ -1605,7 +1605,7 @@ long ParticleDescriptorInclusion::get_size(GeometryConfiguration* gconf, Scatter
   const int nlim = li * (li + 2);
   const int nlem = le * (le + 2);
   const int nlemt = 2 * nlem;
-  const int ncou = nsph * nsph - 1;
+  const int ncou = nsph * (nsph - 1);
   const int litpo = li + li + 1;
   const int litpos = litpo * litpo;
   const int lmpo = lm + 1;

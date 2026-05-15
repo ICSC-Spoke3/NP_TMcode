@@ -52,4 +52,4 @@
  1
 0
 # COMMENT: next line enables iterative refinement at run-time
-USE_REFINEMENT=1
+USE_REFINEMENT=0

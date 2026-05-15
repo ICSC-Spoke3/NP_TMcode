@@ -95,7 +95,9 @@ void exma(dcomplex **am, ParticleDescriptor *c1) {
 
 void incms(dcomplex **am, double enti, ParticleDescriptor *c1) {
   const dcomplex cc0 = 0.0 + I * 0.0;
+  const int lmtpo = c1->lmtpo;
   dcomplex **at = c1->at;
+  double rac3j[lmtpo];
   int nbl, i1;
   const int ndi = c1->ndi;
   const int ndit = ndi + ndi;
@@ -133,8 +135,8 @@ void incms(dcomplex **am, double enti, ParticleDescriptor *c1) {
 	      int i2e = in2 + ilm2e;
 	      int j2 = in1 + ilm2;
 	      int j2e = in1 + ilm2e;
-	      dcomplex cgh = ghit(0, 0, nbl, l1, m1, l2, m2, c1);
-	      dcomplex cgk = ghit(0, 1, nbl, l1, m1, l2, m2, c1);
+	      dcomplex cgh = ghit(0, 0, nbl, l1, m1, l2, m2, c1, rac3j);
+	      dcomplex cgk = ghit(0, 1, nbl, l1, m1, l2, m2, c1, rac3j);
 	      am[i1 - 1][i2 - 1] = cgh;
 	      am[i1 - 1][i2e - 1] = cgk;
 	      am[i1e - 1][i2 - 1] = cgk;
@@ -235,8 +237,8 @@ void incms(dcomplex **am, double enti, ParticleDescriptor *c1) {
 	      int j1 = in1 + jlm1;
 	      int j1e = j1 + ndi;
 	      int isil = ((m2 + m1) % 2 == 0) ? 1 : -1;
-	      dcomplex cgi = ghit(2, 0, n1, l1, m1, l2, m2, c1);
-	      dcomplex cgl = ghit(2, 1, n1, l1, m1, l2, m2, c1);
+	      dcomplex cgi = ghit(2, 0, n1, l1, m1, l2, m2, c1, rac3j);
+	      dcomplex cgl = ghit(2, 1, n1, l1, m1, l2, m2, c1, rac3j);
 	      am[i1 - 1][i3 - 1] = cgi;
 	      am[i1 - 1][i3e - 1] = cgl;
 	      am[i1e - 1][i3 - 1] = cgl;
@@ -280,8 +282,8 @@ void incms(dcomplex **am, double enti, ParticleDescriptor *c1) {
 	      m1++;
 	      i1++;
 	      int i1e = i1 + ndi;
-	      dcomplex cgi = ghit(2, 0, n1, l1, m1, l2, m2, c1);
-	      dcomplex cgl = ghit(2, 1, n1, l1, m1, l2, m2, c1);
+	      dcomplex cgi = ghit(2, 0, n1, l1, m1, l2, m2, c1, rac3j);
+	      dcomplex cgl = ghit(2, 1, n1, l1, m1, l2, m2, c1, rac3j);
 	      am[i1 - 1][i3 - 1] = cgi;
 	      am[i1 - 1][i3e - 1] = cgl;
 	      am[i1e - 1][i3 - 1] = cgl;

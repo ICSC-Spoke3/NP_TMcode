@@ -41,6 +41,10 @@ using namespace std;
 #endif
 
 #ifdef USE_MAGMA
+#ifndef INCLUDE_COMMONS_H_
+#include "../include/Commons.h"
+#endif
+
 #ifndef INCLUDE_MAGMA_CALLS_H_
 #include "../include/magma_calls.h"
 #endif

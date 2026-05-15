@@ -54,8 +54,7 @@ def main():
     if (config['help_mode'] or config['yml_file_name'] == ""):
         print_help()
     else:
-        rnd_attempts = config['attempt_limit']
-        sconf, gconf = load_model(config['yml_file_name'], rnd_attempts)
+        sconf, gconf = load_model(config['yml_file_name'])
         if (sconf is not None) and (gconf is not None):
             result = write_legacy_sconf(sconf)
             if (result == 0):
@@ -76,7 +75,10 @@ def interpolate_constants(sconf):
     err_arg = ""
     try:
         for i in range(sconf['configurations']):
-            for j in range(sconf['nshl'][i]):
+            expected_layers = 1 + int(sconf['nshl'][i] / 2)
+            if (i == 0 and sconf['application'] == 'INCLUSION'):
+                expected_layers += 1
+            for j in range(expected_layers):
                 file_idx = sconf['dielec_id'][i][j]
                 dielec_path = Path(sconf['dielec_path'], sconf['dielec_file'][int(file_idx) - 1])
                 err_arg = str(dielec_path)
@@ -141,10 +143,9 @@ def interpolate_constants(sconf):
 ## \brief Create tha calculation configuration structure from YAML input.
 #
 #  \param model_file: `str` Full path to the YAML input file.
-#  \param rnd_attempts: `int` Limiting number of attempts to randomly place a sphere.
 #  \return sconf, gconf: `tuple` A dictionary tuple for scatterer and
 #                        geometric configurations.
-def load_model(model_file, rnd_attempts):
+def load_model(model_file):
     sconf = None
     gconf = None
     model = None
@@ -218,7 +219,7 @@ def load_model(model_file, rnd_attempts):
                         print("ERROR: Declared materials in type %d do not match the number of layers!"%(i + 1))
                         return (None, None)
                     else:
-                        for j in range(1 + int(sconf['nshl'][i] / 2)):
+                        for j in range(expected_layer_num):
                             sconf['dielec_id'][i][j] = float(model['particle_settings']['dielec_id'][i][j])
         if (model['radiation_settings']['scale_name'] == "XI"):
             sconf['insn'] = 1
@@ -339,6 +340,7 @@ def load_model(model_file, rnd_attempts):
         inv_mode = "LU"
         ref_iters = 5
         tolerance = 0.0
+        use_offload = True
         try:
             use_refinement = False if int(model['runtime']['refinement']) == 0 else True
         except KeyError:
@@ -363,6 +365,10 @@ def load_model(model_file, rnd_attempts):
             tolerance = float(model['runtime']['tolerance'])
         except KeyError:
             tolerance = 0.0
+        try:
+            use_offload = False if int(model['runtime']['offload']) == 0 else True
+        except KeyError:
+            use_offload = True
         str_polar = model['radiation_settings']['polarization']
         if (str_polar not in ["LINEAR", "CIRCULAR"]):
             print("ERROR: %s is not a recognized polarization state."%str_polar)
@@ -379,6 +385,7 @@ def load_model(model_file, rnd_attempts):
         gconf['inv_mode'] = inv_mode
         gconf['ref_iters'] = ref_iters
         gconf['tolerance'] = tolerance
+        gconf['use_offload'] = use_offload
         gconf['max_host_ram_gb'] = 0
         try:
             gconf['max_host_ram_gb'] = float(model['system_settings']['max_host_ram'])
@@ -417,6 +424,11 @@ def load_model(model_file, rnd_attempts):
         gconf['vec_sph_x'] = [0.0 for i in range(gconf['nsph'])]
         gconf['vec_sph_y'] = [0.0 for i in range(gconf['nsph'])]
         gconf['vec_sph_z'] = [0.0 for i in range(gconf['nsph'])]
+        gconf['n_core'] = 0
+        try:
+            gconf['n_core'] = int(model['particle_settings']['num_core'])
+        except KeyError as ex:
+            gconf['n_core'] = 1
         if (gconf['application'] != "SPHERE" or gconf['nsph'] != 1):
             len_vec_x = len(model['geometry_settings']['x_coords'])
             len_vec_y = len(model['geometry_settings']['y_coords'])
@@ -433,17 +445,35 @@ def load_model(model_file, rnd_attempts):
             if (len_vec_x == 0):
                 # Generate random cluster
                 rnd_seed = int(model['system_settings']['rnd_seed'])
+                bbox = (0.0, 0.0, 0.0)
                 try:
                     max_rad = float(model['particle_settings']['max_rad'])
                 except KeyError:
                     print("ERROR: random model generation requires specification of particle_settings:max_rad.")
                     return (None, None)
+                try:
+                    if(len(model['particle_settings']['bound_box']) == 3):
+                        bbox = (
+                            float(model['particle_settings']['bound_box'][0]),
+                            float(model['particle_settings']['bound_box'][1]),
+                            float(model['particle_settings']['bound_box'][2])
+                        )
+                    else:
+                        print("ERROR: invalid bounding box!")
+                        return (None, None)
+                except KeyError:
+                    bbox = (0.0, 0.0, 0.0)
                 rnd_engine = "COMPACT"
+                rnd_attempts = 100
                 try:
                     rnd_engine = model['system_settings']['rnd_engine']
                 except KeyError:
                     # use compact generator, if no specification is given
                     rnd_engine = "COMPACT"
+                try:
+                    rnd_attempts = int(model['particle_settings']['num_trials'])
+                except KeyError:
+                    rnd_attempts = 100
                 if (rnd_engine == "COMPACT"):
                     check = random_compact(sconf, gconf, rnd_seed, max_rad, rnd_attempts)
                     if (check == -1):
@@ -457,7 +487,7 @@ def load_model(model_file, rnd_attempts):
                         return (None, None)
                 elif (rnd_engine == "LOOSE"):
                     # random_aggregate() checks internally whether application is INCLUSION
-                    check = random_aggregate(sconf, gconf, rnd_seed, max_rad, rnd_attempts)
+                    check = random_aggregate(sconf, gconf, rnd_seed, max_rad, rnd_attempts, bbox)
                 else:
                     print("ERROR: unrecognized random generator engine.")
                     return (None, None)
@@ -578,7 +608,6 @@ def match_grid(sconf):
 #  \returns config: `dict` A dictionary containing the script configuration.
 def parse_arguments():
     config = {
-        'attempt_limit': 100,
         'yml_file_name': "",
         'help_mode': False,
     }
@@ -586,9 +615,6 @@ def parse_arguments():
     for arg in argv[1:]:
         if (arg.startswith("--help")):
             config['help_mode'] = True
-        elif (arg.startswith("--attempts=")):
-            split_arg = arg.split('=')
-            config['attempt_limit'] = int(split_arg[1])
         elif (not yml_set):
             if (not arg.startswith("--")):
                 config['yml_file_name'] = arg
@@ -612,7 +638,6 @@ def print_help():
     print("CONFIG must be a valid YAML configuration file.           ")
     print("                                                          ")
     print("Valid options are:                                        ")
-    print("--attempts=N          Try to place a sphere up to N times.")
     print("--help                Print this help and exit.           ")
     print("                                                          ")
 
@@ -635,11 +660,11 @@ def print_model_summary(scatterer, geometry):
     Rcirc = 0.0
     square_farthest = 0.0
     for i in range(scatterer['nsph']):
-        avgX += geometry['vec_sph_x'][i]
-        avgY += geometry['vec_sph_y'][i]
-        avgZ += geometry['vec_sph_z'][i]
         sph_type_index = scatterer['vec_types'][i] - 1
         ros = scatterer['ros'][sph_type_index]
+        avgX += (ros * geometry['vec_sph_x'][i])
+        avgY += (ros * geometry['vec_sph_y'][i])
+        avgZ += (ros * geometry['vec_sph_z'][i])
         R3tot += math.pow(ros, 3.0)
         if (ros > Rmax):
             Rmax = ros
@@ -675,17 +700,20 @@ def print_model_summary(scatterer, geometry):
 #  model is directly saved in the parameters of the scatterer and geometry
 #  configuration dictionaries.
 #
-#  \param scatterer: `dict` Scatterer configuration dictionary (gets modified)
-#  \param geometry: `dict` Geometry configuration dictionary (gets modified)
-#  \param seed: `int` Seed for the random sequence generation
-#  \param max_rad: `float` Maximum allowed radial extension of the aggregate
-#  \param max_attempts: `int` Maximum number of attempts to place a particle in any direction
+#  \param[in,out] scatterer: `dict` Scatterer configuration dictionary.
+#  \param[in,out] geometry: `dict` Geometry configuration dictionary.
+#  \param[in] seed: `int` Seed for the random sequence generation.
+#  \param[in] max_rad: `float` Maximum allowed radial extension of the aggregate.
+#  \param[in] max_attempts: `int` Maximum number of attempts to place a particle in any direction
+#  (optional, defaults to 100).
+#  \param[in] bbox: `tuple(float, float, float)` Particle's bounding box in meters (optional).
 #  \return result: `int` Function exit code (0 for success, otherwise number of
 #  spheres that could not be placed)
-def random_aggregate(scatterer, geometry, seed, max_rad, max_attempts=100):
+def random_aggregate(scatterer, geometry, seed, max_rad, max_attempts=100, bbox=(0.0, 0.0, 0.0)):
     result = 0
     random.seed(seed)
     nsph = scatterer['nsph']
+    n_core = geometry['n_core']
     vec_thetas = [0.0 for i in range(nsph)]
     vec_phis = [0.0 for i in range(nsph)]
     vec_rads = [0.0 for i in range(nsph)]
@@ -703,8 +731,32 @@ def random_aggregate(scatterer, geometry, seed, max_rad, max_attempts=100):
     vec_rads[0] = scatterer['ros'][sph_type_index]
     vec_types.append(sph_type_index + 1)
     placed_spheres = 1
+    # Bounding box placement
+    max_x = max_rad
+    min_x = -max_rad
+    max_y = max_rad
+    min_y = -max_rad
+    max_z = max_rad
+    min_z = -max_rad
+    if (bbox[0] > 0.0):
+        max_x = bbox[0] / 2.0
+        min_x = -bbox[0] / 2.0
+        max_y = bbox[1] / 2.0
+        min_y = -bbox[1] / 2.0
+        max_z = bbox[2] / 2.0
+        min_z = -bbox[2] / 2.0
+        sph_type_index = scatterer['vec_types'][1] - 1
+        vec_rads[1] = scatterer['ros'][sph_type_index]
+        rho = vec_rads[0] + vec_rads[1]
+        vec_spheres.append({'itype': sph_type_index + 1, 'x': rho, 'y': 0.0, 'z': 0.0})
+        vec_types.append(sph_type_index + 1)
+        placed_spheres += 1
+        if (placed_spheres <= n_core):
+            recenter_aggregate(vec_spheres)
+    # End of bounding box placement
     attempts = 0
-    for i in range(1, nsph):
+    half_pi = math.pi / 2.0
+    for i in range(placed_spheres, nsph):
         sph_type_index = scatterer['vec_types'][i] - 1
         vec_rads[i] = scatterer['ros'][sph_type_index]
         is_placed = False
@@ -712,72 +764,82 @@ def random_aggregate(scatterer, geometry, seed, max_rad, max_attempts=100):
             if (attempts > max_attempts):
                 result += 1
                 break # while(not is_placed)
-            vec_thetas[i] = math.pi * random.random()
-            vec_phis[i] = 2.0 * math.pi * random.random()
+            u = random.random()
+            v = random.random()
+            phi = 2.0 * math.pi * u
+            theta = math.acos(2.0 * v - 1.0)
+            vec_thetas[i] = theta
+            vec_phis[i] = phi
             rho = vec_rads[0] + vec_rads[i]
-            z = rho * math.cos(vec_thetas[i])
-            y = rho * math.sin(vec_thetas[i]) * math.sin(vec_phis[i])
-            x = rho * math.sin(vec_thetas[i]) * math.cos(vec_phis[i])
-            j = 0
-            while (j < i - 1):
-                j += 1
-                dx2 = (x - vec_spheres[j]['x']) * (x - vec_spheres[j]['x'])
-                dy2 = (y - vec_spheres[j]['y']) * (y - vec_spheres[j]['y'])
-                dz2 = (z - vec_spheres[j]['z']) * (z - vec_spheres[j]['z'])
-                dist2 = dx2 + dy2 + dz2
-                rr2 = (vec_rads[i] + vec_rads[j]) * (vec_rads[i] + vec_rads[j])
-                if (dist2 < 0.9999 * rr2):
-                    # Spheres i and j are compenetrating.
-                    # Sphere i is moved out radially until it becomes externally
-                    # tangent to sphere j. Then the check is repeated, to verify
-                    # that no other sphere was penetrated. The process is iterated
-                    # until sphere i is placed or the maximum allowed radius is
-                    # reached.
-                    # breakpoint()
-                    sinthi = math.sin(vec_thetas[i])
-                    sinthj = math.sin(vec_thetas[j])
-                    costhi = math.cos(vec_thetas[i])
-                    costhj = math.cos(vec_thetas[j])
-                    sinphi = math.sin(vec_phis[i])
-                    sinphj = math.sin(vec_phis[j])
-                    cosphi = math.cos(vec_phis[i])
-                    cosphj = math.cos(vec_phis[j])
-                    cosalpha = (
-                        sinthi * cosphi * sinthj * cosphj
-                        + sinthi * sinphi * sinthj * sinphj
-                        + costhi * costhj
-                    )
-                    D12 = math.sqrt(
-                        vec_spheres[j]['x'] * vec_spheres[j]['x']
-                        + vec_spheres[j]['y'] * vec_spheres[j]['y']
-                        + vec_spheres[j]['z'] * vec_spheres[j]['z']
-                    )
-                    O1K = D12 * cosalpha
-                    sinalpha = math.sqrt(1.0 - cosalpha * cosalpha)
-                    sinbetaprime = D12 / (vec_rads[i] + vec_rads[j]) * sinalpha
-                    cosbetaprime = math.sqrt(1.0 - sinbetaprime * sinbetaprime)
-                    Op3K = (vec_rads[i] + vec_rads[j]) * cosbetaprime
-                    rho = O1K + Op3K
-                    z = rho * math.cos(vec_thetas[i])
-                    y = rho * math.sin(vec_thetas[i]) * math.sin(vec_phis[i])
-                    x = rho * math.sin(vec_thetas[i]) * math.cos(vec_phis[i])
-                    j = 0
-                    continue # while(j < i - 1)
-            if (rho + vec_rads[i] > max_rad):
-                # The current direction is filled. Try another one.
+
+            # Parametri della direzione (versori)
+            ux = math.sin(theta) * math.cos(phi)
+            uy = math.sin(theta) * math.sin(phi)
+            uz = math.cos(theta)
+
+            collision_found = True
+            inner_loop_attempts = 0
+            #
+            while collision_found and inner_loop_attempts < i + 10:
+                collision_found = False
+                inner_loop_attempts += 1
+        
+                for j in range(len(vec_spheres)):
+                    sj = vec_spheres[j]
+                    rj = vec_rads[j]
+                    ri = vec_rads[i]
+                    
+                    # Centro della sfera j
+                    xj, yj, zj = sj['x'], sj['y'], sj['z']
+                    
+                    # Proiezione di Pj sulla retta (OH nel tuo codice)
+                    OH = xj * ux + yj * uy + zj * uz
+                    
+                    # Distanza al quadrato di Pj dalla retta (JH^2)
+                    dist_sq = (xj**2 + yj**2 + zj**2) - OH**2
+                    JH = math.sqrt(max(0, dist_sq)) # max per errori floating point
+                    
+                    JInew = rj + ri
+                    
+                    # Se JH < JInew, la sfera j interseca la traiettoria
+                    if JH < 0.9999 * JInew:
+                        # Calcoliamo la distanza necessaria lungo la retta (HInew)
+                        cosbeta = math.sqrt(JInew**2 - JH**2)
+                        rho_needed = OH + cosbeta
+                        
+                        # Se la nuova rho necessaria è maggiore di quella attuale, spingiamo
+                        if rho_needed > rho:
+                            rho = rho_needed
+                            collision_found = True 
+                            # Ricomincia il controllo su tutte le sfere con la nuova rho
+                            break # j loop
+            # end of while collision_found loop
+
+            # Calcolo coordinate finali
+            x = rho * ux
+            y = rho * uy
+            z = rho * uz
+
+            # Verifica limiti
+            if (rho + vec_rads[i] > max_rad) or (x + vec_rads[i] > max_x) or (x - vec_rads[i] < min_x):
                 attempts += 1
-                continue # while(not is_placed)
-            vec_spheres.append({
-                'itype': sph_type_index + 1,
-                'x': x,
-                'y': y,
-                'z': z
-            })
+                continue # while not is_placed loop
+            if ((y + vec_rads[i] > max_y) or (y - vec_rads[i] < min_y)):
+                attempts += 1
+                continue # while not is_placed loop
+            if ((z + vec_rads[i] > max_z) or (z - vec_rads[i] < min_z)):
+                attempts += 1
+                continue # while not is_placed loop
+
+            # Posizionamento riuscito
+            vec_spheres.append({'itype': sph_type_index + 1, 'x': x, 'y': y, 'z': z})
             is_placed = True
             placed_spheres += 1
             vec_types.append(sph_type_index + 1)
             attempts = 0
-        # end while loop
+            if (placed_spheres <= n_core):
+                recenter_aggregate(vec_spheres)
+        # end while loop not is placed loop
     # end for i loop
     scatterer['vec_types'] = vec_types
     sph_index = 0
@@ -901,6 +963,31 @@ def random_compact(scatterer, geometry, seed, max_rad):
             sph_index += 1
     return current_n
 
+## \brief Adjust a growing aggregate around its geometric center.
+#
+#  To be written.
+#
+#  \param vec_spheres: `list` A list of sphere position dictionaries.
+#  \return result: `int` Function exit code (0 for success)
+def recenter_aggregate(vec_spheres):
+    result = 0
+    vec_size = len(vec_spheres)
+    avg_x = 0.
+    avg_y = 0.
+    avg_z = 0.
+    for i1 in range(vec_size):
+        avg_x += vec_spheres[i1]['x']
+        avg_y += vec_spheres[i1]['y']
+        avg_z += vec_spheres[i1]['z']
+    avg_x /= vec_size
+    avg_y /= vec_size
+    avg_z /= vec_size
+    for i2 in range(vec_size):
+        vec_spheres[i2]['x'] -= avg_x
+        vec_spheres[i2]['y'] -= avg_y
+        vec_spheres[i2]['z'] -= avg_z
+    return result
+
 ## \brief Perform a preliminary test of the resources required by the model.
 #
 #  The resolution of models requires the availability of memory resources
@@ -998,17 +1085,14 @@ def test_system_resources(model, gconf, sconf):
                 )
                 required_ram_bytes += 4 * ((lm + 1) * lm)
                 required_ram_bytes += 8 * (8 + nv3j + lmtpo)
-            else:
-                print("ERROR: unrecognized application name \"%s\""%gconf['application'])
-                raise KeyError("unrecognized application name \"{0:s}\"".format(gconf['application']))
-            required_ram_gb = required_ram_bytes / 1024.0 / 1024.0 / 1024.0
-            print("INFO: model requires %.5gGiB of host RAM."%required_ram_gb)
-            if (required_ram_bytes < max_host_ram_bytes):
-                max_host_processes = int(max_host_ram_bytes / required_ram_bytes)
-                print("INFO: system supports up to %d simultaneous processes"%max_host_processes)
-                print("      (N.B.: not including overheads!)")
-            else:
-                print("WARNING: estimated matrix size is larger than available host memory!")
+                required_ram_gb = required_ram_bytes / 1024.0 / 1024.0 / 1024.0
+                print("INFO: model requires %.5gGiB of host RAM."%required_ram_gb)
+                if (required_ram_bytes < max_host_ram_bytes):
+                    max_host_processes = int(max_host_ram_bytes / required_ram_bytes)
+                    print("INFO: system supports up to %d simultaneous processes"%max_host_processes)
+                    print("      (N.B.: not including overheads!)")
+                else:
+                    print("WARNING: estimated matrix size is larger than available host memory!")
         else:
             print("WARNING: no host RAM declared!")
     except KeyError as ex:
@@ -1066,6 +1150,11 @@ def write_legacy_gconf(conf):
         str_line = "USE_DYN_ORDERS=1\n"
     else:
         str_line = "USE_DYN_ORDERS=0\n"
+    output.write(str_line)
+    if (conf['use_offload']):
+        str_line = "USE_OFFLOAD=1\n"
+    else:
+        str_line = "USE_OFFLOAD=0\n"
     output.write(str_line)
     if (conf['tolerance'] != 0.0):
         str_line = "TOLERANCE={0:.5le}\n".format(conf['tolerance'])
@@ -1236,27 +1325,49 @@ def write_obj(scatterer, geometry, max_rad):
         "olive", "magenta", "turquoise", "gray", "pink", "orange", "vanilla",
         "emerald"
     ]
+    num_colors = len(color_names)
+    used_strings = []
+    used_names = []
+    for ui in range(scatterer['configurations']):
+        used_strings.append(color_strings[ui % (num_colors - 1) + 1])
+        used_names.append(color_names[ui % (num_colors - 1) + 1])
     mtl_file = open(str(out_material_path), "w")
-    for mi in range(len(color_strings)):
-        mtl_line = "newmtl "  + color_names[mi] + "\n"
+    for mi in range(len(used_strings)):
+        mtl_line = "newmtl "  + used_names[mi] + "\n"
         mtl_file.write(mtl_line)
-        color_line = color_strings[mi]
+        color_line = used_strings[mi]
         mtl_file.write("   Ka " + color_line)
         mtl_file.write("   Ks " + color_line)
         mtl_file.write("   Kd " + color_line)
         mtl_file.write("   Ns 100.0\n")
-        mtl_file.write("   Tr 0.0\n")
+        mtl_file.write("   d 1.0\n")
+        mtl_file.write("   illum 2\n\n")
+    if (scatterer['application'] == 'INCLUSION'):
+        mtl_line = "newmtl coating\n"
+        mtl_file.write(mtl_line)
+        color_line = "0.16 0.38 0.37\n" # coating colour is always transparent turquoise
+        mtl_file.write("   Ka " + color_line)
+        mtl_file.write("   Ks " + color_line)
+        mtl_file.write("   Kd " + color_line)
+        mtl_file.write("   Ns 100.0\n")
+        mtl_file.write("   d 0.5\n")
         mtl_file.write("   illum 2\n\n")
     mtl_file.close()
     pl = pv.Plotter()
     for si in range(scatterer['nsph']):
         sph_type_index = scatterer['vec_types'][si]
-        # color_index = 1 + (sph_type_index % (len(color_strings) - 1))
-        # color_by_name = color_names[sph_type_index]
         radius = scatterer['ros'][sph_type_index - 1] / max_rad
         x = geometry['vec_sph_x'][si] / max_rad
         y = geometry['vec_sph_y'][si] / max_rad
         z = geometry['vec_sph_z'][si] / max_rad
+        mesh = pv.Sphere(radius, (x, y, z))
+        pl.add_mesh(mesh, color=None)
+    if (scatterer['application'] == 'INCLUSION'):
+        factor = scatterer['rcf'][0][-1]
+        radius = factor * scatterer['ros'][0] / max_rad
+        x = 0.0
+        y = 0.0
+        z = 0.0
         mesh = pv.Sphere(radius, (x, y, z))
         pl.add_mesh(mesh, color=None)
     pl.export_obj(str(Path(str(out_dir), "TMP_MODEL.obj")))
@@ -1272,17 +1383,24 @@ def write_obj(scatterer, geometry, max_rad):
             str_line = mtl_line
         elif (str_line.startswith("g ")):
             sph_index += 1
-            sph_type_index = scatterer['vec_types'][sph_index - 1]
-            if (sph_type_index == old_sph_type_index):
-                str_line = tmp_model_file.readline()
-                str_line = tmp_model_file.readline()
+            if (sph_index <= len(scatterer['vec_types'])):
+                sph_type_index = scatterer['vec_types'][sph_index - 1]
+                if (sph_type_index == old_sph_type_index):
+                    str_line = tmp_model_file.readline()
+                    str_line = tmp_model_file.readline()
+                else: # sphere type change
+                    old_sph_type_index = sph_type_index
+                    color_index = (sph_type_index - 1) % len(used_names)
+                    str_line = "g grp{0:04d}\n".format(sph_type_index - 1)
+                    out_model_file.write(str_line)
+                    str_line = tmp_model_file.readline()
+                    str_line = "usemtl {0:s}\n".format(used_names[color_index])
             else:
-                old_sph_type_index = sph_type_index
-                color_index = 1 + (sph_type_index - 1) % (len(color_names) - 1)
-                str_line = "g grp{0:04d}\n".format(sph_type_index - 1)
-                out_model_file.write(str_line)
-                str_line = tmp_model_file.readline()
-                str_line = "usemtl {0:s}\n".format(color_names[color_index])
+                if (scatterer['application'] == 'INCLUSION'):
+                    str_line = "g grpcoating\n"
+                    out_model_file.write(str_line)
+                    str_line = tmp_model_file.readline()
+                    str_line = "usemtl coating\n"
         out_model_file.write(str_line)
         str_line = tmp_model_file.readline()
     out_model_file.close()

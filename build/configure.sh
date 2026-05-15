@@ -21,6 +21,7 @@ NVTXFLAGS=""
 OMPMODE="auto"
 OFFLOAD="auto"
 OFFLOADFLAGS=""
+OFFLOADLDFLAGS=""
 # End of default configuration settings
 
 # Function declarations
@@ -875,7 +876,7 @@ int main(int argc, char** argv) {
   return 0;
 }
 EOF
-    $CXX -fopenmp -fcf-protection=none -fno-stack-protector -foffload=nvptx-none="-O3 -ggdb -fcf-protection=none -fno-stack-protector -fopt-info -lm -latomic -lgomp" conf_test_offload.cpp -o conf_test_offload > /dev/null 2>>error.log
+    $CXX -fopenmp -fno-strict-aliasing -foffload=nvptx-none="-O2 -march=sm_70 -mptx=7.3" conf_test_offload.cpp -o conf_test_offload > /dev/null 2>>error.log
     result=$?
     rm conf_test_offload.cpp
     if [ "x$result" = "x0" ]; then
@@ -886,7 +887,8 @@ EOF
     if [ "x$result" = "x0" ]; then
 	echo "yes"
 	echo "yes" >>configure.log
-	OFFLOADFLAGS=" -DUSE_TARGET_OFFLOAD -fcf-protection=none -fno-stack-protector -foffload=nvptx-none=\"-O${CXX_OPT}${CXX_DBG} -fcf-protection=none -fno-stack-protector -fopt-info -lm -latomic -lgomp\""
+	OFFLOADFLAGS=" -DUSE_TARGET_OFFLOAD -fno-strict-aliasing -foffload=nvptx-none=\"-O2 -march=sm_70 -mptx=7.3 -lm\""
+	OFFLOADLDFLAGS=" -lgomp"
 	if [ "x${OMPFLAGS}" = "x" ]; then
 	    OFFLOADFLAGS="-fopenmp ${OFFLOADFLAGS}"
 	fi
@@ -894,9 +896,11 @@ EOF
 	echo "no"
 	echo "no" >>configure.log
 	OFFLOADFLAGS=""
+	OFFLOADLDFLAGS=""
     fi
 else
     OFFLOADFLAGS=""
+    OFFLOADLDFLAGS=""
 fi
 # End of offload checks
 if [ "x$CXXFLAGS" = "x" ]; then
@@ -904,9 +908,9 @@ if [ "x$CXXFLAGS" = "x" ]; then
 fi
 if [ "x$CXXLDFLAGS" = "x" ]; then
     if [ "x$LIBMODE" = "xstatic" ]; then
-	CXXLDFLAGS="-Llibnptm -lnptm ${HDF5LDFLAGS} ${LDFLAGS} ${LAPACKLDFLAGS}${CUBLASLDFLAGS}${MAGMALDFLAGS}"
+	CXXLDFLAGS="-Llibnptm -lnptm ${HDF5LDFLAGS} ${LDFLAGS} ${LAPACKLDFLAGS}${CUBLASLDFLAGS}${MAGMALDFLAGS}${OFFLOADLDFLAGS}"
     else
-	CXXLDFLAGS="-Llibnptm -lnptm ${HDF5LDFLAGS} ${LDFLAGS} ${LAPACKLDFLAGS}${CUBLASLDFLAGS}${MAGMALDFLAGS}"
+	CXXLDFLAGS="-Llibnptm -lnptm ${HDF5LDFLAGS} ${LDFLAGS} ${LAPACKLDFLAGS}${CUBLASLDFLAGS}${MAGMALDFLAGS}${OFFLOADLDFLAGS}"
     fi
 fi
 

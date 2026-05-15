@@ -111,6 +111,7 @@ GeometryConfiguration::GeometryConfiguration(
   _invert_mode = 0;
   _accuracy_goal = 1.0e-07;
   _ref_iters = 5;
+  _offload_flag = false;
 }
 
 GeometryConfiguration::GeometryConfiguration(const GeometryConfiguration& rhs)
@@ -154,6 +155,7 @@ GeometryConfiguration::GeometryConfiguration(const GeometryConfiguration& rhs)
   _invert_mode = rhs._invert_mode;
   _accuracy_goal = rhs._accuracy_goal;
   _ref_iters = rhs._ref_iters;
+  _offload_flag = rhs._offload_flag;
 }
 
 #ifdef MPI_VERSION
@@ -197,6 +199,7 @@ GeometryConfiguration::GeometryConfiguration(const mixMPI *mpidata) {
   MPI_Bcast(&_invert_mode, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_accuracy_goal, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_ref_iters, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_offload_flag, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
 }
 
 void GeometryConfiguration::mpibcast(const mixMPI *mpidata) {
@@ -236,6 +239,7 @@ void GeometryConfiguration::mpibcast(const mixMPI *mpidata) {
   MPI_Bcast(&_invert_mode, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_accuracy_goal, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_ref_iters, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_offload_flag, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
 }
 #endif
 
@@ -402,6 +406,13 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
 	conf->_host_ram_gb = ram_gb;
 	is_parsed = true;
       }
+      if (str_target.substr(0, 12).compare("USE_OFFLOAD=") == 0) {
+	re = regex("[0-9]+");
+	regex_search(str_target, m, re);
+	short dyn_order_flag = (short)stoi(m.str());
+	conf->_offload_flag = (dyn_order_flag > 0) ? true : false;
+	is_parsed = true;
+      }
     }
     if (str_target_size > 11) {
       if (str_target.substr(0, 11).compare("GPU_RAM_GB=") == 0) {
@@ -422,7 +433,7 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
 	if (str_inv_mode.compare("LU") == 0) inv_mode = RuntimeSettings::INV_MODE_LU;
 	else if (str_inv_mode.compare("GESV") == 0) inv_mode = RuntimeSettings::INV_MODE_GESV;
 	else if (str_inv_mode.compare("RBT") == 0) inv_mode = RuntimeSettings::INV_MODE_RBT;
-	else if (str_inv_mode.compare("SVD") == 0) inv_mode = RuntimeSettings::INV_MODE_SVD;
+	// else if (str_inv_mode.compare("SVD") == 0) inv_mode = RuntimeSettings::INV_MODE_SVD;
 	else {
 	  throw(UnrecognizedConfigurationException("ERROR: unrecognized option \"" + str_target + "\"!\n"));
 	}
@@ -461,16 +472,24 @@ RuntimeSettings::RuntimeSettings() {
   _host_ram_gb = 0.0;
   _max_ref_iters = 5;
   _use_refinement = false;
+  _use_offload = true;
+#ifndef USE_TARGET_OFFLOAD
+  _use_offload = false;
+#endif // USE_TARGET_OFFLOAD
   logger = NULL;
 }
 
 RuntimeSettings::RuntimeSettings(GeometryConfiguration *gconf, Logger *ptr_logger) {
   _invert_mode = gconf->invert_mode;
-  _accuracy_goal = gconf->accuracy_goal; // TODO: make this option configurable.
+  _accuracy_goal = gconf->accuracy_goal;
   _gpu_ram_gb = gconf->gpu_ram_gb;
   _host_ram_gb = gconf->host_ram_gb;
-  _max_ref_iters = gconf->ref_iters; // TODO: make this option configurable.
+  _max_ref_iters = gconf->ref_iters;
   _use_refinement = gconf->refine_flag;
+  _use_offload = gconf->offload_flag;
+#ifndef USE_TARGET_OFFLOAD
+  _use_offload = false;
+#endif // USE_TARGET_OFFLOAD
   logger = ptr_logger;
 }
 // >>> END OF RuntimeSettings CLASS IMPLEMENTATION <<<
@@ -1146,16 +1165,17 @@ double ScattererConfiguration::get_min_radius() {
 double ScattererConfiguration::get_particle_radius(GeometryConfiguration *gc) {
   double result = 0.0;
   if (_use_external_sphere) {
-    result = _radii_of_spheres[0] * _rcf[0][_nshl_vec[0] - 1];
+    result = _radii_of_spheres[0] * _rcf[0][_nshl_vec[0]];
   } else {
     double dist2, max_dist;
     double max_dist2 = 0.0;
     double avgX = 0.0, avgY = 0.0, avgZ = 0.0;
 #pragma omp parallel for reduction(+: avgX, avgY, avgZ)
     for (int si = 0; si < _number_of_spheres; si++) {
-      avgX += gc->get_sph_x(si);
-      avgY += gc->get_sph_y(si);
-      avgZ += gc->get_sph_z(si);
+      double sph_radius = get_radius(si);
+      avgX += (sph_radius * gc->get_sph_x(si));
+      avgY += (sph_radius * gc->get_sph_y(si));
+      avgZ += (sph_radius * gc->get_sph_z(si));
     }
     avgX /= _number_of_spheres;
     avgY /= _number_of_spheres;

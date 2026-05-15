@@ -14,7 +14,8 @@
    this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
  */
 
-/*! \file clu_subs.h
+/**
+ * \file clu_subs.h
  *
  * \brief C++ porting of CLU functions and subroutines.
  *
@@ -31,7 +32,8 @@
 #ifndef INCLUDE_CLU_SUBS_H_
 #define INCLUDE_CLU_SUBS_H_
 
-/*! \brief Compute the asymmetry-corrected scattering cross-section of a cluster.
+/**
+ * \brief Compute the asymmetry-corrected scattering cross-section of a cluster.
  *
  * This function computes the product between the geometrical asymmetry parameter and
  * the scattering cross-section, like `aps()`, but for a cluster of spheres. See Eq. (3.16)
@@ -50,7 +52,8 @@ void apc(
 	 double sqk, double **gapr, dcomplex **gapp
 );
 
-/*! \brief Compute the asymmetry-corrected scattering cross-section under random average
+/**
+ * \brief Compute the asymmetry-corrected scattering cross-section under random average
  * conditions.
  *
  * This function computes the product between the geometrical asymmetry parameter and
@@ -69,7 +72,8 @@ void apcra(
 	   double **gaprm, dcomplex **gappm
 );
 
-/*! \brief Complex inner product.
+/**
+ * \brief Complex inner product.
  *
  * This function performs the complex inner product. It is used by `lucin()`.
  *
@@ -83,7 +87,8 @@ void apcra(
  */
 dcomplex cdtp(dcomplex z, dcomplex *vec_am, int i, int jf, int k, int nj, np_int istep);
 
-/*! \brief C++ porting of CGEV. ANNOTATION: Get weight of T-matrix element.
+/**
+ * \brief C++ porting of CGEV. ANNOTATION: Get weight of T-matrix element.
  *
  * \param ipamo: `int`
  * \param mu: `int`
@@ -93,7 +98,20 @@ dcomplex cdtp(dcomplex z, dcomplex *vec_am, int i, int jf, int k, int nj, np_int
  */
 double cgev(int ipamo, int mu, int l, int m);
 
-/*! \brief Build the multi-centered M-matrix of the cluster.
+/**
+ * \brief Build the multi-centered M-matrix of the cluster.
+ *
+ * This function constructs the multi-centered M-matrix of the cluster, according
+ * to Eq. (5.28) of Borghese, Denti & Saija (2007).
+ *
+ * \param[in,out] am: `complex double *`
+ * \param[in] c1: `ParticleDescriptor *`
+ */
+void cms(dcomplex *am, ParticleDescriptor *c1);
+
+#ifdef USE_TARGET_OFFLOAD
+/**
+ * \brief Build the multi-centered M-matrix of the cluster.
  *
  * This function constructs the multi-centered M-matrix of the cluster, according
  * to Eq. (5.28) of Borghese, Denti & Saija (2007).
@@ -101,9 +119,11 @@ double cgev(int ipamo, int mu, int l, int m);
  * \param am: `complex double **`
  * \param c1: `ParticleDescriptor *`
  */
-void cms(dcomplex **am, ParticleDescriptor *c1);
+void cms_flat(dcomplex *am, ParticleDescriptor *c1);
+#endif // USE_TARGET_OFFLOAD
 
-/*! \brief Compute orientation-averaged scattered field intensity.
+/**
+ * \brief Compute orientation-averaged scattered field intensity.
  *
  * This function computes the intensity of the scattered field for the cluster,
  * averaged on the orientations. It is invoked for IAVM=1 (ANNOTATION: geometry
@@ -115,46 +135,30 @@ void cms(dcomplex **am, ParticleDescriptor *c1);
  */
 void crsm1(double vk, double exri, ParticleDescriptor *c1);
 
-/*! \brief Compute the transfer vector from N2 to N1.
+/**
+ * \brief Compute the transfer vector from N2 to N1.
  *
  * This function computes the transfer vector going from N2 to N1, using either
  * Hankel, Bessel or Bessel from origin functions.
  *
- * \param ihi: `int`
- * \param ipamo: `int`
- * \param nbl: `int`
- * \param l1: `int`
- * \param m1: `int`
- * \param l2: `int`
- * \param m2: `int`
- * \param c1: `ParticleDescriptor *`
- * \param rac3j: `dcomplex *`
- */
-dcomplex ghit_d(
-	      int ihi, int ipamo, int nbl, int l1, int m1, int l2, int m2,
-	      ParticleDescriptor *c1, double *rac3j
-);
-
-/*! \brief Compute the transfer vector from N2 to N1.
- *
- * This function computes the transfer vector going from N2 to N1, using either
- * Hankel, Bessel or Bessel from origin functions.
- *
- * \param ihi: `int`
- * \param ipamo: `int`
- * \param nbl: `int`
- * \param l1: `int`
- * \param m1: `int`
- * \param l2: `int`
- * \param m2: `int`
- * \param c1: `ParticleDescriptor *` Poiunter to a ParticleDescriptor instance.
+ * \param[in] ihi: `int` Function mode.
+ * \param[in] ipamo: `int`
+ * \param[in] nbl: `int` Block identifier.
+ * \param[in] l1: `int` First L quantum number.
+ * \param[in] m1: `int` First M quantum number.
+ * \param[in] l2: `int` Second L quantum number.
+ * \param[in] m2: `int` Second M quantum number.
+ * \param[in] c1: `ParticleDescriptor *` Pointer to a ParticleDescriptor instance.
+ * \param[in,out] rac3j: `double[]` J connection vector.
+ * \return result: `dcomplex` Matrix element.
  */
 dcomplex ghit(
-	      int ihi, int ipamo, int nbl, int l1, int m1, int l2, int m2,
-	      ParticleDescriptor *c1
+  int ihi, int ipamo, int nbl, int l1, int m1, int l2, int m2, ParticleDescriptor *c1,
+  double rac3j[]
 );
 
-/*! \brief Compute Hankel funtion and Bessel functions.
+/**
+ * \brief Compute Hankel funtion and Bessel functions.
  *
  * This function constructs the Hankel function and the Bessel functions vectors. See
  * page 331 in Borghese, Denti & Saija (2007).
@@ -171,7 +175,8 @@ void hjv(
 	 ParticleDescriptor *c1
 );
 
-/*! \brief Invert the multi-centered M-matrix.
+/**
+ * \brief Invert the multi-centered M-matrix.
  *
  * This function performs the inversion of the multi-centered M-matrix through
  * LU decomposition. See Eq. (5.29) in Borghese, Denti & Saija (2007).
@@ -183,7 +188,8 @@ void hjv(
  */
 void lucin(dcomplex **am, const np_int nddmst, np_int n, int &ier);
 
-/*! \brief Compute the average extinction cross-section.
+/**
+ * \brief Compute the average extinction cross-section.
  *
  * This funbction computes the average extinction cross-section starting
  * from the definition of the scattering amplitude. See Sec. 3.2.1 of Borghese,
@@ -197,7 +203,8 @@ void lucin(dcomplex **am, const np_int nddmst, np_int n, int &ier);
  */
 void mextc(double vk, double exri, dcomplex **fsac, double **cextlr, double **cext);
 
-/*! \brief Compute cross-sections and forward scattering amplitude for the cluster.
+/**
+ * \brief Compute cross-sections and forward scattering amplitude for the cluster.
  *
  * This function computes the scattering, absorption and extinction cross-sections
  * of the cluster, together with the Forward Scattering Amplitude.
@@ -209,7 +216,8 @@ void mextc(double vk, double exri, dcomplex **fsac, double **cextlr, double **ce
  */
 void pcros(double vk, double exri, ParticleDescriptor *c1);
 
-/*! \brief Compute orientation-averaged cross-sections and forward scattering amplitude.
+/**
+ * \brief Compute orientation-averaged cross-sections and forward scattering amplitude.
  *
  * This function computes the orientation-averaged scattering, absorption and extinction
  * cross-sections of the cluster, together with the averaged Forward Scattering Amplitude.
@@ -221,7 +229,8 @@ void pcros(double vk, double exri, ParticleDescriptor *c1);
  */
 void pcrsm0(double vk, double exri, int inpol, ParticleDescriptor *c1);
 
-/*! \brief Transform Cartesian quantities to spherical coordinates ones.
+/**
+ * \brief Transform Cartesian quantities to spherical coordinates ones.
  *
  * This function performs a conversion from the Cartesian coordinates system to the
  * spherical one. It is used by `sphar()`.
@@ -240,7 +249,8 @@ void polar(
 	   double &cph, double &sph
 );
 
-/*! \brief Compute the 3j symbol for Clebsch-Gordan coefficients towards J=0.
+/**
+ * \brief Compute the 3j symbol for Clebsch-Gordan coefficients towards J=0.
  *
  * This function calculates the 3j(J,J2,J3;0,0,0) symbol for the Clebsch-Gordan
  * coefficients. See Appendix a.3.1 in Borghese, Denti & Saija (2007).
@@ -251,33 +261,22 @@ void polar(
  */
 void r3j000(int j2, int j3, double *rac3j);
 
-/*! \brief Compute the 3j symbol for Clebsch-Gordan coefficients for JJ transitions.
+/**
+ * \brief Compute the 3j symbol for Clebsch-Gordan coefficients for JJ transitions.
  *
  * This function calculates the 3j(J,J2,J3;-M2-M3,M2,M3) symbol for the Clebsch-Gordan
  * coefficients. See Appendix a.3.1 in Borghese, Denti & Saija (2007).
  *
- * \param j2: `int`
- * \param j3: `int`
- * \param m2: `int`
- * \param m3: `int`
- * \param rac3j: `double *` Vector of 3j symbols.
+ * \param[in] j2: `int` Value of J2.
+ * \param[in] j3: `int` Value of J3.
+ * \param[in] m2: `int` Value of M2.
+ * \param[in] m3: `int` Value of M3.
+ * \param[out] rac3j: `double[]` Vector of 3j symbols.
  */
-void r3jjr(int j2, int j3, int m2, int m3, double *rac3j);
+void r3jjr(int j2, int j3, int m2, int m3, double rac3j[]);
 
-/*! \brief Compute the 3j symbol for Clebsch-Gordan coefficients for JJ transitions.
- *
- * This function calculates the 3j(J,J2,J3;-M2-M3,M2,M3) symbol for the Clebsch-Gordan
- * coefficients. See Appendix a.3.1 in Borghese, Denti & Saija (2007).
- *
- * \param j2: `int`
- * \param j3: `int`
- * \param m2: `int`
- * \param m3: `int`
- * \param rac3j: `double *`
- */
-void r3jjr_d(int j2, int j3, int m2, int m3, double *rac3j);
-
-/*! \brief Compute the 3j symbol for Clebsch-Gordan coefficients for JM transitions.
+/**
+ * \brief Compute the 3j symbol for Clebsch-Gordan coefficients for JM transitions.
  *
  * This function calculates the 3j(J,J2,J3;M1,M,-M1-M) symbol for the Clebsch-Gordan
  * coefficients. See Appendix a.3.1 in Borghese, Denti & Saija (2007).
@@ -290,7 +289,8 @@ void r3jjr_d(int j2, int j3, int m2, int m3, double *rac3j);
  */
 void r3jmr(int j1, int j2, int j3, int m1, double *rac3j);
 
-/*! \brief Compute radiation torques on a particle in Cartesian coordinates.
+/**
+ * \brief Compute radiation torques on a particle in Cartesian coordinates.
  *
  * This function computes radiation torque on on a cluster of spheres as the
  * result of the difference between the extinction and the scattering
@@ -310,7 +310,8 @@ void raba(
 	  dcomplex **tqcpe, double **tqcs, dcomplex **tqcps
 );
 
-/*! \brief Compute the radiation force Cartesian components.
+/**
+ * \brief Compute the radiation force Cartesian components.
  *
  * This function computes the Cartesian components of the radiation force
  * exerted on a particle. See Sec. 3.2.1 in Borghese, Denti & Saija (2007).
@@ -336,7 +337,8 @@ void rftr(
 	  double &fy, double &fz
 );
 
-/*! \brief Compute Mie cross-sections for the sphere units in the cluster.
+/**
+ * \brief Compute Mie cross-sections for the sphere units in the cluster.
  *
  * This function computes the scattering, absorption and extinction cross-sections
  * for the spheres composing the cluster, in terms of Mie coefficients, together
@@ -349,7 +351,8 @@ void rftr(
  */
 void scr0(double vk, double exri, ParticleDescriptor *c1);
 
-/*! \brief Compute the scattering amplitude for a single sphere in an aggregate.
+/**
+ * \brief Compute the scattering amplitude for a single sphere in an aggregate.
  *
  * This function computes the scattering amplitude for single spheres constituting
  * an aggregate. See Sec. 4.2.1 in Borghese, Denti & Saija (2007).
@@ -364,7 +367,8 @@ void scr2(
 	  double vk, double vkarg, double exri, double *duk, ParticleDescriptor *c1
 );
 
-/*! \brief Transform sphere Cartesian coordinates to spherical coordinates.
+/**
+ * \brief Transform sphere Cartesian coordinates to spherical coordinates.
  *
  * This function transforms the Cartesian coordinates of the spheres in an aggregate
  * to radial coordinates, then it calls `sphar()` to calculate the vector of spherical
@@ -375,7 +379,8 @@ void scr2(
  */
 void str(double **rcf, ParticleDescriptor *c1);
 
-/*! \brief Compute radiation torques on particles on a k-vector oriented system.
+/**
+ * \brief Compute radiation torques on particles on a k-vector oriented system.
  *
  * This function computes the radiation torques resulting from the difference
  * between absorption and scattering contributions, like `rabas()`, but for a
@@ -399,7 +404,8 @@ void tqr(
 	 double &ten, double &tek, double &tsp, double &tsn, double &tsk
 );
 
-/*! \brief Calculate the single-centered inversion of the M-matrix.
+/**
+ * \brief Calculate the single-centered inversion of the M-matrix.
  *
  * This function computes the single-centered inverted M-matrix appearing in Eq. (5.28)
  * of Borghese, Denti & Saija (2007).
