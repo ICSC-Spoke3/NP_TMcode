@@ -64,9 +64,13 @@ void zinvert(dcomplex **mat, np_int n, int &jer, const RuntimeSettings& rs) {
   char buffer[128];
   string message;
   lapack_int info, inc1 = 1;
-  lcomplex *arr = &(mat[0][0]);
+  lcomplex *arr = (lcomplex *)mat[0];
   lcomplex *arr_orig;
+#ifndef USE_MKL
   lcomplex lapack_one = 1.0 + I * 0.0;
+#else
+  lcomplex lapack_one = {1.0, 0.0};
+#endif // USE_MKL
   np_int nn = n * n;
   if (rs.use_refinement && rs.invert_mode != RuntimeSettings::INV_MODE_RBT) {
     lapack_int inc1 = 1;
@@ -131,9 +135,15 @@ lapack_int lapack_newton(
   char buffer[128];
   char lapackNoTrans = 'N';
   const int max_ref_iters = rs.max_ref_iters;
+#ifndef USE_MKL
   lcomplex lapack_zero = 0.0 + I * 0.0;
   lcomplex lapack_one = 1.0 + I * 0.0;
   lcomplex lapack_mone = -1.0 + I * 0.0;
+#else
+  lcomplex lapack_zero = {0.0, 0.0};
+  lcomplex lapack_one = {1.0, 0.0};
+  lcomplex lapack_mone {-1.0, 0.0};
+#endif // USE_MKL
   lapack_int mm = m * m;
   lapack_int incx, incy;
   lcomplex *ax, *r, *unrefined;
@@ -149,7 +159,11 @@ lapack_int lapack_newton(
   incx = 1;
   lapack_int maxindex = izamax_(&mm, a, &incx) - 1;
   lcomplex lapackmax = a[maxindex];
+#ifndef USE_MKL
   curmax = cabs(lapackmax);
+#else
+  curmax = std::sqrt(lapackmax.real * lapackmax.real + lapackmax.imag * lapackmax.imag);
+#endif // USE_MKL
   sprintf(buffer, "INFO: largest matrix value has modulus %.5le.\n", curmax);
   message = buffer;
   rs.logger->log(message);
@@ -166,7 +180,11 @@ lapack_int lapack_newton(
     zaxpy_(&m, &lapack_one, id_diag, &incx, ax, &incy);
     maxindex = izamax_(&mm, ax, &incx) - 1;
     lapackmax = ax[maxindex];
+#ifndef USE_MKL
     curmax = cabs(lapackmax);
+#else
+    curmax = std::sqrt(lapackmax.real * lapackmax.real + lapackmax.imag * lapackmax.imag);
+#endif  // USE_MKL
     sprintf(buffer, "DEBUG: iteration %d has residue %.5le; target residue is %.5le.\n", ri, curmax, rs.accuracy_goal);
     message = buffer;
     rs.logger->log(message, LOG_DEBG);
