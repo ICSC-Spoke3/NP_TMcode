@@ -4,6 +4,11 @@ build/configure.log
 build/error.log
 build/libtool
 build/Makefile.in
+build/cluster/*
+build/inclusion/*
+build/libnptm/*
+build/testing/*
+build/trapping/*
 doc/build/*
 src/libnptm/.libs
 src/libnptm/*.lo
