@@ -121,9 +121,12 @@ using namespace std;
  *  \param cid: `InclusionIterationData *` Pointer to an `InclusionIterationData` object.
  *  \param output: `InclusionOutputInfo *` Pointer to an `InclusionOutputInfo` object.
  *  \param output_path: `const string &` Path to the output directory.
- *  \param vtppoanp: `VirtualBinaryFile *` Pointer to a `VirtualBinaryFile` object.
  */
-int inclusion_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf, ScatteringAngles *sa, InclusionIterationData *cid, InclusionOutputInfo *output, const string& output_path, VirtualBinaryFile *vtppoanp);
+int inclusion_jxi488_cycle(
+  int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf,
+  ScatteringAngles *sa, InclusionIterationData *cid, InclusionOutputInfo *output,
+  const string& output_path
+);
 
 /*! \brief C++ implementation of INCLU
  *
@@ -244,12 +247,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	message = "INFO: using RBT for inversion.\n";
 	logger->log(message);
       }
-      // else if(gconf->invert_mode == RuntimeSettings::INV_MODE_SVD) {
-      // 	//message = "INFO: using SVD for inversion.\n";
-      // 	message = "ERROR: SVD inversion mode not yet implemented!\n";
-      // 	logger->log(message);
-      // 	exit(1);
-      // }
       // Overlapping spheres test
       double tolerance = gconf->tolerance;
       if (tolerance < 0.0) {
@@ -351,9 +348,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
       double exdc = sconf->exdc;
       double exri = sqrt(exdc);
 
-      // Create an empty bynary file
-      VirtualBinaryFile *vtppoanp = new VirtualBinaryFile();
-      string tppoan_name = output_path + "/c_TPPOAN";
 #ifdef USE_MAGMA
       logger->log("INFO: using MAGMA calls.\n", LOG_INFO);
 #elif defined USE_LAPACK
@@ -370,17 +364,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
       int nph = p_scattering_angles->nph;
       int nphs = p_scattering_angles->nphs;
       
-      //========================
-      // write a block of info to virtual binary file
-      //========================
-      vtppoanp->append_line(VirtualBinaryLine(iavm));
-      vtppoanp->append_line(VirtualBinaryLine(isam));
-      vtppoanp->append_line(VirtualBinaryLine(inpol));
-      vtppoanp->append_line(VirtualBinaryLine(nxi));
-      vtppoanp->append_line(VirtualBinaryLine(nth));
-      vtppoanp->append_line(VirtualBinaryLine(nph));
-      vtppoanp->append_line(VirtualBinaryLine(nths));
-      vtppoanp->append_line(VirtualBinaryLine(nphs));
       if (sconf->idfc < 0) {
 	cid->vk = cid->xip * cid->wn;
 	p_output->vec_vk[0] = cid->vk;
@@ -389,12 +372,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
       int jxi488;
       int jer = 0;
 
-      //==================================================
-      // do the first outputs here, so that I open here the new files, afterwards I only append
-      //==================================================
-      vtppoanp->write_to_disk(output_path + "/c_TPPOAN");
-      delete vtppoanp;
-      
       // here go the calls that send data to be duplicated on other MPI processes from process 0 to others, using MPI broadcasts, but only if MPI is actually used
 #ifdef MPI_VERSION
       if (mpidata->mpirunning) {
@@ -412,7 +389,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
       int myMPIblock = ompnumthreads;
       // Define here shared arrays of virtual ascii and binary files, so that thread 0 will be able to access them all later
       InclusionOutputInfo **p_outarray = NULL;
-      VirtualBinaryFile **vtppoanarray = NULL;
 
 #ifdef USE_NVTX
       nvtxRangePush("Parallel loop");
@@ -435,7 +411,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	if (myompthread == 0) {
 	  // Initialise some shared variables only on thread 0
 	  p_outarray = new InclusionOutputInfo*[ompnumthreads];
-	  vtppoanarray = new VirtualBinaryFile*[ompnumthreads];
 	  myMPIblock = ompnumthreads;
 	  myMPIstride = myMPIblock;
 	}
@@ -464,7 +439,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	// To test parallelism, I will now start feeding this function with "clean" copies of the parameters, so that they will not be changed by previous iterations, and each one will behave as the first one. Define all (empty) variables here, so they have the correct scope, then they get different definitions depending on thread number
 	InclusionIterationData *cid_2 = NULL;
 	InclusionOutputInfo *p_output_2 = NULL;
-	VirtualBinaryFile *vtppoanp_2 = NULL;
 	// for threads other than the 0, create distinct copies of all relevant data, while for thread 0 just define new references / pointers to the original ones
 	if (myompthread == 0) {
 	  cid_2 = cid;
@@ -485,10 +459,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	  // the parallel loop over MPI processes covers a different set of indices for each thread
 #pragma omp barrier
 	  int myjxi488 = ixi488+myompthread;
-	  // each thread opens new virtual files and stores their pointers in the shared array
-	  vtppoanp_2 = new VirtualBinaryFile();
-	  // each thread puts a copy of the pointers to its virtual files in the shared arrays
-	  vtppoanarray[myompthread] = vtppoanp_2;
 #pragma omp barrier
 
 	  // each MPI process handles a number of contiguous scales corresponding to its number of OMP threads at this omp level of parallelism
@@ -498,7 +468,9 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	      p_output_2 = new InclusionOutputInfo(sconf, gconf, mpidata, myjxi488, 1);
 	      p_outarray[myompthread] = p_output_2;
 	    }
-	    int jer = inclusion_jxi488_cycle(myjxi488, sconf, gconf, p_scattering_angles, cid_2, p_output_2, output_path, vtppoanp_2);
+	    int jer = inclusion_jxi488_cycle(
+              myjxi488, sconf, gconf, p_scattering_angles, cid_2, p_output_2, output_path
+            );
 	  } else {
 	    if (myompthread > 0) {
 	      // If there is no input for this thread, set output pointer to NULL.
@@ -517,8 +489,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	      p_outarray[0]->insert(*(p_outarray[ti]));
 	      delete p_outarray[ti];
 	      p_outarray[ti] = NULL;
-	      vtppoanarray[0]->append(*(vtppoanarray[ti]));
-	      delete vtppoanarray[ti];
 	    }
 	  }
 #pragma omp barrier
@@ -526,11 +496,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	  // Collect all virtual files on thread 0 of MPI process 0, and append them to disk
 	  //==============================================
 	  if (myompthread == 0) {
-	    // thread 0 writes its virtual files, now including contributions from all threads, to disk, and deletes them
-	    // p_outarray[0]->append_to_disk(output_path + "/c_OINCLU");
-	    // delete p_outarray[0];
-	    vtppoanarray[0]->append_to_disk(output_path + "/c_TPPOAN");
-	    delete vtppoanarray[0];
 
 #ifdef MPI_VERSION
 	    if (mpidata->mpirunning) {
@@ -538,17 +503,7 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	      for (int rr=1; rr<mpidata->nprocs; rr++) {
 		// get the data from process rr by receiving it in total memory structure
 		p_outarray[0]->mpireceive(mpidata, rr);
-		// get the data from process rr, creating a new virtual ascii file
-		// VirtualAsciiFile *p_output = new VirtualAsciiFile(mpidata, rr);
-		// append to disk and delete virtual ascii file
-		// p_output->append_to_disk(output_path + "/c_OINCLU");
-		// delete p_output;
 		
-		// get the data from process rr, creating a new virtual binary file
-		VirtualBinaryFile *vtppoanp = new VirtualBinaryFile(mpidata, rr);
-		// append to disk and delete virtual binary file
-		vtppoanp->append_to_disk(output_path + "/c_TPPOAN");
-		delete vtppoanp;
 		int test = MPI_Barrier(MPI_COMM_WORLD);
 	      }
 	    }
@@ -565,7 +520,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
 #pragma omp barrier
 	if (myompthread == 0) {
 	  delete[] p_outarray;
-	  delete[] vtppoanarray;
 	}
 	{
 	  string message = "INFO: Closing thread-local output files of thread " + to_string(myompthread) + " and syncing threads.\n";
@@ -619,7 +573,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
     // Create this variable and initialise it with a default here, so that it is defined anyway, with or without OpenMP support enabled
     int ompnumthreads = 1;
     InclusionOutputInfo **p_outarray = NULL;
-    VirtualBinaryFile **vtppoanarray = NULL;
     int myjxi488startoffset;
     int myMPIstride = ompnumthreads;
     int myMPIblock = ompnumthreads;
@@ -642,13 +595,11 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	MPI_Bcast(&myMPIstride, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	// allocate virtual files for each thread
 	p_outarray = new InclusionOutputInfo*[ompnumthreads];
-	vtppoanarray = new VirtualBinaryFile*[ompnumthreads];
       }
 #pragma omp barrier
       // To test parallelism, I will now start feeding this function with "clean" copies of the parameters, so that they will not be changed by previous iterations, and each one will behave as the first one. Define all (empty) variables here, so they have the correct scope, then they get different definitions depending on thread number
       InclusionIterationData *cid_2 = NULL;
       InclusionOutputInfo *p_output_2 = NULL;
-      VirtualBinaryFile *vtppoanp_2 = NULL;
       // PLACEHOLDER
       // for threads other than the 0, create distinct copies of all relevant data, while for thread 0 just define new references / pointers to the original ones
       if (myompthread == 0) {
@@ -664,10 +615,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	// the parallel loop over MPI processes covers a different set of indices for each thread
 #pragma omp barrier
 	int myjxi488 = ixi488 + myjxi488startoffset + myompthread;
-	// each thread opens new virtual files and stores their pointers in the shared array
-	vtppoanp_2 = new VirtualBinaryFile();
-	// each thread puts a copy of the pointers to its virtual files in the shared arrays
-	vtppoanarray[myompthread] = vtppoanp_2;
 #pragma omp barrier
 	if (myompthread==0) logger->log("Syncing OpenMP threads and starting the loop on wavelengths\n");
 	// ok, now I can actually start the parallel calculations
@@ -685,7 +632,9 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	    p_output_2 = new InclusionOutputInfo(sconf, gconf, mpidata, myjxi488, iterstodo);
 	    p_outarray[0] = p_output_2;
 	  }
-	  int jer = inclusion_jxi488_cycle(myjxi488, sconf, gconf, p_scattering_angles, cid_2, p_output_2, output_path, vtppoanp_2);
+	  int jer = inclusion_jxi488_cycle(
+            myjxi488, sconf, gconf, p_scattering_angles, cid_2, p_output_2, output_path
+          );
 	} else {
 	  p_outarray[myompthread] = new InclusionOutputInfo(1);
 	}
@@ -697,8 +646,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	    p_outarray[0]->insert(*(p_outarray[ti]));
 	    delete p_outarray[ti];
 	    p_outarray[ti] = NULL;
-	    vtppoanarray[0]->append(*(vtppoanarray[ti]));
-	    delete vtppoanarray[ti];
 	  }
 	  // thread 0 sends the collected virtualfiles to thread 0 of MPI process 0, then deletes them
 	  for (int rr=1; rr<mpidata->nprocs; rr++) {
@@ -706,8 +653,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	      p_outarray[0]->mpisend(mpidata);
 	      delete p_outarray[0];
 	      p_outarray[0] = NULL;
-	      vtppoanarray[0]->mpisend(mpidata);
-	      delete vtppoanarray[0];
 	    }
 	    int test = MPI_Barrier(MPI_COMM_WORLD);
 	  }
@@ -718,7 +663,6 @@ void inclusion(const string& config_file, const string& data_file, const string&
 #pragma omp barrier
       if (myompthread == 0) {
 	delete[] p_outarray;
-	delete[] vtppoanarray;
       }
       delete cid_2;
 
@@ -737,7 +681,11 @@ void inclusion(const string& config_file, const string& data_file, const string&
   delete logger;
 }
 
-int inclusion_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf, ScatteringAngles *sa, InclusionIterationData *cid, InclusionOutputInfo *output, const string& output_path, VirtualBinaryFile *vtppoanp) {
+int inclusion_jxi488_cycle(
+  int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf,
+  ScatteringAngles *sa, InclusionIterationData *cid, InclusionOutputInfo *output,
+  const string& output_path
+) {
   int nxi = sconf->number_of_scales;
   const dcomplex cc0 = 0.0 + I * 0.0;
   const double pi = acos(-1.0);
@@ -1001,7 +949,6 @@ int inclusion_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryCo
   double cs0 = 0.25 * cid->vk * cid->vk * cid->vk / acos(0.0);
   double csch = 2.0 * cid->vk * cid->sqsfi / cid->c1->gcs;
   double sqk = cid->vk * cid->vk * exdc;
-  vtppoanp->append_line(VirtualBinaryLine(cid->vk));
   pcrsm0(cid->vk, exri, inpol, cid->c1);
   apcra(cid->zpv, cid->c1->le, cid->c1->am0m, inpol, sqk, cid->gapm, cid->gappm);
 #ifdef USE_NVTX
@@ -1103,45 +1050,9 @@ int inclusion_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryCo
 	    jw = 1;
 	  }
 	  // label 196
-	  vtppoanp->append_line(VirtualBinaryLine(th));
-	  vtppoanp->append_line(VirtualBinaryLine(ph));
-	  vtppoanp->append_line(VirtualBinaryLine(ths));
-	  vtppoanp->append_line(VirtualBinaryLine(phs));
-	  vtppoanp->append_line(VirtualBinaryLine(cid->scan));
 	  if (jaw != 0) {
 	    jaw = 0;
 	    mextc(cid->vk, exri, cid->c1->fsacm, cid->cextlr, cid->cext);
-	    // We now have some implicit loops writing to binary
-	    for (int i = 0; i < 4; i++) {
-	      for (int j = 0; j < 4; j++) {
-		double value = cid->cext[i][j];
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
-	    for (int i = 0; i < 2; i++) {
-	      double value = cid->c1->scscm[i];
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = real(cid->c1->scscpm[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = imag(cid->c1->scscpm[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = cid->c1->ecscm[i];
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = real(cid->c1->ecscpm[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = imag(cid->c1->ecscpm[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	    }
-	    for (int i = 0; i < 3; i++) {
-	      for (int j = 0; j < 2; j++) {
-		double value = cid->gapm[i][j];
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = real(cid->gappm[i][j]);
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = imag(cid->gappm[i][j]);
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
 	    int jlr = 2;
 	    for (int ilr210 = 1; ilr210 <= 2; ilr210++) {
 	      int ipol = (ilr210 % 2 == 0) ? 1 : -1;
@@ -1157,14 +1068,6 @@ int inclusion_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryCo
 	      double qschum = imag(s0m) * csch;
 	      double pschum = real(s0m) * csch;
 	      double s0magm = cabs(s0m) * cs0;
-	      // if (inpol == 0) {
-	      // sprintf(virtual_line, "   LIN %2d\n", ipol);
-	      // output->append_line(virtual_line);
-	      // } else { // label 206
-	      // sprintf(virtual_line, "  CIRC %2d\n", ipol);
-	      // output->append_line(virtual_line);
-	      // }
-	      // label 208
 	      double rapr = cid->c1->ecscm[ilr210 - 1] - cid->gapm[2][ilr210 - 1];
 	      double cosav = cid->gapm[2][ilr210 - 1] / cid->c1->scscm[ilr210 - 1];
 	      double fz = rapr;
@@ -1230,79 +1133,8 @@ int inclusion_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryCo
 	  mmulc(cid->c1->vint, cid->cmullr, cid->cmul);
 	  if (jw != 0) {
 	    jw = 0;
-	    // Some implicit loops writing to binary.
-	    for (int i = 0; i < 4; i++) {
-	      for (int j = 0; j < 4; j++) {
-		double value = cid->cext[i][j];
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
-	    for (int i = 0; i < 2; i++) {
-	      double value = cid->c1->scsc[i];
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = real(cid->c1->scscp[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = imag(cid->c1->scscp[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = cid->c1->ecsc[i];
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = real(cid->c1->ecscp[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = imag(cid->c1->ecscp[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	    }
-	    for (int i = 0; i < 3; i++) {
-	      for (int j = 0; j < 2; j++) {
-		double value = cid->gap[i][j];
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = real(cid->gapp[i][j]);
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = imag(cid->gapp[i][j]);
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
-	    for (int i = 0; i < 2; i++) {
-	      for (int j = 0; j < 3; j++) {
-		double value = cid->tqce[i][j];
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = real(cid->tqcpe[i][j]);
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = imag(cid->tqcpe[i][j]);
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
-	    for (int i = 0; i < 2; i++) {
-	      for (int j = 0; j < 3; j++) {
-		double value = cid->tqcs[i][j];
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = real(cid->tqcps[i][j]);
-		vtppoanp->append_line(VirtualBinaryLine(value));
-		value = imag(cid->tqcps[i][j]);
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
-	    for (int i = 0; i < 3; i++) {
-	      double value = cid->u[i];
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = cid->up[i];
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = cid->un[i];
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	    }
 	  }
 	  // label 254
-	  for (int i = 0; i < 16; i++) {
-	    double value = real(cid->c1->vint[i]);
-	    vtppoanp->append_line(VirtualBinaryLine(value));
-	    value = imag(cid->c1->vint[i]);
-	    vtppoanp->append_line(VirtualBinaryLine(value));
-	  }
-	  for (int i = 0; i < 4; i++) {
-	    for (int j = 0; j < 4; j++) {
-	      double value = cid->cmul[i][j];
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	    }
-	  }
 	  oindex = (jindex - 1) * ndirs + done_dirs;
 	  int jlr = 2;
 	  for (int ilr290 = 1; ilr290 <= 2; ilr290++) {
@@ -1432,20 +1264,6 @@ int inclusion_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryCo
 	  }
 	  if (iavm != 0) {
 	    mmulc(cid->c1->vintm, cid->cmullr, cid->cmul);
-	    // Some implicit loops writing to binary.
-	    for (int i = 0; i < 16; i++) {
-	      double value;
-	      value = real(cid->c1->vintm[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = imag(cid->c1->vintm[i]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	    }
-	    for (int i = 0; i < 4; i++) {
-	      for (int j = 0; j < 4; j++) {
-		double value = cid->cmul[i][j];
-		vtppoanp->append_line(VirtualBinaryLine(value));
-	      }
-	    }
 	    // label 318
 	    for (int i = 0; i < 4; i++) {
 	      oindex = 16 * (jindex - 1) + 4 * i; // if IAVM fails, try adding directions
