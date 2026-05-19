@@ -35,6 +35,12 @@
 #include <cstdio>
 #include <string>
 
+#ifdef USE_MPI
+#ifndef MPI_VERSION
+#include <mpi.h>
+#endif
+#endif
+
 #ifndef INCLUDE_TYPES_H_
 #include "../include/types.h"
 #endif
