@@ -586,8 +586,10 @@ ScattererConfiguration::ScattererConfiguration(const ScattererConfiguration& rhs
   for (int si = 0; si < _configurations; si++) {
     _radii_of_spheres[si] = rhs._radii_of_spheres[si];
     _nshl_vec[si] = rhs._nshl_vec[si];
-    _rcf[si] = new double[_nshl_vec[si]]();
-    for (int sj = 0; sj < _nshl_vec[si]; sj++) _rcf[si][sj] = rhs._rcf[si][sj];
+    int expected_layers = _nshl_vec[si];
+    if (si == 0 && _use_external_sphere) expected_layers++;
+    _rcf[si] = new double[expected_layers]();
+    for (int sj = 0; sj < expected_layers; sj++) _rcf[si][sj] = rhs._rcf[si][sj];
   }
   for (int li = 0; li < _max_layers; li++) {
     _dc0_matrix[li] = new dcomplex*[_number_of_spheres];
@@ -630,8 +632,10 @@ ScattererConfiguration::ScattererConfiguration(const mixMPI *mpidata)
   MPI_Bcast(_scale_vec, _number_of_scales, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   int dim3 = (_idfc == 0) ? _number_of_scales : 1;
   for (int si = 0; si < _configurations; si++) {
-    _rcf[si] = new double[_nshl_vec[si]]();
-    MPI_Bcast(_rcf[si], _nshl_vec[si], MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    int expected_layers = _nshl_vec[si];
+    if (si == 0 && _use_external_sphere) expected_layers++;
+    _rcf[si] = new double[expected_layers]();
+    MPI_Bcast(_rcf[si], expected_layers, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   }
   for (int li = 0; li < _max_layers; li++) {
     _dc0_matrix[li] = new dcomplex*[_number_of_spheres];
@@ -665,7 +669,9 @@ void ScattererConfiguration::mpibcast(const mixMPI *mpidata) {
   MPI_Bcast(_scale_vec, _number_of_scales, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   int dim3 = (_idfc == 0) ? _number_of_scales : 1;
   for (int si = 0; si < _configurations; si++) {
-    MPI_Bcast(_rcf[si], _nshl_vec[si], MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    int expected_layers = _nshl_vec[si];
+    if (si == 0 && _use_external_sphere) expected_layers++;
+    MPI_Bcast(_rcf[si], expected_layers, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   }
   for (int li = 0; li < _max_layers; li++) {
     for (int lj = 0; lj < _number_of_spheres; lj++) {
