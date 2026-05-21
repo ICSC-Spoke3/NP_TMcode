@@ -6,6 +6,7 @@ system_settings:
 
 runtime:
   refinement   : 1
+  # Dynamically adjust calculation order (0 is disabled)
   dyn_orders   : 0
 
 input_settings:

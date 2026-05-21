@@ -10,3 +10,4 @@
 # This is a comment line
 USE_REFINEMENT=0
 INVERSION=LU
+USE_DYN_ORDERS=0
