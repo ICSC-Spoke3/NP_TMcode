@@ -89,12 +89,11 @@ using namespace std;
  *  \param sid: `SphereIterationData *` Pointer to a `SphereIterationData` object.
  *  \param oi: `SphereOutputInfo *` Pointer to a `SphereOutputInfo` object.
  *  \param output_path: `const string &` Path to the output directory.
- *  \param vtppoanp: `VirtualBinaryFile *` Pointer to a `VirtualBinaryFile` object.
  */
 int sphere_jxi488_cycle(
   int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf,
   ScatteringAngles *sa, SphereIterationData *sid, SphereOutputInfo *oi,
-  const string& output_path, VirtualBinaryFile *vtppoanp
+  const string& output_path
 );
 
 /*! \brief C++ implementation of SPH
@@ -167,33 +166,7 @@ void sphere(const string& config_file, const string& data_file, const string& ou
       double exdc = sconf->exdc;
       double exri = sqrt(exdc);
 
-      // Create empty virtual binary file
-      VirtualBinaryFile *vtppoanp = new VirtualBinaryFile();
-      string tppoan_name = output_path + "/c_TPPOAN";
-      int imode = 10, tmpvalue;
-
-      //========================
-      // write a block of info to virtual binary file
-      //========================
-      vtppoanp->append_line(VirtualBinaryLine(imode));
-      tmpvalue = gconf->isam;
-      vtppoanp->append_line(VirtualBinaryLine(tmpvalue));
-      tmpvalue = gconf->in_pol;
-      vtppoanp->append_line(VirtualBinaryLine(tmpvalue));
-      vtppoanp->append_line(VirtualBinaryLine(s_nsph));
-      tmpvalue = p_sa->nth;
-      vtppoanp->append_line(VirtualBinaryLine(tmpvalue));
-      tmpvalue = p_sa->nph;
-      vtppoanp->append_line(VirtualBinaryLine(tmpvalue));
-      tmpvalue = p_sa->nths;
-      vtppoanp->append_line(VirtualBinaryLine(tmpvalue));
-      tmpvalue = p_sa->nphs;
-      vtppoanp->append_line(VirtualBinaryLine(tmpvalue));
-      vtppoanp->append_line(VirtualBinaryLine(nsph));
-      for (int nsi = 0; nsi < nsph; nsi++) {
-	tmpvalue = sid->c1->iog[nsi];
-	vtppoanp->append_line(VirtualBinaryLine(tmpvalue));
-      }
+      int imode = 10;
 
       if (sconf->idfc < 0) {
 	sid->vk = sid->xip * sid->wn;
@@ -201,12 +174,6 @@ void sphere(const string& config_file, const string& data_file, const string& ou
       }
 
       int jer = 0;
-
-      //==================================================
-      // do the first outputs here, so that I open here the new files, afterwards I only append
-      //==================================================
-      vtppoanp->write_to_disk(output_path + "/c_TPPOAN");
-      delete vtppoanp;
 
       // here go the calls that send data to be duplicated on other MPI processes from process 0 to others, using MPI broadcasts, but only if MPI is actually used
 #ifdef MPI_VERSION
@@ -223,9 +190,7 @@ void sphere(const string& config_file, const string& data_file, const string& ou
       int myjxi488startoffset = 0;
       int myMPIstride = ompnumthreads;
       int myMPIblock = ompnumthreads;
-      // Define here shared arrays of virtual ascii and binary files, so that thread 0 will be able to access them all later
       SphereOutputInfo **p_outarray = NULL;
-      VirtualBinaryFile **vtppoanarray = NULL;
 
       //===========================================
       // open the OpenMP parallel context, so each thread can initialise its stuff
@@ -244,7 +209,6 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	if (myompthread == 0) {
 	  // Initialise some shared variables only on thread 0
 	  p_outarray = new SphereOutputInfo*[ompnumthreads];
-	  vtppoanarray = new VirtualBinaryFile*[ompnumthreads];
 	  myMPIblock = ompnumthreads;
 	  myMPIstride = myMPIblock;
 	}
@@ -273,7 +237,6 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	// To test parallelism, I will now start feeding this function with "clean" copies of the parameters, so that they will not be changed by previous iterations, and each one will behave as the first one. Define all (empty) variables here, so they have the correct scope, then they get different definitions depending on thread number
 	SphereIterationData *sid_2 = NULL;
 	SphereOutputInfo *p_output_2 = NULL;
-	VirtualBinaryFile *vtppoanp_2 = NULL;
 	// for threads other than the 0, create distinct copies of all relevant data, while for thread 0 just define new references / pointers to the original ones
 	if (myompthread == 0) {
 	  sid_2 = sid;
@@ -295,10 +258,6 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	  // the parallel loop over MPI processes covers a different set of indices for each thread
 #pragma omp barrier
 	  int myjxi488 = ixi488+myompthread;
-	  // each thread opens new virtual files and stores their pointers in the shared array
-	  vtppoanp_2 = new VirtualBinaryFile();
-	  // each thread puts a copy of the pointers to its virtual files in the shared arrays
-	  vtppoanarray[myompthread] = vtppoanp_2;
 #pragma omp barrier
 
 	  // each MPI process handles a number of contiguous scales corresponding to its number of OMP threads at this omp level of parallelism
@@ -308,7 +267,7 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	      p_output_2 = new SphereOutputInfo(sconf, gconf, mpidata, myjxi488, 1);
 	      p_outarray[myompthread] = p_output_2;
 	    }
-	    int jer = sphere_jxi488_cycle(myjxi488 - 1, sconf, gconf, p_sa, sid_2, p_output_2, output_path, vtppoanp_2);
+	    int jer = sphere_jxi488_cycle(myjxi488 - 1, sconf, gconf, p_sa, sid_2, p_output_2, output_path);
 	  } else {
 	    if (myompthread > 0) {
 	      // If there is no input for this thread, mark to skip.
@@ -322,8 +281,6 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	      p_outarray[0]->insert(*(p_outarray[ti]));
 	      delete p_outarray[ti];
 	      p_outarray[ti] = NULL;
-	      vtppoanarray[0]->append(*(vtppoanarray[ti]));
-	      delete vtppoanarray[ti];
 	    }
 	  }
 #pragma omp barrier
@@ -331,11 +288,6 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	  // Collect all virtual files on thread 0 of MPI process 0, and append them to disk
 	  //==============================================
 	  if (myompthread == 0) {
-	    // thread 0 writes its virtual files, now including contributions from all threads, to disk, and deletes them
-	    // p_outarray[0]->append_to_disk(output_path + "/c_OCLU");
-	    // delete p_outarray[0];
-	    vtppoanarray[0]->append_to_disk(output_path + "/c_TPPOAN");
-	    delete vtppoanarray[0];
 
 #ifdef MPI_VERSION
 	    if (mpidata->mpirunning) {
@@ -343,17 +295,7 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	      for (int rr=1; rr<mpidata->nprocs; rr++) {
 		// get the data from process rr by receiving it in total memory structure
 		p_outarray[0]->mpireceive(mpidata, rr);
-		// get the data from process rr, creating a new virtual ascii file
-		// VirtualAsciiFile *p_output = new VirtualAsciiFile(mpidata, rr);
-		// append to disk and delete virtual ascii file
-		// p_output->append_to_disk(output_path + "/c_OCLU");
-		// delete p_output;
 		
-		// get the data from process rr, creating a new virtual binary file
-		VirtualBinaryFile *vtppoanp = new VirtualBinaryFile(mpidata, rr);
-		// append to disk and delete virtual binary file
-		vtppoanp->append_to_disk(output_path + "/c_TPPOAN");
-		delete vtppoanp;
 		int test = MPI_Barrier(MPI_COMM_WORLD);
 	      }
 	    }
@@ -366,7 +308,6 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 #pragma omp barrier
 	if (myompthread == 0) {
 	  delete[] p_outarray;
-	  delete[] vtppoanarray;
 	}
 	{
 	  string message = "INFO: Closing thread-local output files of thread " + to_string(myompthread) + " and syncing threads.\n";
@@ -403,7 +344,6 @@ void sphere(const string& config_file, const string& data_file, const string& ou
     // Create this variable and initialise it with a default here, so that it is defined anyway, with or without OpenMP support enabled
     int ompnumthreads = 1;
     SphereOutputInfo **p_outarray = NULL;
-    VirtualBinaryFile **vtppoanarray = NULL;
     int myjxi488startoffset;
     int myMPIstride = ompnumthreads;
     int myMPIblock = ompnumthreads;
@@ -426,13 +366,11 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	MPI_Bcast(&myMPIstride, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	// allocate virtual files for each thread
 	p_outarray = new SphereOutputInfo*[ompnumthreads];
-	vtppoanarray = new VirtualBinaryFile*[ompnumthreads];
       }
 #pragma omp barrier
       // To test parallelism, I will now start feeding this function with "clean" copies of the parameters, so that they will not be changed by previous iterations, and each one will behave as the first one. Define all (empty) variables here, so they have the correct scope, then they get different definitions depending on thread number
       SphereIterationData *sid_2 = NULL;
       SphereOutputInfo *p_output_2 = NULL;
-      VirtualBinaryFile *vtppoanp_2 = NULL;
       // PLACEHOLDER
       // for threads other than the 0, create distinct copies of all relevant data, while for thread 0 just define new references / pointers to the original ones
       if (myompthread == 0) {
@@ -449,9 +387,6 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 #pragma omp barrier
 	int myjxi488 = ixi488 + myjxi488startoffset + myompthread;
 	// each thread opens new virtual files and stores their pointers in the shared array
-	vtppoanp_2 = new VirtualBinaryFile();
-	// each thread puts a copy of the pointers to its virtual files in the shared arrays
-	vtppoanarray[myompthread] = vtppoanp_2;
 #pragma omp barrier
 	if (myompthread==0) logger->log("Syncing OpenMP threads and starting the loop on wavelengths\n");
 	// ok, now I can actually start the parallel calculations
@@ -469,7 +404,7 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	    p_output_2 = new SphereOutputInfo(sconf, gconf, mpidata, myjxi488, iterstodo);
 	    p_outarray[0] = p_output_2;
 	  }
-	  int jer = sphere_jxi488_cycle(myjxi488 - 1, sconf, gconf, p_sa, sid_2, p_output_2, output_path, vtppoanp_2);
+	  int jer = sphere_jxi488_cycle(myjxi488 - 1, sconf, gconf, p_sa, sid_2, p_output_2, output_path);
 	} else {
 	  p_outarray[myompthread] = new SphereOutputInfo(1);
 	}
@@ -481,8 +416,6 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	    p_outarray[0]->insert(*(p_outarray[ti]));
 	    delete p_outarray[ti];
 	    p_outarray[ti] = NULL;
-	    vtppoanarray[0]->append(*(vtppoanarray[ti]));
-	    delete vtppoanarray[ti];
 	  }
 	  // thread 0 sends the collected virtualfiles to thread 0 of MPI process 0, then deletes them
 	  for (int rr=1; rr<mpidata->nprocs; rr++) {
@@ -490,8 +423,6 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	      p_outarray[0]->mpisend(mpidata);
 	      delete p_outarray[0];
 	      p_outarray[0] = NULL;
-	      vtppoanarray[0]->mpisend(mpidata);
-	      delete vtppoanarray[0];
 	    }
 	    int test = MPI_Barrier(MPI_COMM_WORLD);
 	  }
@@ -501,7 +432,6 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 #pragma omp barrier
       if (myompthread == 0) {
 	delete[] p_outarray;
-	delete[] vtppoanarray;
       }
       delete sid_2;
     } // OMP parallel
@@ -516,7 +446,7 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 int sphere_jxi488_cycle(
   int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf,
   ScatteringAngles *sa, SphereIterationData *sid, SphereOutputInfo *oi,
-  const string& output_path, VirtualBinaryFile *vtppoanp
+  const string& output_path
 ) {
   const dcomplex cc0 = 0.0 + I * 0.0;
   const double half_pi = acos(0.0);
@@ -564,7 +494,8 @@ int sphere_jxi488_cycle(
   // Dynamic order check
   const int max_lm = gconf->l_max;
   int l_max = gconf->l_max;
-  const double alamb = 2.0 * pi / vk;
+  double xi_factor = (sconf->reference_variable_name.compare("XIV") == 0) ? xi : 1.0;
+  const double alamb = 2.0 * pi * xi_factor / vk;
   double size_par_lm = 2.0 * pi * sqrt(exdc) * sconf->get_max_radius() / alamb;
   int recommended_lm = 4 + (int)ceil(size_par_lm + 4.05 * pow(size_par_lm, 1.0 / 3.0));
   if (recommended_lm != l_max) {
@@ -572,7 +503,7 @@ int sphere_jxi488_cycle(
       if (gconf->dyn_order_flag > 0) {
 	int new_lm = recommended_lm;
 	message = "INFO: lowering internal order from " + to_string(max_lm) + " to "
-	  + to_string(recommended_lm) + " for scale iteration " + to_string(jxi488) + ".\n";
+	  + to_string(recommended_lm) + " for scale iteration " + to_string(jxi488 + 1) + ".\n";
 	logger->log(message, LOG_INFO);
 	sid->update_order(new_lm);
 	is_first_scale = true;
@@ -580,14 +511,13 @@ int sphere_jxi488_cycle(
 	l_max = new_lm;
       } else {
 	message = "WARNING: internal order " + to_string(max_lm) + " for scale iteration "
-	  + to_string(jxi488) + " too high (recommended order is " + to_string(recommended_lm)
+	  + to_string(jxi488 + 1) + " too high (recommended order is " + to_string(recommended_lm)
 	  + ").\n";
       logger->log(message, LOG_WARN);
       }
     }
   }
   // End of dynamic order check
-  vtppoanp->append_line(VirtualBinaryLine(vk));
   double thsca = (gconf->isam > 1) ? sa->ths - sa->th : 0.0;
   for (int i132 = 0; i132 < nsph; i132++) {
     int i = i132 + 1;
@@ -607,8 +537,9 @@ int sphere_jxi488_cycle(
 	sid->c1->dc0[ic] = sconf->get_dielectric_constant(ic, i132, jxi488); // WARNING: IDFC=0 is not tested!
     } else { // IDFC != 0
       if (is_first_scale) {
+	int scale_to_extract = (sconf->reference_variable_name.compare("XIV") == 0) ? 0 : jxi488;
 	for (int ic = 0; ic < ici; ic++) {
-	  sid->c1->dc0[ic] = sconf->get_dielectric_constant(ic, i132, jxi488);
+	  sid->c1->dc0[ic] = sconf->get_dielectric_constant(ic, i132, scale_to_extract);
 	}
       }
     }
@@ -680,30 +611,6 @@ int sphere_jxi488_cycle(
       oi->vec_tqsk1[oindex] = sid->tqss[0][i170];
       oi->vec_tqek2[oindex] = sid->tqse[1][i170];
       oi->vec_tqsk2[oindex] = sid->tqss[1][i170];
-      double value = sid->tqse[0][i170];
-      vtppoanp->append_line(VirtualBinaryLine(value));
-      value = sid->tqss[0][i170];
-      vtppoanp->append_line(VirtualBinaryLine(value));
-      value = real(sid->tqspe[0][i170]);
-      vtppoanp->append_line(VirtualBinaryLine(value));
-      value = imag(sid->tqspe[0][i170]);
-      vtppoanp->append_line(VirtualBinaryLine(value));
-      value = real(sid->tqsps[0][i170]);
-      vtppoanp->append_line(VirtualBinaryLine(value));
-      value = imag(sid->tqsps[0][i170]);
-      vtppoanp->append_line(VirtualBinaryLine(value));
-      value = sid->tqse[1][i170];
-      vtppoanp->append_line(VirtualBinaryLine(value));
-      value = sid->tqss[1][i170];
-      vtppoanp->append_line(VirtualBinaryLine(value));
-      value = real(sid->tqspe[1][i170]);
-      vtppoanp->append_line(VirtualBinaryLine(value));
-      value = imag(sid->tqspe[1][i170]);
-      vtppoanp->append_line(VirtualBinaryLine(value));
-      value = real(sid->tqsps[1][i170]);
-      vtppoanp->append_line(VirtualBinaryLine(value));
-      value = imag(sid->tqsps[1][i170]);
-      vtppoanp->append_line(VirtualBinaryLine(value));
     } // End if iog[i170] >= i
   } // i170 loop
   if (nsph != 1) {
@@ -791,20 +698,8 @@ int sphere_jxi488_cycle(
 	    }
 	  }
 	  if (gconf->isam < 0) jw = 1;
-	  vtppoanp->append_line(VirtualBinaryLine(th));
-	  vtppoanp->append_line(VirtualBinaryLine(ph));
-	  vtppoanp->append_line(VirtualBinaryLine(ths));
-	  vtppoanp->append_line(VirtualBinaryLine(phs));
-	  double value = sid->scan;
-	  vtppoanp->append_line(VirtualBinaryLine(value));
 	  if (jw != 0) {
 	    jw = 0;
-	    value = sid->u[0];
-	    vtppoanp->append_line(VirtualBinaryLine(value));
-	    value = sid->u[1];
-	    vtppoanp->append_line(VirtualBinaryLine(value));
-	    value = sid->u[2];
-	    vtppoanp->append_line(VirtualBinaryLine(value));
 	  }
 	  oi->vec_dir_scand[done_dirs] = sid->scan;
 	  oi->vec_dir_cfmp[done_dirs] = sid->cfmp;
@@ -850,18 +745,6 @@ int sphere_jxi488_cycle(
 	      int muls_index = 16 * jxindex * nsph * ndirs + 16 * nsph * done_dirs + 4 * imul;
 	      for (int jmul = 0; jmul < 4; jmul++) {
 		oi->vec_dir_mulslr[muls_index + jmul] = sid->cmullr[imul][jmul];
-	      }
-	    }
-	    for (int vi = 0; vi < 16; vi++) {
-	      value = real(sid->c1->vint[vi]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	      value = imag(sid->c1->vint[vi]);
-	      vtppoanp->append_line(VirtualBinaryLine(value));
-	    }
-	    for (int imul = 0; imul < 4; imul++) {
-	      for (int jmul = 0; jmul < 4; jmul++) {
-		value = sid->cmul[imul][jmul];
-		vtppoanp->append_line(VirtualBinaryLine(value));
 	      }
 	    }
 	  } // ns226 loop

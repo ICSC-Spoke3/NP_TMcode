@@ -745,7 +745,8 @@ int inclusion_jxi488_cycle(
   // Dynamic order check
   const int max_li = gconf->li;
   const int max_le = gconf->le;
-  const double alamb = 2.0 * pi / cid->vk;
+  double xi_factor = (sconf->reference_variable_name.compare("XIV") == 0) ? xi : 1.0;
+  const double alamb = 2.0 * pi * xi_factor / cid->vk;
   double size_par_li = 2.0 * pi * sqrt(exdc) * sconf->get_max_radius() / alamb;
   int recommended_li = 2 + (int)ceil(size_par_li + 4.05 * pow(size_par_li, 1.0 / 3.0));
   double size_par_le = 2.0 * pi * sqrt(exdc) * sconf->get_particle_radius(gconf) / alamb;

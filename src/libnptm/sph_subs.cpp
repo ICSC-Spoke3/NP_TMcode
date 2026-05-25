@@ -220,8 +220,8 @@ void diel(int npntmo, int ns, int i, int ic, double vk, ParticleDescriptor *c1) 
 }
 
 void dme(
-	 int li, int i, int npnt, int npntts, double vk, double exdc, double exri,
-	 ParticleDescriptor *c1, int &jer, int &lcalc, dcomplex &arg, int last_conf
+  int li, int i, int npnt, int npntts, double vk, double exdc, double exri,
+  ParticleDescriptor *c1, int &jer, int &lcalc, dcomplex &arg, int last_conf
 ) {
   const int lipo = li + 1;
   const int lipt = li + 2;
