@@ -1533,8 +1533,8 @@ InclusionIterationData::InclusionIterationData(const InclusionIterationData& rhs
       zpv[zi][zj][1][1] = rhs.zpv[zi][zj][1][1];
     }
   }
-  am_vector = new dcomplex[c1->ndm * c1->ndm];
-  for (int ai = 0; ai < c1->ndm * c1->ndm; ai++) am_vector[ai] = rhs.am_vector[ai];
+  am_vector = new dcomplex[c1->ndm * c1->ndm]();
+  // for (int ai = 0; ai < c1->ndm * c1->ndm; ai++) am_vector[ai] = rhs.am_vector[ai];
   am = new dcomplex*[c1->ndm];
   for (int ai = 0; ai < c1->ndm; ai++) {
     am[ai] = (am_vector + ai * c1->ndm);
@@ -1666,11 +1666,11 @@ InclusionIterationData::InclusionIterationData(const mixMPI *mpidata, const int 
       zpv[zi][zj][1] = vec_zpv + (zi * 12) + (zj * 4) + 2;
     }
   }
-  am_vector = new dcomplex[c1->ndm * c1->ndm];
+  am_vector = new dcomplex[c1->ndm * c1->ndm]();
   am = new dcomplex*[c1->ndm];
   for (int ai = 0; ai < c1->ndm; ai++) {
     am[ai] = (am_vector + ai * c1->ndm);
-    MPI_Bcast(am[ai], c1->ndm, MPI_C_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
+    // MPI_Bcast(am[ai], c1->ndm, MPI_C_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
   }
   MPI_Bcast(&arg, 1, MPI_C_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
   MPI_Bcast(&scan, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -1742,9 +1742,9 @@ void InclusionIterationData::mpibcast(const mixMPI *mpidata) {
   }
   MPI_Bcast(vec_zpv, c1->lm * 12, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   // since MPI expects an int argument for the number of elements to transfer in one go, transfer am one row at a time
-  for (int ai = 0; ai < c1->ndm; ai++) {
-    MPI_Bcast(am[ai], c1->ndm, MPI_C_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
-  }
+  // for (int ai = 0; ai < c1->ndm; ai++) {
+  //   MPI_Bcast(am[ai], c1->ndm, MPI_C_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
+  // }
   MPI_Bcast(&arg, 1, MPI_C_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
   MPI_Bcast(&scan, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&cfmp, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);

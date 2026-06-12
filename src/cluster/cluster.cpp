@@ -1763,7 +1763,7 @@ ClusterIterationData::ClusterIterationData(const ClusterIterationData& rhs) {
     }
   }
   am_vector = new dcomplex[ndit * ndit]();
-  for (np_int ai = 0; ai < ndit * ndit; ai++) am_vector[ai] = rhs.am_vector[ai];
+  // for (np_int ai = 0; ai < ndit * ndit; ai++) am_vector[ai] = rhs.am_vector[ai];
   am = new dcomplex*[ndit];
   for (np_int ai = 0; ai < ndit; ai++) {
     am[ai] = (am_vector + ai * ndit);
@@ -1898,7 +1898,7 @@ ClusterIterationData::ClusterIterationData(const mixMPI *mpidata, const int devi
   am = new dcomplex*[ndit];
   for (np_int ai = 0; ai < ndit; ai++) {
     am[ai] = (am_vector + ai * ndit);
-    MPI_Bcast(am[ai], ndit, MPI_C_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
+    // MPI_Bcast(am[ai], ndit, MPI_C_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
   }
   MPI_Bcast(&arg, 1, MPI_C_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
   MPI_Bcast(&scan, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -1975,9 +1975,9 @@ void ClusterIterationData::mpibcast(const mixMPI *mpidata) {
     }
   }
   // since MPI expects an int argument for the number of elements to transfer in one go, transfer am one row at a time
-  for (int ai = 0; ai < ndit; ai++) {
-    MPI_Bcast(am[ai], ndit, MPI_C_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
-  }
+  // for (int ai = 0; ai < ndit; ai++) {
+  //   MPI_Bcast(am[ai], ndit, MPI_C_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
+  // }
   MPI_Bcast(&arg, 1, MPI_C_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
   MPI_Bcast(&scan, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&cfmp, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);

@@ -55,6 +55,7 @@
 
 using namespace std;
 
+//! \brief Four times PI.
 const double four_pi = 8.0 * acos(0.0);
 
 void apc(
@@ -463,8 +464,14 @@ void cms(dcomplex *am, ParticleDescriptor *c1) {
   const int li = c1->li;
   const int ndi = nsph * nlim;
   const int ndit = ndi + ndi;
+  const np_int size = ndit * ndit;
   const int nsphmo = nsph - 1;
   const int lmtpo = c1->lmtpo;
+  const dcomplex cc0 = 0.0 + I * 0.0;
+
+#pragma omp parallel for
+  for (np_int iter = 0; iter < size; iter++)
+    am[iter] = cc0;
   
   // int nbl = 0;
   for (int n1 = 1; n1 <= nsphmo; n1++) {
@@ -554,6 +561,7 @@ void cms_flat(dcomplex *am, ParticleDescriptor *c1) {
   const int li = c1->li;
   const int ndi = nsph * nlim;
   const int ndit = 2 * ndi;
+  const np_int size = ndit * ndit;
   const int max_litpo = 2 * li + 1;
   const int nsphmo = nsph - 1;
   const int lmtpo = c1->lmtpo;
@@ -561,6 +569,10 @@ void cms_flat(dcomplex *am, ParticleDescriptor *c1) {
   const np_int total_iters = num_pairs * li * max_litpo * li * max_litpo;
   const dcomplex cc0 = 0.0 + I * 0.0;
 
+  #pragma omp parallel for
+  for (np_int iter = 0; iter < size; iter++)
+    am[iter] = cc0;
+  
   // Prepare and fill look-up tables
   int *lut_n1 = new int[num_pairs];
   int *lut_n2 = new int[num_pairs];
