@@ -24,12 +24,15 @@
 #define INCLUDE_LAPACK_CALLS_H_
 
 #ifndef LAPACK_SUCCESS
+//! \brief Success code macro for LAPACK functions.
 #define LAPACK_SUCCESS 0
 #endif
 
 #ifdef USE_MKL
+//! \brief Double precision complex for MKL implementation.
 typedef MKL_Complex16 lcomplex;
 #else
+//! \brief Double precision complex for LAPACK implementation.
 typedef dcomplex lcomplex;
 #endif // USE_MKL
 
