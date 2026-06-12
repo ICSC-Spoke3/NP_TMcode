@@ -40,6 +40,7 @@ from math import log10
 from sys import argv
 
 ## \cond
+__version__ = "0.10.9"
 number_reg = re.compile(r'-?[0-9]\.[0-9]+E?[-+][0-9]{2,5}')
 ## \endcond
 
@@ -62,6 +63,9 @@ def main():
     if config['help_mode'] or len(argv) == 1:
         config['help_mode'] = True
         print_help()
+    elif config['version_mode']:
+        print("pycompare.py v%s."%__version__)
+        exit(0)
     else:
         compare_log = compare_files(config)
         errors = compare_log['errors']
@@ -265,7 +269,7 @@ def compare_lines(f_line, c_line, config, line_num=0, num_len=4, log_file=None):
     log_line = ""
     if (f_line == c_line):
         if log_file is not None:
-            if (config['full_log']):
+            if (config['log_level'] > 2):
                 num_format = "    <div><pre><code>{0:0%dd}"%num_len
                 log_line = (num_format + ": {1:s}</code></pre></div>\n").format(line_num, c_line[:-1])
                 log_file.write(log_line)
@@ -285,6 +289,9 @@ def compare_lines(f_line, c_line, config, line_num=0, num_len=4, log_file=None):
 
         if (len(f_groups) == len(c_groups)):
             severities = mismatch_severities(f_groups, c_groups, config)
+            maximum_severity = 0
+            if (len(severities) > 0):
+                maximum_severity = max(severities)
             if log_file is not None:
                 if (len(severities) > 0):
                     num_format = "    <div><pre><code>{0:0%dd}"%num_len
@@ -344,6 +351,7 @@ def compare_lines(f_line, c_line, config, line_num=0, num_len=4, log_file=None):
                                     log_line + "</code><span style=\"font-weight: bold; color: rgb(0,185,0)\"><code>"
                                     + c_groups[-1] + "</code></span><code>" + c_line[c_ends[-1]:len(c_line) - 2]
                                 )
+                                maximum_severity = 1 # new logging level system
                             else:
                                 log_line = (
                                     log_line + "</code><span style=\"font-weight: bold; color: rgb(255,0,0)\"><code>"
@@ -354,7 +362,7 @@ def compare_lines(f_line, c_line, config, line_num=0, num_len=4, log_file=None):
                                 log_line + "</code><span style=\"font-weight: bold; color: rgb(255,0,0)\"><code>"
                                 + c_groups[-1] + "</code></span><code>" + c_line[c_ends[-1]:len(c_line) - 2]
                             )
-                    if ((not config['hide_noise'] and noisy > 0) or warnings > 0 or errors > 0):
+                    if (maximum_severity >= 3 - config['log_level']): # new logging level system
                         log_file.write(log_line + "</code></pre></div>\n")
                         log_file.write(ref_line)
         else: # The two lines contain a different number of numeric values
@@ -488,13 +496,13 @@ def parse_arguments():
         'check_all': True,
         'data_order': -99.0,
         'fortran_file_name': '',
-        'full_log': False,
         'help_mode': False,
-        'hide_noise': True,
         'html_output': 'pycompare.html',
         'linewise': True,
         'log_html': False,
+        'log_level': 1, # ERR = 0, WARN = 1, NOISE = 2, FULL = 3
         'say_progress': True,
+        'version_mode': False,
         'warning_threshold': 0.005,
     }
     arg_index = 1
@@ -514,8 +522,6 @@ def parse_arguments():
             skip_arg = True
         elif (arg.startswith("--data-order")):
             config['data_order'] = float(split_arg[1])
-        elif (arg.startswith("--full")):
-            config['full_log'] = True
         elif (arg.startswith("--html")):
             config['log_html'] = True
             if (len(split_arg) == 2):
@@ -524,12 +530,28 @@ def parse_arguments():
             config['help_mode'] = True
         elif (arg.startswith("--linewise")):
             config['linewise'] = True
+        elif (arg.startswith("--log-level=")):
+            split_arg = arg.split('=')
+            if (len(split_arg) == 2):
+                log_level = split_arg[1]
+                if (log_level == 'FULL'):
+                    config['log_level'] = 3
+                elif (log_level == 'NOISE'):
+                    config['log_level'] = 2
+                elif (log_level == 'WARN'):
+                    config['log_level'] = 1
+                elif (log_level == 'ERR'):
+                    config['log_level'] = 0
+                else:
+                    raise ValueError("Unrecognized argument \'{0:s}\'".format(arg))
+            else:
+                raise ValueError("Unrecognized argument \'{0:s}\'".format(arg))
         elif (arg.startswith("--no-progress")):
             config['say_progress'] = False
         elif (arg.startswith("--quick")):
             config['check_all'] = False
-        elif (arg.startswith("--show-noise")):
-            config['hide_noise'] = False
+        elif (arg.startswith("--version")):
+            config['version_mode'] = True
         elif (arg.startswith("--warn")):
             config['warning_threshold'] = float(split_arg[1])
         else:
@@ -550,13 +572,15 @@ def print_help():
     print("--ffile FORTRAN_OUTPUT    File containing the output of the FORTRAN code (mandatory).")
     print("--cfile C++_OUTPUT        File containing the output of the C++ code (mandatory).")
     print("--data-order=ORDER        Consider data only down to specified order (default order is -99).")
-    print("--full                    Print all lines to log file (default prints only mismatches).")
     print("--help                    Print this help and exit.")
     print("--html[=OPT_OUTPUT_NAME]  Enable logging to HTML file (default logs to \"pycompare.html\").")
     print("--linewise                Load only one line at a time. Useful to compare big files (True by default).")
+    print("--log-level=LEVEL         Verbosity level of HTML report (FULL prints everything, NOISE prints all")
+    print("                          mismatches starting from noisy values, WARN prints mismatches starting from")
+    print("                          warning level, ERR prints only error mismatches (default is WARN).")
     print("--no-progress             Disable progress logging.")
     print("--quick                   Stop on first mismatch (default is to perform a full check).")
-    print("--show-noise              Show noise in reports (default is to hide it).")
+    print("--version                 Print script version and exit.      ")
     print("--warn                    Set a fractional threshold for numeric warning (default = 0.005).")
     print("                                            ")
 
@@ -582,6 +606,14 @@ def reformat_log(config, errors, warnings, noisy):
     summary = "    <div>Comparison yielded %d %s"%(errors, str_errors)
     summary = summary + ", %d %s"%(warnings, str_warnings)
     summary = summary + " and %d %s.</div>\n"%(noisy, str_noisy)
+    new_file.write(summary)
+    summary = "    <div>Reporting all results file contents.</div>\n"
+    if (config['log_level'] == 0):
+        summary = summary = "    <div>Reporting only error lines (skipping noise and warnings).</div>\n"
+    elif (config['log_level'] == 1):
+        summary = summary = "    <div>Reporting error and warning lines (skipping noise).</div>\n"
+    elif (config['log_level'] == 2):
+        summary = summary = "    <div>Reporting error, warning, and noisy lines (skipping matching lines).</div>\n"
     new_file.write(summary)
     log_line = log_file.readline()
     while (log_line != ''):

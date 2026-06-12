@@ -31,6 +31,10 @@ import pdb
 import random
 import yaml
 
+## \cond
+__version__ = "0.10.9"
+## \endcond
+
 ## \brief 3D software generation capability flag.
 allow_3d = True
 try:
@@ -51,7 +55,10 @@ from sys import argv
 def main():
     result = 0
     config = parse_arguments()
-    if (config['help_mode'] or config['yml_file_name'] == ""):
+    if config['version_mode']:
+        print("model_maker.py v%s."%__version__)
+        exit(0)
+    elif (config['help_mode'] or config['yml_file_name'] == ""):
         print_help()
     else:
         sconf, gconf = load_model(config['yml_file_name'])
@@ -610,11 +617,14 @@ def parse_arguments():
     config = {
         'yml_file_name': "",
         'help_mode': False,
+        'version_mode': False
     }
     yml_set = False
     for arg in argv[1:]:
         if (arg.startswith("--help")):
             config['help_mode'] = True
+        elif (arg.startswith("--version")):
+            config['version_mode'] = True
         elif (not yml_set):
             if (not arg.startswith("--")):
                 config['yml_file_name'] = arg
@@ -627,7 +637,7 @@ def parse_arguments():
 def print_help():
     print("###############################################           ")
     print("#                                             #           ")
-    print("#           NPtm_code MODEL_MAKER             #           ")
+    print("#           NPTM_code MODEL_MAKER             #           ")
     print("#                                             #           ")
     print("###############################################           ")
     print("                                                          ")
@@ -639,6 +649,7 @@ def print_help():
     print("                                                          ")
     print("Valid options are:                                        ")
     print("--help                Print this help and exit.           ")
+    print("--version             Print script version and exit.      ")
     print("                                                          ")
 
 ## \brief Print a summary of model properties.

@@ -85,12 +85,22 @@ int main(int argc, char **argv) {
   string config_file = "../../test_data/sphere/DEDFB";
   string data_file = "../../test_data/sphere/DSPH";
   string output_path = ".";
-  if (argc == 4) {
-    config_file = string(argv[1]);
-    data_file = string(argv[2]);
-    output_path = string(argv[3]);
+  if (argc != 2) {
+    if (argc == 4) {
+      config_file = string(argv[1]);
+      data_file = string(argv[2]);
+      output_path = string(argv[3]);
+    }
+    sphere(config_file, data_file, output_path, mpidata);
+  } else { // argc == 2
+    string arg = argv[1];
+    if (arg.compare("--version") == 0) {
+      printf("np_sphere v%s.\n", NPTM_VERSION);
+    } else {
+      printf("ERROR: unrecognized argument \"%s\".\n", argv[1]);
+      ierr = 1;
+    }
   }
-  sphere(config_file, data_file, output_path, mpidata);
 #ifdef MPI_VERSION
   MPI_Finalize();
 #endif

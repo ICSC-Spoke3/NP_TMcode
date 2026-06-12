@@ -74,8 +74,9 @@ extern void inclusion(const string& config_file, const string& data_file, const 
  * \return result: `int` An exit code passed to the OS (0 for succesful execution).
  */
 int main(int argc, char **argv) {
+  int ierr = 0;
 #ifdef MPI_VERSION
-  int ierr = MPI_Init(&argc, &argv);
+  ierr = MPI_Init(&argc, &argv);
   // Create and initialise class with essential MPI data
   mixMPI *mpidata = new mixMPI(MPI_COMM_WORLD);
 #else
@@ -85,12 +86,22 @@ int main(int argc, char **argv) {
   string config_file = "../../test_data/inclusion/DEDFB";
   string data_file = "../../test_data/inclusion/DINCLU";
   string output_path = ".";
-  if (argc == 4) {
-    config_file = string(argv[1]);
-    data_file = string(argv[2]);
-    output_path = string(argv[3]);
+  if (argc != 2) {
+    if (argc == 4) {
+      config_file = string(argv[1]);
+      data_file = string(argv[2]);
+      output_path = string(argv[3]);
+    }
+    inclusion(config_file, data_file, output_path, mpidata);
+  } else { // argc == 2
+    string arg = argv[1];
+    if (arg.compare("--version") == 0) {
+      printf("np_inclusion v%s.\n", NPTM_VERSION);
+    } else {
+      printf("ERROR: unrecognized argument \"%s\".\n", argv[1]);
+      ierr = 1;
+    }
   }
-  inclusion(config_file, data_file, output_path, mpidata);
 #ifdef MPI_VERSION
   MPI_Finalize();
 #endif
