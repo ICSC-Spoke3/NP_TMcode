@@ -38,22 +38,33 @@ extern void lffft(string data_file, string output_path);
  * \return result: `int`
  */
 int main(int argc, char **argv) {
+  int ierr = 0;
   chrono::time_point<chrono::high_resolution_clock> t_start = chrono::high_resolution_clock::now();
   chrono::duration<double> elapsed;
   string frfme_data_file = "../../test_data/trapping/DFRFME";
   string lffft_data_file = "../../test_data/trapping/DLFFFT";
   string output_path = ".";
-  string message;
-  Logger logger(LOG_DEBG);
-  if (argc == 4) {
-    frfme_data_file = string(argv[1]);
-    lffft_data_file = string(argv[2]);
-    output_path = string(argv[3]);
+  if (argc != 2) {
+    string message;
+    Logger logger(LOG_DEBG);
+    if (argc == 4) {
+      frfme_data_file = string(argv[1]);
+      lffft_data_file = string(argv[2]);
+      output_path = string(argv[3]);
+    }
+    frfme(frfme_data_file, output_path);
+    lffft(lffft_data_file, output_path);
+    elapsed = chrono::high_resolution_clock::now() - t_start;
+    message = "INFO: calculation lasted " + to_string(elapsed.count()) + "s.\n";
+    logger.log(message);
+  } else { // argc == 2
+    string arg = argv[1];
+    if (arg.compare("--version") == 0) {
+      printf("np_trapping v%s.\n", NPTM_VERSION);
+    } else {
+      printf("ERROR: unrecognized argument \"%s\".\n", argv[1]);
+      ierr = 1;
+    }
   }
-  frfme(frfme_data_file, output_path);
-  lffft(lffft_data_file, output_path);
-  elapsed = chrono::high_resolution_clock::now() - t_start;
-  message = "INFO: calculation lasted " + to_string(elapsed.count()) + "s.\n";
-  logger.log(message);
-  return 0;
+  return ierr;
 }

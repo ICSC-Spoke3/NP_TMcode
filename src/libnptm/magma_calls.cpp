@@ -151,6 +151,10 @@ magma_int_t magma_cms(
     }
   }
 
+#pragma omp target teams distribute parallel for
+  for (magma_int_t iter = 0; iter < size; iter++)
+    vec_am[iter] = cz0;
+  
 #pragma omp target teams distribute parallel for \
   map(to: lut_n1[0:num_pairs], lut_n2[0:num_pairs]) \
   device(device_id)

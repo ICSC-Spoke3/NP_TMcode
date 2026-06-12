@@ -21,6 +21,9 @@
 #ifndef INCLUDE_LOGGING_H_
 #define INCLUDE_LOGGING_H_
 
+//! \brief Code version.
+#define NPTM_VERSION "0.10.9"
+
 //! \brief Debug level logging (maximum verbosity).
 #define LOG_DEBG 0
 //! \brief Standard information level logging (default).

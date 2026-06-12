@@ -24,6 +24,7 @@
 #ifndef INCLUDE_MAGMA_CALLS_H_
 #define INCLUDE_MAGMA_CALLS_H_
 
+//! \brief Maximum number of elements on GPU static vectors.
 #define MAX_GPU_STACK_DOUBLE 128
 
 #ifdef USE_TARGET_OFFLOAD
