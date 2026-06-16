@@ -112,6 +112,7 @@ GeometryConfiguration::GeometryConfiguration(
   _accuracy_goal = 1.0e-07;
   _ref_iters = 5;
   _offload_flag = false;
+  _debug_am = false;
 }
 
 GeometryConfiguration::GeometryConfiguration(const GeometryConfiguration& rhs)
@@ -156,6 +157,7 @@ GeometryConfiguration::GeometryConfiguration(const GeometryConfiguration& rhs)
   _accuracy_goal = rhs._accuracy_goal;
   _ref_iters = rhs._ref_iters;
   _offload_flag = rhs._offload_flag;
+  _debug_am = rhs._debug_am;
 }
 
 #ifdef MPI_VERSION
@@ -200,6 +202,7 @@ GeometryConfiguration::GeometryConfiguration(const mixMPI *mpidata) {
   MPI_Bcast(&_accuracy_goal, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_ref_iters, 1, MPI_INT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_offload_flag, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_debug_am, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
 }
 
 void GeometryConfiguration::mpibcast(const mixMPI *mpidata) {
@@ -240,6 +243,7 @@ void GeometryConfiguration::mpibcast(const mixMPI *mpidata) {
   MPI_Bcast(&_accuracy_goal, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_ref_iters, 1, MPI_INT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_offload_flag, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_debug_am, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
 }
 #endif
 
@@ -448,6 +452,13 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
 	}
       }
     }
+    if (str_target.size() > 9) {
+      if (str_target.substr(0, 9).compare("DEBUG_AM=") == 0) {
+	int debug_flag = (int)stoi(str_target.substr(9, str_target.length()));
+	conf->_debug_am = (debug_flag == 0) ? false : true;
+	is_parsed = true;
+      }
+    }
     if (!is_parsed) {
       if (str_target.size() > 0) {
 	if (str_target.substr(0, 1).compare("#") != 0) {
@@ -468,6 +479,7 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
 RuntimeSettings::RuntimeSettings() {
   _invert_mode = RuntimeSettings::INV_MODE_LU;
   _accuracy_goal = 1.0e-07;
+  _debug_am = false;
   _gpu_ram_gb = 0.0;
   _host_ram_gb = 0.0;
   _max_ref_iters = 5;
@@ -482,6 +494,7 @@ RuntimeSettings::RuntimeSettings() {
 RuntimeSettings::RuntimeSettings(GeometryConfiguration *gconf, Logger *ptr_logger) {
   _invert_mode = gconf->invert_mode;
   _accuracy_goal = gconf->accuracy_goal;
+  _debug_am = gconf->debug_am;
   _gpu_ram_gb = gconf->gpu_ram_gb;
   _host_ram_gb = gconf->host_ram_gb;
   _max_ref_iters = gconf->ref_iters;

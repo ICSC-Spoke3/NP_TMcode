@@ -134,6 +134,8 @@ protected:
   int _ref_iters;
   //! \brief Flag to use target offload, if available.
   bool _offload_flag;
+  //! \brief Flag to control AM matrix debug output.
+  bool _debug_am;
 
 public:
   //! \brief Read-only view on number of spherical components.
@@ -200,6 +202,8 @@ public:
   const int& ref_iters = _ref_iters;
   //! \brief Read-only view on flag to use target offload, if available.
   const bool& offload_flag = _offload_flag;
+  //! \brief Read-only view on flag to control AM matrix debug output.
+  const bool& debug_am = _debug_am;
   
   /**
    * \brief Build a scattering geometry configuration structure.
@@ -341,6 +345,8 @@ protected:
   short _invert_mode;
   //! \brief Target matrix inversion accuracy.
   double _accuracy_goal;
+  //! \brief AM debug flag.
+  bool _debug_am;
   //! \brief GPU memory in GiB.
   double _gpu_ram_gb;
   //! \brief Host system memory in GiB.
@@ -366,6 +372,8 @@ public:
   const short& invert_mode = _invert_mode;
   //! \brief Read-only view on target matrix inversion accuracy.
   const double& accuracy_goal = _accuracy_goal;
+  //! \brief Read-only view on AM debug flag.
+  const bool& debug_am = _debug_am;
   //! \brief Read-only view on GPU memory in GiB.
   const double& gpu_ram_gb = _gpu_ram_gb;
   //! \brief Read-only view on host system memory in GiB.

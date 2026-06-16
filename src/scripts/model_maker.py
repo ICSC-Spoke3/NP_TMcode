@@ -32,7 +32,7 @@ import random
 import yaml
 
 ## \cond
-__version__ = "0.10.9"
+__version__ = "0.10.10"
 ## \endcond
 
 ## \brief 3D software generation capability flag.
@@ -342,6 +342,7 @@ def load_model(model_file):
                         sconf['rcf'][i][j] = float(model['particle_settings']['rad_frac'][i][j])
         # Create the gconf dict
         use_refinement = True
+        debug_am = False
         dyn_orders = True
         inv_accuracy = 1.0e-07
         inv_mode = "LU"
@@ -352,6 +353,10 @@ def load_model(model_file):
             use_refinement = False if int(model['runtime']['refinement']) == 0 else True
         except KeyError:
             use_refinement = True
+        try:
+            debug_am = False if int(model['runtime']['debug_am']) == 0 else True
+        except KeyError:
+            debug_am = True
         try:
             dyn_orders = False if int(model['runtime']['dyn_orders']) == 0 else True
         except KeyError:
@@ -387,6 +392,7 @@ def load_model(model_file):
             )
         }
         gconf['use_refinement'] = use_refinement
+        gconf['debug_am'] = debug_am
         gconf['dyn_orders'] = dyn_orders
         gconf['inv_accuracy'] = inv_accuracy
         gconf['inv_mode'] = inv_mode
@@ -1156,6 +1162,11 @@ def write_legacy_gconf(conf):
         str_line = "USE_REFINEMENT=1\n"
     else:
         str_line = "USE_REFINEMENT=0\n"
+    output.write(str_line)
+    if (conf['debug_am']):
+        str_line = "DEBUG_AM=1\n"
+    else:
+        str_line = "DEBUG_AM=0\n"
     output.write(str_line)
     if (conf['dyn_orders']):
         str_line = "USE_DYN_ORDERS=1\n"

@@ -852,30 +852,30 @@ int inclusion_jxi488_cycle(
 #ifdef USE_NVTX
   nvtxRangePush("Calculate inverted matrix");
 #endif
-#ifdef DEBUG_AM
-  /* now, before cms, output am to p_outam0 */
-  VirtualAsciiFile *outam0 = new VirtualAsciiFile();
-  string outam0_name = output_path + "/c_AM0_JXI" + to_string(jxi488) + ".txt";
-  sprintf(virtual_line, " AM matrix before CMS\n");
-  outam0->append_line(virtual_line);
-  sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
-  outam0->append_line(virtual_line);
-  write_dcomplex_matrix(outam0, cid->am, cid->c1->ndm, cid->c1->ndm);
-  outam0->write_to_disk(outam0_name);
-  delete outam0;
-#endif
+  if (rs.debug_am) {
+    /* now, before cms, output am to p_outam0 */
+    VirtualAsciiFile *outam0 = new VirtualAsciiFile();
+    string outam0_name = output_path + "/c_AM0_JXI" + to_string(jxi488) + ".txt";
+    sprintf(virtual_line, " AM matrix before CMS\n");
+    outam0->append_line(virtual_line);
+    sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
+    outam0->append_line(virtual_line);
+    write_dcomplex_matrix(outam0, cid->am, cid->c1->ndm, cid->c1->ndm);
+    outam0->write_to_disk(outam0_name);
+    delete outam0;
+  }
   incms(cid->am, enti, cid->c1);
-#ifdef DEBUG_AM
-  VirtualAsciiFile *outam1 = new VirtualAsciiFile();
-  string outam1_name = output_path + "/c_AM1_JXI" + to_string(jxi488) + ".txt";
-  sprintf(virtual_line, " AM matrix after CMS before LUCIN\n");
-  outam1->append_line(virtual_line);
-  sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
-  outam1->append_line(virtual_line);
-  write_dcomplex_matrix(outam1, cid->am, cid->c1->ndm, cid->c1->ndm, " %5d %5d (%17.8lE,%17.8lE)\n", 1);
-  outam1->write_to_disk(outam1_name);
-  delete outam1;
-#endif
+  if (rs.debug_am) {
+    VirtualAsciiFile *outam1 = new VirtualAsciiFile();
+    string outam1_name = output_path + "/c_AM1_JXI" + to_string(jxi488) + ".txt";
+    sprintf(virtual_line, " AM matrix after CMS before LUCIN\n");
+    outam1->append_line(virtual_line);
+    sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
+    outam1->append_line(virtual_line);
+    write_dcomplex_matrix(outam1, cid->am, cid->c1->ndm, cid->c1->ndm, " %5d %5d (%17.8lE,%17.8lE)\n", 1);
+    outam1->write_to_disk(outam1_name);
+    delete outam1;
+  }
 #ifdef USE_NVTX
   nvtxRangePop();
 #endif
@@ -907,17 +907,17 @@ int inclusion_jxi488_cycle(
   nvtxRangePush("Average calculation");
 #endif
   exma(cid->am, cid->c1);
-#ifdef DEBUG_AM
-  VirtualAsciiFile *outam3 = new VirtualAsciiFile();
-  string outam3_name = output_path + "/c_AM3_JXI" + to_string(jxi488) + ".txt";
-  sprintf(virtual_line, " AM matrix after EXMA\n");
-  outam3->append_line(virtual_line);
-  sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
-  outam3->append_line(virtual_line);
-  write_dcomplex_matrix(outam3, cid->am, cid->c1->ndm, cid->c1->ndm);
-  outam3->write_to_disk(outam3_name);
-  delete outam3;
-#endif
+  if (rs.debug_am) {
+    VirtualAsciiFile *outam3 = new VirtualAsciiFile();
+    string outam3_name = output_path + "/c_AM3_JXI" + to_string(jxi488) + ".txt";
+    sprintf(virtual_line, " AM matrix after EXMA\n");
+    outam3->append_line(virtual_line);
+    sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
+    outam3->append_line(virtual_line);
+    write_dcomplex_matrix(outam3, cid->am, cid->c1->ndm, cid->c1->ndm);
+    outam3->write_to_disk(outam3_name);
+    delete outam3;
+  }
   if (idfc >= 0) {
     if (jxi488 == jwtm) {
       int nlemt = 2 * cid->c1->nlem;
