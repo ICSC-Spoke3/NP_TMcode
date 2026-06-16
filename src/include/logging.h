@@ -22,7 +22,7 @@
 #define INCLUDE_LOGGING_H_
 
 //! \brief Code version.
-#define NPTM_VERSION "0.10.9"
+#define NPTM_VERSION "0.10.10"
 
 //! \brief Debug level logging (maximum verbosity).
 #define LOG_DEBG 0

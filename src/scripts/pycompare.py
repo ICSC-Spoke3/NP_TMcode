@@ -40,7 +40,7 @@ from math import log10
 from sys import argv
 
 ## \cond
-__version__ = "0.10.9"
+__version__ = "0.10.10"
 number_reg = re.compile(r'-?[0-9]\.[0-9]+E?[-+][0-9]{2,5}')
 ## \endcond
 
