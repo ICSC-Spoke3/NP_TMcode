@@ -876,20 +876,20 @@ int cluster_jxi488_cycle(
 #ifdef USE_NVTX
   nvtxRangePop();
 #endif
-#ifdef DEBUG_AM
-  /* now, before cms, output am to p_outam0 */
-  VirtualAsciiFile *outam0 = new VirtualAsciiFile();
-  string outam0_name = output_path + "/c_AM0_JXI" + to_string(jxi488) + ".txt";
-  sprintf(virtual_line, " AM matrix before CMS\n");
-  outam0->append_line(virtual_line);
-  sprintf(virtual_line, " %d\n", ndit);
-  outam0->append_line(virtual_line);  
-  sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
-  outam0->append_line(virtual_line);
-  write_dcomplex_matrix(outam0, cid->am, ndit, ndit);
-  outam0->write_to_disk(outam0_name);
-  delete outam0;
-#endif // DEBUG_AM
+  if (rs.debug_am) {
+    /* now, before cms, output am to p_outam0 */
+    VirtualAsciiFile *outam0 = new VirtualAsciiFile();
+    string outam0_name = output_path + "/c_AM0_JXI" + to_string(jxi488) + ".txt";
+    sprintf(virtual_line, " AM matrix before CMS\n");
+    outam0->append_line(virtual_line);
+    sprintf(virtual_line, " %d\n", ndit);
+    outam0->append_line(virtual_line);  
+    sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
+    outam0->append_line(virtual_line);
+    write_dcomplex_matrix(outam0, cid->am, ndit, ndit);
+    outam0->write_to_disk(outam0_name);
+    delete outam0;
+  }
   if (rs.use_offload) {
     // whenever rs.use_offload == true, USE_TARGET_OFFLOAD is defined, but we
     // have to check for the compilation flag in order to avoid the compiler
@@ -968,21 +968,21 @@ int cluster_jxi488_cycle(
 #endif
     interval_start = chrono::high_resolution_clock::now();
     cms(cid->am[0], cid->c1);
-#ifdef DEBUG_AM
-    VirtualAsciiFile *outam1 = new VirtualAsciiFile();
-    string outam1_name = output_path + "/c_AM1_JXI" + to_string(jxi488) + ".txt";
-    string outam1_ppm_name = output_path + "/c_AM1_JXI" + to_string(jxi488) + ".ppm";
-    sprintf(virtual_line, " AM matrix after CMS before LUCIN\n");
-    outam1->append_line(virtual_line);
-    sprintf(virtual_line, " %d\n", ndit);
-    outam1->append_line(virtual_line);  
-    sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
-    outam1->append_line(virtual_line);
-    write_dcomplex_matrix(outam1, cid->am, ndit, ndit, " %5d %5d (%17.8lE,%17.8lE)\n", 1);
-    outam1->write_to_disk(outam1_name);
-    delete outam1;
-    write_matrix_as_ppm(cid->am[0], ndit, ndit, outam1_ppm_name);
-#endif // DEBUG_AM
+    if (rs.debug_am) {
+      VirtualAsciiFile *outam1 = new VirtualAsciiFile();
+      string outam1_name = output_path + "/c_AM1_JXI" + to_string(jxi488) + ".txt";
+      string outam1_ppm_name = output_path + "/c_AM1_JXI" + to_string(jxi488) + ".ppm";
+      sprintf(virtual_line, " AM matrix after CMS before LUCIN\n");
+      outam1->append_line(virtual_line);
+      sprintf(virtual_line, " %d\n", ndit);
+      outam1->append_line(virtual_line);  
+      sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
+      outam1->append_line(virtual_line);
+      write_dcomplex_matrix(outam1, cid->am, ndit, ndit, " %5d %5d (%17.8lE,%17.8lE)\n", 1);
+      outam1->write_to_disk(outam1_name);
+      delete outam1;
+      write_matrix_as_ppm(cid->am[0], ndit, ndit, outam1_ppm_name);
+    }
 #ifdef USE_NVTX
     nvtxRangePop();
 #endif // USE_NVTX
@@ -995,21 +995,21 @@ int cluster_jxi488_cycle(
     nvtxRangePush("Invert the matrix");
 #endif // USE_NVTX
     invert_matrix(cid->am, ndit, jer, output_path, jxi488, mxndm, cid->proc_device, rs);
-#ifdef DEBUG_AM
-    VirtualAsciiFile *outam2 = new VirtualAsciiFile();
-    string outam2_name = output_path + "/c_AM2_JXI" + to_string(jxi488) + ".txt";
-    string outam2_ppm_name = output_path + "/c_AM2_JXI" + to_string(jxi488) + ".ppm";
-    sprintf(virtual_line, " AM matrix after LUCIN before ZTM\n");
-    outam2->append_line(virtual_line);
-    sprintf(virtual_line, " %d\n", ndit);
-    outam2->append_line(virtual_line);  
-    sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
-    outam2->append_line(virtual_line);
-    write_dcomplex_matrix(outam2, cid->am, ndit, ndit);
-    outam2->write_to_disk(outam2_name);
-    delete outam2;
-    write_matrix_as_ppm(cid->am[0], ndit, ndit, outam2_ppm_name);
-#endif // DEBUG_AM
+    if (rs.debug_am) {
+      VirtualAsciiFile *outam2 = new VirtualAsciiFile();
+      string outam2_name = output_path + "/c_AM2_JXI" + to_string(jxi488) + ".txt";
+      string outam2_ppm_name = output_path + "/c_AM2_JXI" + to_string(jxi488) + ".ppm";
+      sprintf(virtual_line, " AM matrix after LUCIN before ZTM\n");
+      outam2->append_line(virtual_line);
+      sprintf(virtual_line, " %d\n", ndit);
+      outam2->append_line(virtual_line);  
+      sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
+      outam2->append_line(virtual_line);
+      write_dcomplex_matrix(outam2, cid->am, ndit, ndit);
+      outam2->write_to_disk(outam2_name);
+      delete outam2;
+      write_matrix_as_ppm(cid->am[0], ndit, ndit, outam2_ppm_name);
+    }
 #ifdef USE_NVTX
     nvtxRangePop();
 #endif // USE_NVTX
@@ -1024,21 +1024,21 @@ int cluster_jxi488_cycle(
       // break; // jxi488 loop: goes to memory clean
     }
     ztm(cid->am, cid->c1);
-#ifdef DEBUG_AM
-    VirtualAsciiFile *outam3 = new VirtualAsciiFile();
-    string outam3_name = output_path + "/c_AM3_JXI" + to_string(jxi488) + ".txt";
-    string outam3_ppm_name = output_path + "/c_AM3_JXI" + to_string(jxi488) + ".ppm";
-    sprintf(virtual_line, " AM0M matrix after ZTM\n");
-    outam3->append_line(virtual_line);
-    sprintf(virtual_line, " %d\n", ndit);
-    outam3->append_line(virtual_line);  
-    sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
-    outam3->append_line(virtual_line);
-    write_dcomplex_matrix(outam3, cid->c1->am0m, 2 * cid->c1->nlem, 2 * cid->c1->nlem);
-    outam3->write_to_disk(outam3_name);
-    delete outam3;
-    write_matrix_as_ppm(cid->c1->am0m[0], 2 * cid->c1->nlem, 2 * cid->c1->nlem, outam3_ppm_name);
-#endif // DEBUG_AM
+    if (rs.debug_am) {
+      VirtualAsciiFile *outam3 = new VirtualAsciiFile();
+      string outam3_name = output_path + "/c_AM3_JXI" + to_string(jxi488) + ".txt";
+      string outam3_ppm_name = output_path + "/c_AM3_JXI" + to_string(jxi488) + ".ppm";
+      sprintf(virtual_line, " AM0M matrix after ZTM\n");
+      outam3->append_line(virtual_line);
+      sprintf(virtual_line, " %d\n", ndit);
+      outam3->append_line(virtual_line);  
+      sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
+      outam3->append_line(virtual_line);
+      write_dcomplex_matrix(outam3, cid->c1->am0m, 2 * cid->c1->nlem, 2 * cid->c1->nlem);
+      outam3->write_to_disk(outam3_name);
+      delete outam3;
+      write_matrix_as_ppm(cid->c1->am0m[0], 2 * cid->c1->nlem, 2 * cid->c1->nlem, outam3_ppm_name);
+    }
   }
   interval_start = chrono::high_resolution_clock::now();
 #ifdef USE_NVTX
