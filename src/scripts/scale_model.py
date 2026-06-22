@@ -29,6 +29,7 @@ import re
 from sys import argv
 
 ## \cond
+__version__ = "0.10.10"
 int_reg = re.compile(r'-?[0-9]+')
 float_reg = re.compile(r'-?[0-9]+\.[0-9]+([eEdD][-+]?[0-9]+)?')
 ## \endcond
@@ -49,7 +50,9 @@ def main():
         print(ex)
         print("\nType \"scale_model.py --help\" to get more detailed help.")
         errors = 1
-    if config['help_mode']:
+    if config['version_mode']:
+        print("scale_model.py v%s."%__version__)
+    elif config['help_mode']:
         config['help_mode'] = True
         print_help()
     else:
@@ -92,7 +95,8 @@ def parse_arguments():
         'output_name': '',
         'mode': '',
         'scale': 1.0,
-        'help_mode': False
+        'help_mode': False,
+        'version_mode': False
     }
     arg_index = 1
     skip_arg = False
@@ -115,6 +119,8 @@ def parse_arguments():
             config['scale'] = float(split_arg[1])
         elif (arg.startswith("--help")):
             config['help_mode'] = True
+        elif (arg.startswith("--version")):
+            config['version_mode'] = True
         else:
             raise ValueError("Unrecognized argument \'{0:s}\'".format(arg))
         arg_index += 1
@@ -272,6 +278,7 @@ def print_help():
     print("--mode=[edfb|geom]       Type of input to be processed (mandatory).        ")
     print("--scale=SCALE            Scale to be applied (optional, default is 1).     ")
     print("--help                   Print this help and exit.                         ")
+    print("--version                Print script version and exit.                    ")
     print("                                                                           ")
 
 # ### PROGRAM EXECUTION ###
