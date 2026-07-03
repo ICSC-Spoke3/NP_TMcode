@@ -229,26 +229,27 @@ def scale_legacy_geom(config):
         n_groups.append(ni.group())
     nsph = int(n_groups[0])
     output_file.write(file_line)
-    for si in range(nsph):
-        file_line = input_file.readline() # First data line
-        file_line = file_line.replace("D", "E").replace("d", "e")
-        iter_numbers = float_reg.finditer(file_line)
-        n_groups = []
-        for ni in iter_numbers:
-            n_groups.append(ni.group())
-        if (len(n_groups) == 3):
-            # do it
-            sph_x = float(n_groups[0]) * config['scale']
-            sph_y = float(n_groups[1]) * config['scale']
-            sph_z = float(n_groups[2]) * config['scale']
-            str_line = "   {0:15.7e}   {1:15.7e}   {2:15.7e}\n".format(
-                sph_x, sph_y, sph_z
-            )
-            output_file.write(str_line)
-        else:
-            print("ERROR: sphere coordinates vectors not in place!")
-            errors += 1
-            break # si loop on spheres
+    if (nsph > 1):
+        for si in range(nsph):
+            file_line = input_file.readline() # First data line
+            file_line = file_line.replace("D", "E").replace("d", "e")
+            iter_numbers = float_reg.finditer(file_line)
+            n_groups = []
+            for ni in iter_numbers:
+                n_groups.append(ni.group())
+            if (len(n_groups) == 3):
+                # do it
+                sph_x = float(n_groups[0]) * config['scale']
+                sph_y = float(n_groups[1]) * config['scale']
+                sph_z = float(n_groups[2]) * config['scale']
+                str_line = "   {0:15.7e}   {1:15.7e}   {2:15.7e}\n".format(
+                    sph_x, sph_y, sph_z
+                )
+                output_file.write(str_line)
+            else:
+                print("ERROR: sphere coordinates vectors not in place!")
+                errors += 1
+                break # si loop on spheres
     # Read and parse the directional settings
     for li in range(2):
         file_line = input_file.readline()
