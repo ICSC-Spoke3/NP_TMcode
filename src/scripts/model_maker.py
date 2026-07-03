@@ -341,7 +341,7 @@ def load_model(model_file):
                     for j in range(expected_radii):
                         sconf['rcf'][i][j] = float(model['particle_settings']['rad_frac'][i][j])
         # Create the gconf dict
-        use_refinement = True
+        use_refinement = False
         debug_am = False
         dyn_orders = True
         inv_accuracy = 1.0e-07
@@ -352,11 +352,11 @@ def load_model(model_file):
         try:
             use_refinement = False if int(model['runtime']['refinement']) == 0 else True
         except KeyError:
-            use_refinement = True
+            use_refinement = False
         try:
             debug_am = False if int(model['runtime']['debug_am']) == 0 else True
         except KeyError:
-            debug_am = True
+            debug_am = False
         try:
             dyn_orders = False if int(model['runtime']['dyn_orders']) == 0 else True
         except KeyError:
