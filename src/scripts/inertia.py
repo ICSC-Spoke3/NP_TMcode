@@ -25,11 +25,15 @@
 
 import math
 import numpy as np
-#import pdb
+import pdb
 
 from sys import argv
 
-## \brief Main execution code
+## \cond
+__version__ = "0.10.10"
+## \endcond
+
+## \brief Main execution code.
 #
 # `main()` is the function that handles the creation of the script configuration
 # and the execution of the comparison. It returns an integer value corresponding
@@ -45,7 +49,9 @@ def main():
         print(ex)
         print("\nType \"./inertia.py --help\" to get more detailed help.")
         errors = 1
-    if config['help_mode']:
+    if config['version_mode']:
+      print("inertia.py v%s."%__version__)
+    elif config['help_mode']:
         config['help_mode'] = True
         print_help()
     else:
@@ -131,11 +137,11 @@ def get_centers(config):
     for i in range(nsph):
         fline = geom_file.readline()
         elems = ingest_line(fline)
-        value = float(elems[0])
+        value = float(elems[0].replace('D', 'E').replace('d', 'E'))
         centers['x'].append(value)
-        value = float(elems[1])
+        value = float(elems[1].replace('D', 'E').replace('d', 'E'))
         centers['y'].append(value)
-        value = float(elems[2])
+        value = float(elems[2].replace('D', 'E').replace('d', 'E'))
         centers['z'].append(value)
     geom_file.close()
     return centers
@@ -176,7 +182,7 @@ def get_cm_inertia_tensor(masses, stypes, centers):
             [-z * x, -z * y, x**2 + y**2]
         ])
         Itot += (I_sph + I_transfer)
-        # i loop ends here
+    # i loop ends here
     return Itot, center_of_mass
 
 ## \brief Compute the tensor of inertia of an aggregate with respect to origin of coordinates.
@@ -397,8 +403,8 @@ def get_types(config):
         while (read_layers < num_layers):
             fline = sc_file.readline()
             split_line = fline.split('(')[1].split(',')
-            rval = float(split_line[0])
-            ival = float(split_line[1][:-2])
+            rval = float(split_line[0].replace('D', 'E').replace('d', 'E'))
+            ival = float(split_line[1][:-2].replace('D', 'E').replace('d', 'E'))
             dc0 = (rval, ival)
             if not dc0 in found_dc0s:
                 found_dc0s.append(dc0)
@@ -456,7 +462,8 @@ def parse_arguments():
         'scat_name': '',
         'geom_name': '',
         'specific': [1.0],
-        'help_mode': False
+        'help_mode': False,
+        'version_mode': False
     }
     arg_index = 1
     skip_arg = False
@@ -482,6 +489,8 @@ def parse_arguments():
                 config['specific'].append(float(vec_specifics[si]))
         elif (arg.startswith("--help")):
             config['help_mode'] = True
+        elif (arg.startswith("--version")):
+            config['version_mode'] = True
         else:
             raise ValueError("Unrecognized argument \'{0:s}\'".format(arg))
         arg_index += 1
@@ -501,6 +510,7 @@ def print_help():
     print("--geom GEOM              Geometry configuration file (mandatory).          ")
     print("--help                   Print this help and exit.                         ")
     print("--spew=SPEC_WEIGHT       Specific weight of materials (in g/cm3, optional).")
+    print("--version                Print script version and exit.                    ")
     print("                                                                           ")
 
 # ### PROGRAM EXECUTION ###
