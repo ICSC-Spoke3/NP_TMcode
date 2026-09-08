@@ -1189,7 +1189,6 @@ double ScattererConfiguration::get_particle_radius(GeometryConfiguration *gc) {
     double dist2, max_dist;
     double max_dist2 = 0.0;
     double avgX = 0.0, avgY = 0.0, avgZ = 0.0;
-#pragma omp parallel for reduction(+: avgX, avgY, avgZ)
     for (int si = 0; si < _number_of_spheres; si++) {
       double sph_radius = get_radius(si);
       avgX += (sph_radius * gc->get_sph_x(si));

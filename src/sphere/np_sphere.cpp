@@ -74,10 +74,15 @@ extern void sphere(const string& config_file, const string& data_file, const str
  */
 int main(int argc, char **argv) {
   int ierr = 0;
+  string message;
 #ifdef MPI_VERSION
-  ierr = MPI_Init(&argc, &argv);
+  int mpi_provided;
+  ierr = MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &mpi_provided);
   // create and initialise class with essential MPI data
   mixMPI *mpidata = new mixMPI(MPI_COMM_WORLD);
+  message = "INFO: MPI rank " + to_string(mpidata->rank) + " starts with MPI level "
+    + to_string(mpi_provided) + "\n";
+  printf("%s", message.c_str());
 #else
   // create a the class with dummy data if we are not using MPI at all
   mixMPI *mpidata = new mixMPI();

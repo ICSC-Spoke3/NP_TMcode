@@ -379,7 +379,8 @@ void inclusion(const string& config_file, const string& data_file, const string&
 	sconf->mpibcast(mpidata);	    
 	cid->mpibcast(mpidata);
 	p_scattering_angles->mpibcast(mpidata);
-      }	
+	int send_barrier = MPI_Barrier(MPI_COMM_WORLD);
+      }
 #endif
       // Create this variable and initialise it with a default here, so that it is defined anyway, with or without OpenMP support enabled
       int ompnumthreads = 1;
@@ -569,7 +570,8 @@ void inclusion(const string& config_file, const string& data_file, const string&
     ScattererConfiguration *sconf = new ScattererConfiguration(mpidata);
     InclusionIterationData *cid = new InclusionIterationData(mpidata, device_count);
     ScatteringAngles *p_scattering_angles = new ScatteringAngles(mpidata);
-
+    int recv_barrier = MPI_Barrier(MPI_COMM_WORLD);
+    
     // Create this variable and initialise it with a default here, so that it is defined anyway, with or without OpenMP support enabled
     int ompnumthreads = 1;
     InclusionOutputInfo **p_outarray = NULL;

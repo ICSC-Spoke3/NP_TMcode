@@ -182,7 +182,8 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	sconf->mpibcast(mpidata);	    
 	sid->mpibcast(mpidata);
 	p_sa->mpibcast(mpidata);
-      }	
+	int send_barrier = MPI_Barrier(MPI_COMM_WORLD);
+      }
 #endif
       // Create this variable and initialise it with a default here, so that it is defined anyway, with or without OpenMP support enabled
       int ompnumthreads = 1;
@@ -340,6 +341,7 @@ void sphere(const string& config_file, const string& data_file, const string& ou
     ScattererConfiguration *sconf = new ScattererConfiguration(mpidata);
     SphereIterationData *sid = new SphereIterationData(mpidata, device_count);
     ScatteringAngles *p_sa = new ScatteringAngles(mpidata);
+    int recv_barrier = MPI_Barrier(MPI_COMM_WORLD);
     
     // Create this variable and initialise it with a default here, so that it is defined anyway, with or without OpenMP support enabled
     int ompnumthreads = 1;
