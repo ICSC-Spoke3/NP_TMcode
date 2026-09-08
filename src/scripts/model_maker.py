@@ -46,7 +46,7 @@ except ModuleNotFoundError as ex:
 from pathlib import Path
 from sys import argv
 
-## \brief Main execution code
+## \brief Main execution code.
 #
 # `main()` is the function that handles the creation of the code configuration.
 # It returns an integer value as exit code, using 0 to signal successful execution.
@@ -73,7 +73,7 @@ def main():
             result = 1
     return result
 
-## \brief Populate the dielectric constant data via interpolation
+## \brief Populate the dielectric constant data via interpolation.
 #
 #  \param sconf: `dict` Scatterer configuration dictionary.
 #  \return result: `int` An exit code (0 if successful).
@@ -341,7 +341,7 @@ def load_model(model_file):
                     for j in range(expected_radii):
                         sconf['rcf'][i][j] = float(model['particle_settings']['rad_frac'][i][j])
         # Create the gconf dict
-        use_refinement = True
+        use_refinement = False
         debug_am = False
         dyn_orders = True
         inv_accuracy = 1.0e-07
@@ -352,11 +352,11 @@ def load_model(model_file):
         try:
             use_refinement = False if int(model['runtime']['refinement']) == 0 else True
         except KeyError:
-            use_refinement = True
+            use_refinement = False
         try:
             debug_am = False if int(model['runtime']['debug_am']) == 0 else True
         except KeyError:
-            debug_am = True
+            debug_am = False
         try:
             dyn_orders = False if int(model['runtime']['dyn_orders']) == 0 else True
         except KeyError:
@@ -643,7 +643,7 @@ def parse_arguments():
 def print_help():
     print("###############################################           ")
     print("#                                             #           ")
-    print("#           NPTM_code MODEL_MAKER             #           ")
+    print("#           NP_TMcode MODEL_MAKER             #           ")
     print("#                                             #           ")
     print("###############################################           ")
     print("                                                          ")
@@ -679,9 +679,9 @@ def print_model_summary(scatterer, geometry):
     for i in range(scatterer['nsph']):
         sph_type_index = scatterer['vec_types'][i] - 1
         ros = scatterer['ros'][sph_type_index]
-        avgX += (ros * geometry['vec_sph_x'][i])
-        avgY += (ros * geometry['vec_sph_y'][i])
-        avgZ += (ros * geometry['vec_sph_z'][i])
+        avgX += geometry['vec_sph_x'][i]
+        avgY += geometry['vec_sph_y'][i]
+        avgZ += geometry['vec_sph_z'][i]
         R3tot += math.pow(ros, 3.0)
         if (ros > Rmax):
             Rmax = ros
@@ -1430,6 +1430,6 @@ def write_obj(scatterer, geometry, max_rad):
     os.remove(str(Path(str(out_dir), "TMP_MODEL.obj")))
     os.remove(str(Path(str(out_dir), "TMP_MODEL.mtl")))
 
-## \brief Exit code (0 for success)
+## \brief Exit code (0 for success).
 exit_code = main()
 exit(exit_code)
