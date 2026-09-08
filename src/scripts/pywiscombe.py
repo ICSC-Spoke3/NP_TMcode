@@ -29,6 +29,11 @@
 import math
 from sys import argv
 
+## \cond
+__version__ = "0.10.10"
+## \endcond
+
+
 ## \brief Main execution code
 #
 # `main()` is the function that handles the creation of the script configuration
@@ -41,7 +46,9 @@ def main():
     errors = 0
     try:
         config = parse_arguments()
-        if config['help_mode']:
+        if config['version_mode']:
+            print("pywiscombe.py v%s."%__version__)
+        elif config['help_mode']:
             print_help()
         else:
             if (config['mode'] == ''):
@@ -83,7 +90,8 @@ def parse_arguments():
         'wavelength': 0.0,
         'radius': 0.0,
         'refraction' : 1.0,
-        'help_mode': False
+        'help_mode': False,
+        'version_mode': False
     }
     arg_index = 1
     skip_arg = False
@@ -104,6 +112,8 @@ def parse_arguments():
             config['refraction'] = float(split_arg[1])
         elif (arg.startswith("--help")):
             config['help_mode'] = True
+        elif (arg.startswith("--version")):
+            config['version_mode'] = True
         else:
             raise ValueError("Unrecognized argument \'{0:s}\'".format(arg))
         arg_index += 1
@@ -124,6 +134,7 @@ def print_help():
     print("--wave=WAVELENGTH        Radiation wavelength in meters (mandatory).               ")
     print("--rad=RADIUS             Particle radius in meters (mandatory).                    ")
     print("--help                   Print this help and exit.                                 ")
+    print("--version                Print script version and exit.                            ")
     print("                                                                                   ")
 
 # ### PROGRAM EXECUTION ###
