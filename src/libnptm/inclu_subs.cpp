@@ -43,6 +43,10 @@
 #include "../include/clu_subs.h"
 #endif
 
+#ifndef INCLUDE_INCLU_SUBS_H_
+#include "../include/inclu_subs.h"
+#endif
+
 using namespace std;
 
 void cnf(int n, dcomplex z, int nm, dcomplex *csj, dcomplex *csy) {

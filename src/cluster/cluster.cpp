@@ -884,7 +884,7 @@ int cluster_jxi488_cycle(
     string outam0_name = output_path + "/c_AM0_JXI" + to_string(jxi488) + ".txt";
     sprintf(virtual_line, " AM matrix before CMS\n");
     outam0->append_line(virtual_line);
-    sprintf(virtual_line, " %d\n", ndit);
+    sprintf(virtual_line, " %ld\n", (int64_t)ndit);
     outam0->append_line(virtual_line);  
     sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
     outam0->append_line(virtual_line);
@@ -976,7 +976,7 @@ int cluster_jxi488_cycle(
       string outam1_ppm_name = output_path + "/c_AM1_JXI" + to_string(jxi488) + ".ppm";
       sprintf(virtual_line, " AM matrix after CMS before LUCIN\n");
       outam1->append_line(virtual_line);
-      sprintf(virtual_line, " %d\n", ndit);
+      sprintf(virtual_line, " %ld\n", (int64_t)ndit);
       outam1->append_line(virtual_line);  
       sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
       outam1->append_line(virtual_line);
@@ -1003,7 +1003,7 @@ int cluster_jxi488_cycle(
       string outam2_ppm_name = output_path + "/c_AM2_JXI" + to_string(jxi488) + ".ppm";
       sprintf(virtual_line, " AM matrix after LUCIN before ZTM\n");
       outam2->append_line(virtual_line);
-      sprintf(virtual_line, " %d\n", ndit);
+      sprintf(virtual_line, " %ld\n", (int64_t)ndit);
       outam2->append_line(virtual_line);  
       sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
       outam2->append_line(virtual_line);
@@ -1032,7 +1032,7 @@ int cluster_jxi488_cycle(
       string outam3_ppm_name = output_path + "/c_AM3_JXI" + to_string(jxi488) + ".ppm";
       sprintf(virtual_line, " AM0M matrix after ZTM\n");
       outam3->append_line(virtual_line);
-      sprintf(virtual_line, " %d\n", ndit);
+      sprintf(virtual_line, " %ld\n", (int64_t)ndit);
       outam3->append_line(virtual_line);  
       sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
       outam3->append_line(virtual_line);
