@@ -804,7 +804,7 @@ if [ "x$MAGMA" != "xno" ]; then
 		MAGMA_INCLUDE=$(pkg-config --cflags-only-I ${magma_pkg})
 		MAGMA_LIBS_DIR=$(pkg-config --libs-only-L ${magma_pkg})
 		MAGMAFLAGS=" -DUSE_MAGMA ${MAGMA_ILP64_FLAG} $CUDAFLAGS ${MAGMA_INCLUDE}"
-		MAGMALDFLAGS=" ${MAGMA_LIBS_DIR}-lmagma"
+		MAGMALDFLAGS=" ${MAGMA_LIBS_DIR} -lmagma"
 	    fi # end of MAGMA decision tree
 	else
             # search for MAGMA in some standard folders
@@ -876,7 +876,7 @@ int main(int argc, char** argv) {
   return 0;
 }
 EOF
-    $CXX -fopenmp -fno-strict-aliasing -foffload=nvptx-none="-O2 -march=sm_70 -mptx=7.3" conf_test_offload.cpp -o conf_test_offload > /dev/null 2>>error.log
+    $CXX -fopenmp -fcf-protection=none -fno-stack-protector -fno-strict-aliasing -foffload=nvptx-none="-O2 -march=sm_70 -mptx=7.3" conf_test_offload.cpp -o conf_test_offload > /dev/null 2>>error.log
     result=$?
     rm conf_test_offload.cpp
     if [ "x$result" = "x0" ]; then
@@ -887,7 +887,7 @@ EOF
     if [ "x$result" = "x0" ]; then
 	echo "yes"
 	echo "yes" >>configure.log
-	OFFLOADFLAGS=" -DUSE_TARGET_OFFLOAD -fno-strict-aliasing -foffload=nvptx-none=\"-O2 -march=sm_70 -mptx=7.3 -lm\""
+	OFFLOADFLAGS=" -DUSE_TARGET_OFFLOAD -fcf-protection=none -fno-stack-protector -fno-strict-aliasing -foffload=nvptx-none=\"-O2 -march=sm_70 -mptx=7.3 -lm\""
 	OFFLOADLDFLAGS=" -lgomp"
 	if [ "x${OMPFLAGS}" = "x" ]; then
 	    OFFLOADFLAGS="-fopenmp ${OFFLOADFLAGS}"
@@ -904,13 +904,13 @@ else
 fi
 # End of offload checks
 if [ "x$CXXFLAGS" = "x" ]; then
-    CXXFLAGS="-O${CXX_OPT}${CXX_DBG}${CLANGFLAGS}${INCLUDEFLAGS}${HDF5FLAGS}${OMPFLAGS}${MPIFLAGS}${LAPACKFLAGS}${CUBLASFLAGS}${MAGMAFLAGS}${DEBUGFLAGS}${OFFLOADFLAGS}${NVTXFLAGS}"
+    CXXFLAGS="-O${CXX_OPT} ${CXX_DBG} ${CLANGFLAGS} ${INCLUDEFLAGS} ${HDF5FLAGS} ${OMPFLAGS} ${MPIFLAGS} ${LAPACKFLAGS} ${CUBLASFLAGS} ${MAGMAFLAGS} ${DEBUGFLAGS} ${OFFLOADFLAGS} ${NVTXFLAGS}"
 fi
 if [ "x$CXXLDFLAGS" = "x" ]; then
     if [ "x$LIBMODE" = "xstatic" ]; then
-	CXXLDFLAGS="-Llibnptm -lnptm ${HDF5LDFLAGS} ${LDFLAGS} ${LAPACKLDFLAGS}${CUBLASLDFLAGS}${MAGMALDFLAGS}${OFFLOADLDFLAGS}"
+	CXXLDFLAGS="-Llibnptm -lnptm ${HDF5LDFLAGS} ${LDFLAGS} ${LAPACKLDFLAGS} ${CUBLASLDFLAGS} ${MAGMALDFLAGS} ${OFFLOADLDFLAGS}"
     else
-	CXXLDFLAGS="-Llibnptm -lnptm ${HDF5LDFLAGS} ${LDFLAGS} ${LAPACKLDFLAGS}${CUBLASLDFLAGS}${MAGMALDFLAGS}${OFFLOADLDFLAGS}"
+	CXXLDFLAGS="-Llibnptm -lnptm ${HDF5LDFLAGS} ${LDFLAGS} ${LAPACKLDFLAGS} ${CUBLASLDFLAGS} ${MAGMALDFLAGS} ${OFFLOADLDFLAGS}"
     fi
 fi
 
