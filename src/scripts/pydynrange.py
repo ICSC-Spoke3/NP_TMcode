@@ -26,6 +26,10 @@ import os
 
 from sys import argv, stdout
 
+## \cond
+__version__ = "0.10.10"
+## \endcond
+
 ## \brief Class to represent the dynamic range memory structure.
 #
 # In order to implement a light-weight test that is able to choose
@@ -127,11 +131,19 @@ class PlotData:
 #
 # \returns exit_code: `int` 0 on successful completion.
 def main():
-    config = parse_arguments()
+    config = {}
     exit_code = 0
-    if config['help_mode'] or len(argv) == 1:
-        config['help_mode'] = True
+    try:
+        config = parse_arguments()
+    except ValueError as ex:
+        print(ex)
+        print("\nType \"parse_output.py --help\" to get more detailed help.")
+        exit_code = 1
+        exit(exit_code)
+    if config['help_mode']:
         print_help()
+    elif config['version_mode']:
+        print("pydynrange.py v%s."%__version__)
     else:
         if config['matrix_name'] == "":
             exit_code = 1
@@ -220,10 +232,13 @@ def parse_arguments():
         'log_plot_y': True,
         'make_plots': False,
         'matrix_name': "",
+        'version_mode': False
     }
     for arg in argv[1:]:
         if (arg.startswith("--help")):
             config['help_mode'] = True
+        elif (arg.startswith("--version")):
+            config['version_mode'] = True
         elif (arg.startswith("--limit=")):
             split_arg = arg.split('=')
             config['limit'] = int(split_arg[1])
@@ -248,10 +263,11 @@ def print_help():
     print("Usage: \"./pydynrange.py FILE_NAME [OPTIONS]\"                          ")
     print("                                                                        ")
     print("Valid options are:                                                      ")
-    print("--help                                         Print this help and exit.")
-    print("--limit=NUMBER                             Check only NUMBER file lines.")
-    print("--lin-y                                 Use linear scale on plot y-axes.")
+    print("--help              Print this help and exit.                           ")
+    print("--limit=NUMBER      Check only NUMBER file lines.                       ")
+    print("--lin-y             Use linear scale on plot y-axes.                    ")
     print("--make-plots        Plot histograms of magnitudes (requires matplotlib).")
+    print("--version           Print script version and exit.                      ")
     print("                                                                        ")
 
 

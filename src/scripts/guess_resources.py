@@ -43,7 +43,13 @@ number_reg = re.compile(r'[-+]?[0-9]+\.[0-9]+([eE][-+]?[0-9]+)?')
 # \returns result: `int` Exit code (0 = SUCCESS).
 def main():
     result = 0
-    config = parse_arguments()
+    try:
+        config = parse_arguments()
+    except ValueError as ex:
+        print(ex)
+        print("\nType \"guess_resources.py --help\" to get more detailed help.")
+        result = 1
+        exit(result)
     if config['version_mode']:
         print("guess_resources.py v%s."%__version__)
     elif (config['help_mode']):

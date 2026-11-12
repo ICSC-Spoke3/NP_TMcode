@@ -29,6 +29,10 @@ import math
 import pdb
 from sys import argv
 
+## \cond
+__version__ = "0.10.10"
+## \endcond
+
 ## \brief Main execution code
 #
 # `main()` is the function that handles the creation of the script configuration
@@ -45,7 +49,10 @@ def main():
         print(ex)
         print("\nType \"parse_output.py --help\" to get more detailed help.")
         errors = 1
-    if config['help_mode']:
+        exit(errors)
+    if config['version_mode']:
+        print("parse_output.py v%s."%__version__)
+    elif config['help_mode']:
         config['help_mode'] = True
         print_help()
     else:
@@ -95,7 +102,8 @@ def parse_arguments():
         'application': '',
         'format': 'LEGACY',
         'selection': '[ALL]',
-        'help_mode': False
+        'help_mode': False,
+        'version_mode': False
     }
     arg_index = 1
     skip_arg = False
@@ -120,6 +128,8 @@ def parse_arguments():
             config['selection'] = split_arg[1]
         elif (arg.startswith("--help")):
             config['help_mode'] = True
+        elif (arg.startswith("--version")):
+            config['version_mode'] = True
         else:
             raise ValueError("Unrecognized argument \'{0:s}\'".format(arg))
         arg_index += 1
@@ -825,8 +835,8 @@ def parse_legacy_osph(config):
 def print_help():
     print("                                                  ")
     print("***               PARSE RESULTS                ***")
-    print("                                                  ")
-    print("Parse the results of a NPTMcode model calculation.")
+    print("                                                                                          ")
+    print("Parse the results of a NPTMcode model calculation.                                        ")
     print("                                                                                          ")
     print("Usage: \"./parse_results.py --in INPUT --out OUTPUT [OPTIONS]\"                           ")
     print("                                                                                          ")
@@ -841,6 +851,7 @@ def print_help():
     print("                         tions), IRP (i. e. Integrated Radiation Pressures), or DRP (i. e.")
     print("                         Differential Radiation Pressures)                                ")
     print("--help                   Print this help and exit.                                        ")
+    print("--version                Print script version and exit.                                   ")
     print("                                                                                          ")
 
 # ### PROGRAM EXECUTION ###

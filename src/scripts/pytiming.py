@@ -38,6 +38,7 @@ import re
 from sys import argv
 
 ## \cond
+__version__ = "0.10.10"
 time_reg = re.compile(r'[0-9]+\.[0-9]+s')
 ## \endcond
 
@@ -48,11 +49,19 @@ time_reg = re.compile(r'[0-9]+\.[0-9]+s')
 #
 # \returns exit_code: `int` 0 on successful completion.
 def main():
-    config = parse_arguments()
     exit_code = 0
-    if config['help_mode'] or len(argv) == 1:
-        config['help_mode'] = True
+    config = {}
+    try:
+        config = parse_arguments()
+    except ValueError as ex:
+        print(ex)
+        print("\nType \"pytiming.py --help\" to get more detailed help.")
+        exit_code = 1
+        exit(exit_code)
+    if config['help_mode']:
         print_help()
+    elif config['version_mode']:
+        print("pytiming.py v%s."%__version__)
     else:
         if config['log_name'] is None:
             exit_code = 1
@@ -99,6 +108,7 @@ def parse_arguments():
         'help_mode': False,
         'filter': "",
         'threads': 1,
+        'version_mode': False
     }
     for arg in argv[1:]:
         split_arg = arg.split("=")
@@ -110,6 +120,8 @@ def parse_arguments():
             config['threads'] = int(split_arg[1])
         elif (arg.startswith("--help")):
             config['help_mode'] = True
+        elif (arg.startswith("--version")):
+            config['version_mode'] = True
         else:
             raise Exception("Unrecognized argument \'{0:s}\'".format(arg))
     return config
@@ -118,17 +130,18 @@ def parse_arguments():
 def print_help():
     print("                                            ")
     print("***              PYTIMING                ***")
-    print("                                            ")
-    print("Get the amount of time spent in calculation.")
-    print("                                            ")
-    print("Usage: \"./pytiming.py OPTIONS\"            ")
-    print("                                            ")
-    print("Valid options are:                          ")
-    print("--logname=TIMING_LOG      File containing log of timing (mandatory).")
-    print("--filter=FILTER           Start of the log lines to be accounted for (optional).")
-    print("--help                    Print this help and exit.")
+    print("                                                                                        ")
+    print("Get the amount of time spent in calculation.                                            ")
+    print("                                                                                        ")
+    print("Usage: \"./pytiming.py OPTIONS\"                                                        ")
+    print("                                                                                        ")
+    print("Valid options are:                                                                      ")
+    print("--logname=TIMING_LOG      File containing log of timing (mandatory).                    ")
+    print("--filter=FILTER           Start of the log lines to be accounted for (optional).        ")
+    print("--help                    Print this help and exit.                                     ")
     print("--threads=NUM_THREADS     Number of threads or processes used in calculation (optional).")
-    print("                                            ")
+    print("--version                 Print script version and exit.                                ")
+    print("                                                                                        ")
 
 
 # ### PROGRAM EXECUTION ###

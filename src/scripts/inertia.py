@@ -49,6 +49,7 @@ def main():
         print(ex)
         print("\nType \"./inertia.py --help\" to get more detailed help.")
         errors = 1
+        exit(errors)
     if config['version_mode']:
       print("inertia.py v%s."%__version__)
     elif config['help_mode']:

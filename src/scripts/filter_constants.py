@@ -49,8 +49,15 @@ except ImportError:
 #
 #  \returns result: `int` Exit code (0 = SUCCESS).
 def main():
+    config = {}
     result = 0
-    config = parse_arguments()
+    try:
+        config = parse_arguments()
+    except ValueError as ex:
+        print(ex)
+        print("\nType \"filter_constants.py --help\" to get more detailed help.")
+        result = 1
+        exit(result)
     if config['version_mode']:
         print("filter_constants.py v%s."%__version__)
     elif (config['help_mode']):

@@ -54,7 +54,14 @@ from sys import argv
 # \returns result: `int` Exit code (0 = SUCCESS).
 def main():
     result = 0
-    config = parse_arguments()
+    config = {}
+    try:
+        config = parse_arguments()
+    except ValueError as ex:
+        print(ex)
+        print("\nType \"./inertia.py --help\" to get more detailed help.")
+        result = 1
+        exit(result)
     if config['version_mode']:
         print("model_maker.py v%s."%__version__)
         exit(0)
@@ -488,7 +495,7 @@ def load_model(model_file):
                 except KeyError:
                     rnd_attempts = 100
                 if (rnd_engine == "COMPACT"):
-                    check = random_compact(sconf, gconf, rnd_seed, max_rad, rnd_attempts)
+                    check = random_compact(sconf, gconf, rnd_seed, max_rad)
                     if (check == -1):
                         print("ERROR: compact random generator works only when all sphere types have the same radius.")
                         return (None, None)
