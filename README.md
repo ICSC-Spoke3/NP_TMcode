@@ -14,6 +14,8 @@ Distributing the code and its sources is possible under the terms of the GNU GPL
 
 *NOTE:* The building process requires a working installation of a C++ and a FORTRAN compiler. Many solutions are available, but the recommended option is the *GNU Compiler Collection* `gcc` with the addition of `g++` and `gfortran`. Single-workstation multi-threaded parallelism is supported through _OpenMP_, while the multi-node code implementation further requires the use of parallel compilers complying with the _MPI_ standard (_OpenMPI_, _MPICH_).
 
+*NOTE:* Starting from code version `0.11.0`, parts of the development were carried out with the assistance of Claude (Anthropic), an AI model, used through Claude Code. All changes were reviewed, tested and approved by the NP_TMcode team.
+
 # Acknowledgments
 
 Supported by Italian Research Center on High Performance Computing Big Data and Quantum Computing (ICSC), project funded by European Union - NextGenerationEU - and National Recovery and Resilience Plan (NRRP) - Mission 4 Component 2 within the activities of Spoke 3 (Astrophysics and Cosmos Observations). This work was completed in part at the CINECA GPU HACKATHON 2024, part of the Open Hackathons program. The authors would like to acknowledge OpenACC-Standard.org for their support.
