@@ -15,6 +15,7 @@
  */
 
 //! \file test_file_io.cpp
+//! \ingroup tests
 
 #include <cstdio>
 #include <exception>
@@ -40,6 +41,11 @@
 using namespace std;
 
 /*! \brief Main program execution body.
+ *
+ * Currently this only builds and releases a `List<string>`; no file I/O
+ * is exercised yet.
+ *
+ * \return result: `int` Always 0.
  */
 int main() {
   List<string> *parameter_names = new List<string>(1);

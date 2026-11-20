@@ -24,10 +24,15 @@
  * calculations on different data structures. In order to manage access to such
  * variety of calculations, most functions are declared as `void` and they operate
  * on output arguments passed by reference.
+ * \ingroup kernels
  */
 
 #ifndef INCLUDE_INCLU_SUBS_H_
 #define INCLUDE_INCLU_SUBS_H_
+
+/*! \addtogroup kernels
+ * @{
+ */
 
 /*! \brief C++ porting of CNF.
  *
@@ -94,4 +99,5 @@ void instr(double **rcf, ParticleDescriptor *c1);
  */
 void ospv(ParticleDescriptor *c1, double vk, double sze, double exri, dcomplex entn, double enti, int &jer, int &lcalc, dcomplex &arg);
 
+//! @}
 #endif // INCLUDE_INCLU_SUBS_H_

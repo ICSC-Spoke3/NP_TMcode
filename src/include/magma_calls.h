@@ -19,10 +19,17 @@
  *
  * \brief C++ interface to MAGMA calls.
  *
+ * \ingroup linalg
  */
 
 #ifndef INCLUDE_MAGMA_CALLS_H_
 #define INCLUDE_MAGMA_CALLS_H_
+
+#include <string>
+
+/*! \addtogroup linalg
+ * @{
+ */
 
 //! \brief Maximum number of elements on GPU static vectors.
 #define MAX_GPU_STACK_DOUBLE 128
@@ -125,14 +132,20 @@ void magma_r3jjr(int j2, int j3, int m2, int m3, double rac3j[]);
 /**
  * \brief Invert a pre-existing GPU complex matrix with double precision elements.
  *
+ * The function is called inside an OpenMP target data region, which
+ * exceptions cannot leave: a GPU failure is returned as a description. It
+ * happens before the matrix changes, so the caller can invert the matrix
+ * in another way.
+ *
  * \param[in,out] mat: Matrix of complex. The matrix to be inverted.
  * \param[in] n: `magma_int_t` The number of rows and columns of the [n x n] matrix.
- * \param[out] jer: `int &` Reference to an integer return flag.
+ * \param[out] jer: `int &` Reference to an integer return flag (non-zero for a singular matrix or a failed refinement).
  * \param[in] queue: `magma_queue_t` The MAGMA device communication queue.
  * \param[in] device_id: `int` ID of the device for matrix inversion offloading (optional, default 0).
  * \param[in] rs: `const RuntimeSettings &` Runtime settings instance (optional).
+ * \return failure: `string` Description of the GPU failure, or an empty string.
  */
-void magma_zinvert_resident(
+std::string magma_zinvert_resident(
   magmaDoubleComplex *mat, magma_int_t n, int &jer, magma_queue_t queue, int device_id=0,
   const RuntimeSettings& rs=RuntimeSettings()
 );
@@ -154,6 +167,7 @@ void magma_zinvert_resident(
  * \param[in] sam_v: `magmaDoubleComplex *` Vector form of sums from vec_am.
  * \param[in] gis_v: `magmaDoubleComplex *`
  * \param[in] gls_v: `magmaDoubleComplex *`
+ * \param[out] vec_am0m: `magmaDoubleComplex *` Vector form of the monocentered T-matrix.
  * \param[in] device_id: `int` ID of the device to build the matrix on.
  * \return result: `magma_int_t` A return code (MAGMA_SUCCESS, if everything is fine).
  */
@@ -167,6 +181,18 @@ magma_int_t magma_ztm(
 #endif // USE_TARGET_OFFLOAD
 
 /**
+ * \brief Check that a GPU can be used through MAGMA.
+ *
+ * `magma_getdevices()` does not report the errors of the GPU runtime, so it
+ * can count devices that cannot be used (for instance, when none is
+ * visible). The function allocates and frees a small buffer on the device.
+ *
+ * \param[in] device_id: `int` ID of the device.
+ * \return usable: `bool` Whether the allocation succeeded.
+ */
+bool magma_device_usable(int device_id);
+
+/**
  * \brief Invert a complex matrix with double precision elements.
  *
  * This function is a first implementation of GPU use. The data transfer
@@ -174,11 +200,15 @@ magma_int_t magma_ztm(
  * to be inverted is copied from the host memory to the GPU, inverted, possibly
  * refined and finally taken back to the host, leaving the GPU free.
  *
+ * If the GPU fails (for instance, if it has no room for the matrix), the
+ * function throws a `DeviceError` and leaves the matrix unchanged.
+ *
  * \param[in,out] mat: Matrix of complex. The matrix to be inverted.
  * \param[in] n: `np_int` The number of rows and columns of the [n x n] matrix.
- * \param[out] jer: `int &` Reference to an integer return flag.
+ * \param[out] jer: `int &` Reference to an integer return flag (non-zero for a singular matrix).
  * \param[in] device_id: `int` ID of the device for matrix inversion offloading (optional, default 0).
  * \param[in] rs: `const RuntimeSettings &` Runtime settings instance (optional).
+ * \throws DeviceError If the GPU fails.
  */
 void magma_zinvert(
   dcomplex **mat, np_int n, int &jer, int device_id=0,
@@ -201,6 +231,9 @@ void magma_zinvert(
  * instructs it to use the back-up. In case of successful refinement, instead,
  * the calling function will be responsible of getting the refined matrix from
  * device back to the host.
+ * If the GPU has no room for the refinement buffers, the function writes a
+ * warning and returns success without changing the matrices, so that the
+ * unrefined inverse is used.
  *
  * \param[in] rs: `const RuntimeSettings &` Runtime settings instance.
  * \param[in] a: `magmaDoubleComplex *` Pointer to the first element of the non-inverted matrix on host.
@@ -214,4 +247,5 @@ magma_int_t magma_newton(
   magmaDoubleComplex* d_a, magma_queue_t queue
 );
 
+//! @}
 #endif

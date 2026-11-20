@@ -1,3 +1,12 @@
+/*! \file test_inclusion_outputs.cpp
+ *
+ * \brief Test reading and writing of `InclusionOutputInfo` instances.
+ *
+ * Must be run from a folder two levels below the repository root
+ * (e.g. `build/testing`), since data paths are relative.
+ * \ingroup tests
+ */
+
 #include <string>
 
 #ifndef INCLUDE_TYPES_H_
@@ -26,9 +35,31 @@
 
 using namespace std;
 
+/*! \brief Convert `test_data/inclusion/c_OINCLU.hd5` to a legacy `c_OINCLU` file.
+ *
+ * Load the output of the test case from its HDF5 file and write it
+ * again in the legacy text format.
+ *
+ * \return result: `int` 0 if the test passed, 1 if it failed.
+ */
 int test_inclusion_hdf5_output();
+
+/*! \brief Allocate an `InclusionOutputInfo` for the `test_data/inclusion` case.
+ *
+ * Read the legacy configuration files of the test case and allocate
+ * an empty output structure for it.
+ *
+ * \return result: `int` 0 if the test passed, 10 if it failed.
+ */
 int test_inclusion_devel();
 
+/*! \brief Main program execution body.
+ *
+ * Runs each test in sequence and adds up their failure codes, so that
+ * every decimal digit of the result identifies one failing test.
+ *
+ * \return result: `int` Sum of the failure codes (1 and 10); 0 if all tests passed.
+ */
 int main() {
   int result = 0;
   result += test_inclusion_hdf5_output(); // 1 if failed

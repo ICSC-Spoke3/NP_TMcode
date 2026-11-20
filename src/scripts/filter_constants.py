@@ -16,6 +16,7 @@
 #   this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
 
 ## @package filter_constants
+#  \ingroup python_tools
 #  \brief Script to create optical function grids for NPTM_code.
 #
 #  One of the factors that critically affect the duration of a calculation
@@ -32,15 +33,15 @@ import numpy as np
 from sys import argv
 
 ## \cond
-__version__ = "0.10.10"
+from nptm_version import __version__
 allow_plots = True
-## \endcond
 
 try:
     import matplotlib.pyplot as plt
 except ImportError:
     print("WARNING: MATPLOTLIB not found - disabling plots.")
     allow_plots = False
+## \endcond
 
 ## \brief Main execution code.
 #

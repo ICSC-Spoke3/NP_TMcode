@@ -17,12 +17,32 @@
 /*! \file logging.h
  *
  * \brief Definition of the logging system.
+ * \ingroup support
  */
 #ifndef INCLUDE_LOGGING_H_
 #define INCLUDE_LOGGING_H_
 
-//! \brief Code version.
-#define NPTM_VERSION "0.10.10"
+/*! \addtogroup support
+ * @{
+ */
+
+//! \cond
+#define NPTM_STRINGIFY_(x) #x
+#define NPTM_STRINGIFY(x) NPTM_STRINGIFY_(x)
+//! \endcond
+
+#ifdef NPTM_VERSION_ID
+/*! \brief Code version, from the "version" key of `CITATION.cff`.
+ *
+ * `configure` reads the key and defines `NPTM_VERSION_ID` (without
+ * quotes); a build without it reports "unknown". Rerun `configure` after
+ * changing the version.
+ */
+#define NPTM_VERSION NPTM_STRINGIFY(NPTM_VERSION_ID)
+#else
+//! \brief Code version: unknown, because `configure` did not define `NPTM_VERSION_ID`.
+#define NPTM_VERSION "unknown"
+#endif
 
 //! \brief Debug level logging (maximum verbosity).
 #define LOG_DEBG 0
@@ -48,6 +68,13 @@
  * The Logger class is designed to work with open files. It is a user responsibility
  * to check that the required log files are properly opened before use, and closed
  * thereafter, if they are not the standard `stdout` and `stderr` streams.
+ *
+ * Every line written by a logger starts with a tag that names its level:
+ * `[DEBUG] `, `[INFO] `, `[WARN] ` or `[ERROR] `. The logger adds the tag, so
+ * messages must not include it. A message may be written in several calls:
+ * the tag is added only at the start of a line (a call that continues a line
+ * gets none), and a line that already starts with a tag (e.g. the text of an
+ * exception carrying `[ERROR] `) is not tagged again.
  */
 class Logger {
  protected:
@@ -61,6 +88,20 @@ class Logger {
   int log_threshold;
   //! \brief Number of identical message repetitions.
   long repetitions;
+  //! \brief Whether the next character of the logging stream starts a line.
+  mutable bool log_at_line_start;
+  //! \brief Whether the next character of the error stream starts a line.
+  mutable bool err_at_line_start;
+
+  /*! \brief Add a tag at the start of each line of a message.
+   *
+   * \param message: `const string &` The message to be tagged.
+   * \param tag: `const char *` The tag to add.
+   * \param at_line_start: `bool &` Whether the message starts a line
+   * (updated for the next message).
+   * \return tagged: `string` The tagged message.
+   */
+  std::string tag_lines(const std::string& message, const char *tag, bool &at_line_start) const;
 
  public:
   /*! \brief Logger instance constructor.
@@ -80,7 +121,7 @@ class Logger {
    */
   ~Logger();
 
-  /*! \brief Print a message to the error output.
+  /*! \brief Print a message to the error output, tagged as `[ERROR] `.
    *
    * \param message: `string` The message to be printed.
    */
@@ -93,6 +134,9 @@ class Logger {
   void flush(int level=LOG_DEBG);
 
   /*! \brief Print a message, depending on its logging level.
+   *
+   * The message is tagged with its level. `LOG_ERRO` messages go to the
+   * error output, like those printed with `err()`.
    *
    * \param message: `string` The message to be printed.
    * \param level: `int` The priority level (default is `LOG_INFO = 1`).
@@ -112,4 +156,5 @@ class Logger {
   void push(const std::string& message);
 };
 
+//! @}
 #endif

@@ -17,6 +17,7 @@
 /*! \file cluster.cpp
  *
  * \brief Implementation of the calculation for a cluster of spheres.
+ * \ingroup prog_cluster
  */
 #include <chrono>
 #include <cmath>
@@ -40,12 +41,17 @@
 #include <nvtx3/nvToolsExt.h>
 #endif
 
-#ifdef USE_CUBLAS
-#include <cuda_runtime.h>
-#endif
-
 #ifdef USE_MAGMA
+// In clang's OpenMP offload compilation for NVIDIA GPUs, the CUDA headers
+// define __noinline__ as a macro, which breaks the libstdc++ headers (GCC 12
+// and later) that use __attribute__((__noinline__)). Include those first,
+// and remove the macro after the CUDA headers, unless compiling CUDA code.
+#include <memory>
+#include <string>
 #include "magma_v2.h"
+#if defined(__noinline__) && !defined(__CUDACC__)
+#undef __noinline__
+#endif
 #endif
 
 #ifndef INCLUDE_TYPES_H_
@@ -96,6 +102,14 @@
 #include "../include/utils.h"
 #endif
 
+#ifndef INCLUDE_RESOURCES_H_
+#include "../include/resources.h"
+#endif
+
+#ifndef INCLUDE_GPU_RUNTIME_H_
+#include "../include/gpu_runtime.h"
+#endif
+
 #ifndef INCLUDE_OUTPUTS_H_
 #include "../include/outputs.h"
 #endif
@@ -108,13 +122,11 @@
 #include "../include/Commons.h"
 #endif
 
-#ifdef USE_TARGET_OFFLOAD
 #ifdef USE_MAGMA
 #ifndef INCLUDE_MAGMA_CALLS_H_
 #include "../include/magma_calls.h"
 #endif // INCLUDE_MAGMA_CALLS
 #endif // USE_MAGMA
-#endif // USE_TARGET_OFFLOAD
 
 using namespace std;
 
@@ -133,8 +145,12 @@ using namespace std;
  *  \param cid: `ClusterIterationData *` Pointer to a `ClusterIterationData` object.
  *  \param oi: `ClusterOutputInfo *` Pointer to a `ClusterOutputInfo` object.
  *  \param output_path: `const string &` Path to the output directory.
+ *  \param tmatrix: `TransitionMatrix *&` Pointer that receives the T-matrix of scale
+ *  JWTM, when this cycle computes it (it is written by MPI process 0 after the loop).
+ *  \return jer: `int` Error code: 0 on success, non-zero if a step of the
+ *  calculation (HJV, DME or the matrix inversion) failed for this wavelength.
  */
-int cluster_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf, ScatteringAngles *sa, ClusterIterationData *cid, ClusterOutputInfo *oi, const string& output_path);
+int cluster_jxi488_cycle(int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf, ScatteringAngles *sa, ClusterIterationData *cid, ClusterOutputInfo *oi, const string& output_path, TransitionMatrix *&tmatrix);
 
 /*! \brief C++ implementation of CLU
  *
@@ -150,14 +166,37 @@ void cluster(const string& config_file, const string& data_file, const string& o
   string timing_name;
   FILE *timing_file;
   Logger *time_logger;
-  if (mpidata->rank == 0) {
-    timing_name = output_path + "/c_timing_mpi"+ to_string(mpidata->rank) +".log";
-    timing_file = fopen(timing_name.c_str(), "w");
-    time_logger = new Logger(LOG_DEBG, timing_file);
+  // Checks before the calculation. MPI process 0 reads the input files and
+  // writes the outputs, so it checks them; the result is shared with the
+  // other processes (see agree_on_errors()), which stop with it. Other
+  // processes may run on nodes that do not see the same file system.
+  timing_file = NULL;
+  time_logger = NULL;
+  int preflight_code = 0;
+  string preflight_message;
+  try {
+    if (mpidata->rank == 0) {
+      check_input_file(config_file, "scatterer configuration");
+      check_input_file(data_file, "geometry configuration");
+      check_output_folder(output_path);
+      timing_name = output_path + "/c_timing_mpi"+ to_string(mpidata->rank) +".log";
+      timing_file = fopen(timing_name.c_str(), "w");
+      if (timing_file == NULL) {
+	throw OutputError("cannot create the timing log \"" + timing_name + "\"");
+      }
+      time_logger = new Logger(LOG_DEBG, timing_file);
+    }
+  } catch (const NptmError &ex) {
+    preflight_code = ex.exit_code();
+    preflight_message = ex.what();
   }
+  agree_on_errors(mpidata, preflight_code, preflight_message);
   Logger *logger = new Logger(LOG_DEBG);
   int device_count = 0;
-  const double ram_overhead_factor = get_ram_overhead();
+  // State of the GPUs of this process: a problem is not fatal here, because
+  // the device policy of the calculation is known only after process 0 has
+  // read the input (see check_devices()).
+  int device_status = DEVICE_STATUS_OK;
 
 #ifdef USE_MAGMA
   //===========
@@ -165,58 +204,83 @@ void cluster(const string& config_file, const string& data_file, const string& o
   //===========
   const magma_int_t d_array_max_size = 32; // TEMPORARY: can become configurable parameter
   magma_device_t *device_array = new magma_device_t[d_array_max_size];
-  magma_int_t num_devices;
+  magma_int_t num_devices = 0;
 #ifdef USE_TARGET_OFFLOAD
-  cudaDeviceSetLimit(cudaLimitStackSize, 4096);
+  // The offload kernels need a larger stack than the runtime default.
+  gpu_set_stack_limit(4096);
 #endif // USE TARGET_OFFLOAD
   magma_getdevices(device_array, d_array_max_size, &num_devices);
+  if (num_devices < 0) num_devices = 0;
+  if (num_devices > d_array_max_size) num_devices = d_array_max_size;
   device_count = (int)num_devices;
   delete[] device_array;
-  message = "DEBUG: Proc-" + to_string(mpidata->rank) + " found " + to_string(device_count) + " GPU ";
+  message = "Proc-" + to_string(mpidata->rank) + " found " + to_string(device_count) + " GPU ";
   if (device_count > 1) message += "devices.\n";
   else message += "device.\n";
   logger->log(message, LOG_DEBG);
-  logger->log("INFO: Process " + to_string(mpidata->rank) + " initializes MAGMA.\n");
+  logger->log("Process " + to_string(mpidata->rank) + " initializes MAGMA.\n");
   magma_int_t magma_result = magma_init();
-  if (magma_result != MAGMA_SUCCESS) {
-    logger->err("ERROR: Process " + to_string(mpidata->rank) + " failed to initilize MAGMA.\n");
-    logger->err("PROC-" + to_string(mpidata->rank) + ": MAGMA error code " + to_string(magma_result) + "\n");
-    if (mpidata->rank == 0) {
-      fclose(timing_file);
-      delete time_logger;
-    }
-    delete logger;
-    return;
+  bool magma_ready = (magma_result == MAGMA_SUCCESS);
+  if (!magma_ready) {
+    logger->log(
+      "Process " + to_string(mpidata->rank) + ": MAGMA initialization failed (MAGMA error code "
+      + to_string(magma_result) + ").\n", LOG_DEBG
+    );
+    device_status = DEVICE_STATUS_INIT_FAILED;
+    device_count = 0;
+  } else if (device_count == 0) {
+    device_status = DEVICE_STATUS_NONE_FOUND;
+  } else if (!magma_device_usable(mpidata->rank % device_count)) {
+    // magma_getdevices() can count GPUs that cannot be used (for instance,
+    // when none is visible): check the GPU of this process.
+    logger->log(
+      "Process " + to_string(mpidata->rank) + ": GPU " + to_string(mpidata->rank % device_count)
+      + " cannot allocate memory.\n", LOG_DEBG
+    );
+    device_status = DEVICE_STATUS_INIT_FAILED;
+    device_count = 0;
   }
-// end MAGMA initialisation
+  // end MAGMA initialisation
 #elif defined USE_CUBLAS
-  cudaGetDeviceCount(&device_count);
-  logger->log("DEBUG: Proc-" + to_string(mpidata->rank) + " found " + to_string(device_count) + " CUDA devices.\n", LOG_DEBG);
-#endif 
+  string runtime_error;
+  device_count = gpu_device_count(runtime_error);
+  if (device_count < 0) {
+    logger->log(
+      "Process " + to_string(mpidata->rank) + ": GPU runtime initialization failed ("
+      + runtime_error + ").\n", LOG_DEBG
+    );
+    device_status = DEVICE_STATUS_INIT_FAILED;
+    device_count = 0;
+  } else if (device_count == 0) {
+    device_status = DEVICE_STATUS_NONE_FOUND;
+  }
+  logger->log(
+    "Proc-" + to_string(mpidata->rank) + " found " + to_string(device_count) + " "
+    + gpu_runtime_name() + " devices.\n", LOG_DEBG
+  );
+#endif
+
+  // Memory and GPUs of all the processes, measured before the calculation
+  // allocates its data: process 0 checks the needs of the calculation.
+  ResourceSurvey survey(mpidata, device_count, device_status);
 
   //===========================
   // the following only happens on MPI process 0
   //===========================
   if (mpidata->rank == 0) {
+    // Until the configuration is sent to the other MPI processes, they wait
+    // for it: a problem found here is reported to them before stopping.
+    bool setup_shared = false;
+    try {
 #ifdef USE_NVTX
     nvtxRangePush("Set up");
 #endif
     //=======================
     // Initialise sconf from configuration file
     //=======================
-    logger->log("INFO: making legacy configuration...", LOG_INFO);
+    logger->log("making legacy configuration...", LOG_INFO);
     ScattererConfiguration *sconf = NULL;
-    try {
-      sconf = ScattererConfiguration::from_dedfb(config_file);
-    } catch(const OpenConfigurationFileException &ex) {
-      logger->err("\nERROR: failed to open scatterer configuration file.\n");
-      string message = "FILE: " + string(ex.what()) + "\n";
-      logger->err(message);
-      fclose(timing_file);
-      delete time_logger;
-      delete logger;
-      return;
-    }
+    sconf = ScattererConfiguration::from_dedfb(config_file);
     sconf->write_formatted(output_path + "/c_OEDFB");
     sconf->write_binary(output_path + "/c_TEDF");
     sconf->write_binary(output_path + "/c_TEDF.hd5", "HDF5");
@@ -226,18 +290,7 @@ void cluster(const string& config_file, const string& data_file, const string& o
     // Initialise gconf from configuration files
     //========================
     GeometryConfiguration *gconf = NULL;
-    try {
-      gconf = GeometryConfiguration::from_legacy(data_file);
-    } catch (const OpenConfigurationFileException &ex) {
-      logger->err("\nERROR: failed to open geometry configuration file.\n");
-      string message = "FILE: " + string(ex.what()) + "\n";
-      logger->err(message);
-      if (sconf) delete sconf;
-      fclose(timing_file);
-      delete time_logger;
-      delete logger;
-      return;
-    }
+    gconf = GeometryConfiguration::from_legacy(data_file);
     logger->log(" done.\n", LOG_INFO);
     //end gconf initialisation
 
@@ -249,21 +302,21 @@ void cluster(const string& config_file, const string& data_file, const string& o
     // Sanity check on number of sphere consistency, should always be verified
     if (s_nsph == nsph) {
       message = (gconf->offload_flag) ?
-	"INFO: target offload is enabled.\n" :
-	"INFO: target offload is disabled.\n";
+	"target offload is enabled.\n" :
+	"target offload is disabled.\n";
       logger->log(message);
       char virtual_line[256];
       sprintf(virtual_line, "%.5lg m.\n", sconf->get_particle_radius(gconf));
-      message = "INFO: particle radius is " + (string)virtual_line;
+      message = "particle radius is " + (string)virtual_line;
       logger->log(message);
       if (gconf->invert_mode == RuntimeSettings::INV_MODE_LU) {
-	message = "INFO: using LU factorization for inversion.\n";
+	message = "using LU factorization for inversion.\n";
 	logger->log(message);
       } else if(gconf->invert_mode == RuntimeSettings::INV_MODE_GESV) {
-	message = "INFO: using GESV system solver for inversion.\n";
+	message = "using GESV system solver for inversion.\n";
 	logger->log(message);
       } else if(gconf->invert_mode == RuntimeSettings::INV_MODE_RBT) {
-	message = "INFO: using RBT for inversion.\n";
+	message = "using RBT for inversion.\n";
 	logger->log(message);
       }
       // else if(gconf->invert_mode == RuntimeSettings::INV_MODE_SVD) {
@@ -277,25 +330,25 @@ void cluster(const string& config_file, const string& data_file, const string& o
       }
       int *overlaps = check_overlaps(sconf, gconf, tolerance);
       if (overlaps[0] != 0) {
-	message = "WARNING: detected limiting separation between spheres!\n";
+	message = "detected limiting separation between spheres!\n";
 	logger->log(message, LOG_WARN);
 	for (int oi = 0; oi < overlaps[0]; oi++) {
 	  int index_0 = overlaps[1 + 2 * oi];
 	  int index_1 = overlaps[2 + 2 * oi];
 	  double overlap = get_overlap(sconf, gconf, index_0 - 1, index_1 - 1);
 	  if (overlap > 0.0) {
-	    message = "INFO: sphere " + to_string(index_0) +
+	    message = "sphere " + to_string(index_0) +
 	      " overlaps with sphere " + to_string(index_1) +
 	      "\n";
 	    logger->log(message);
 	    sprintf(
-	      virtual_line, "INFO: overlap is %.5lg m (tolerance is %.5lg m)\n",
+	      virtual_line, "overlap is %.5lg m (tolerance is %.5lg m)\n",
 	      overlap, tolerance
 	    );
 	    message = (string)virtual_line;
 	    logger->log(message);
 	    if (tolerance == 0.0 || overlap > tolerance) {
-	      message = "ERROR: sphere overlap above tolerance limit!\n";
+	      message = "[ERROR] sphere overlap above tolerance limit!\n";
 	      logger->err(message);
 	      throw(UnrecognizedConfigurationException(message));
 	    } // tolerance == 0 || overlap > tolerance
@@ -304,11 +357,6 @@ void cluster(const string& config_file, const string& data_file, const string& o
       } // overlaps[0] != 0
       delete[] overlaps;
       // Memory requirements test
-      long cid_size_bytes = ClusterIterationData::get_size(gconf, sconf);
-      double cid_size_gb = cid_size_bytes / 1024.0 / 1024.0 / 1024.0;
-      sprintf(virtual_line, "%.5lg", cid_size_gb);
-      message = "INFO: iteration data requires " + (string)virtual_line + " GiB of RAM.\n";
-      logger->log(message);
       int omp_wavelength_threads = 1;
 #ifdef _OPENMP
 #pragma omp parallel
@@ -319,42 +367,62 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	}
       }
 #endif //_OPENMP
-      double requested_ram_gb = (ram_overhead_factor + omp_wavelength_threads) * cid_size_gb;
-      sprintf(virtual_line, "%.5lg", requested_ram_gb);
-      message = "INFO: code execution needs " + (string)virtual_line + " GiB of RAM.\n";
-      logger->log(message);
-      // mat_size_bytes = sizeof(dcomplex) * 2 * 2 * NSPH * NSPH * LI * LI * (LI + 2) * (LI + 2)
-      long matrix_size_bytes = sizeof(dcomplex)
-	* 4 * gconf->number_of_spheres * gconf->number_of_spheres
-	* gconf->li * gconf->li * (gconf->li + 2) * (gconf->li + 2);
-      double matrix_size_gb = matrix_size_bytes / 1024.0 / 1024.0 / 1024.0;
-      if (gconf->host_ram_gb > 0.0) {
-	if (requested_ram_gb > gconf->host_ram_gb) {
-	  // ERROR: host system does not have the necessary RAM
-	  message = "ERROR: the requested model saturates the system RAM!\n";
-	  logger->log(message);
-	  fclose(timing_file);
-	  delete time_logger;
-	  delete logger;
-	  delete sconf;
-	  delete gconf;
-	  exit(1);
-	}
+      // Order of the matrix to invert: NDIT = 2 * NSPH * LI * (LI + 2)
+      const np_int matrix_order = (np_int)2 * gconf->number_of_spheres * gconf->li * (gconf->li + 2);
+      const long matrix_size_bytes = (long)sizeof(dcomplex) * matrix_order * matrix_order;
+      const double matrix_size_gb = matrix_size_bytes / 1024.0 / 1024.0 / 1024.0;
+      // Host memory of MPI process 0, which also stores the results of all
+      // the scales: the full output, one iteration data instance and one
+      // inversion workspace per thread, and the one-scale output of each
+      // thread other than thread 0.
+      const long cid_size_bytes = ClusterIterationData::get_size(gconf, sconf);
+      const long output_size_bytes = ClusterOutputInfo::get_size(sconf, gconf);
+      const long scale_output_bytes = ClusterOutputInfo::get_size(sconf, gconf, 1, 1);
+      // With the CPU fall-back, a thread may invert its matrix on the CPU.
+      long workspace_bytes = get_inversion_workspace(matrix_order, gconf->invert_mode, gconf->refine_flag);
+      if (gconf->device_policy == DEVICE_POLICY_USE_CPU_FALLBACK) {
+	const long cpu_workspace = get_inversion_workspace(matrix_order, gconf->invert_mode, gconf->refine_flag, false);
+	if (cpu_workspace > workspace_bytes) workspace_bytes = cpu_workspace;
       }
-      if (gconf->gpu_ram_gb > 0.0) {
-	int refinement_factor = (gconf->refine_flag) ? 3 : 1;
-	if (refinement_factor * omp_wavelength_threads * matrix_size_gb > gconf->gpu_ram_gb) {
-	  // ERROR: GPU does not have the necessary RAM
-	  message = "ERROR: the requested model saturates the GPU RAM!\n";
-	  logger->log(message);
-	  fclose(timing_file);
-	  delete time_logger;
-	  delete logger;
-	  delete sconf;
-	  delete gconf;
-	  exit(1);
-	}
-      }
+      const long requested_ram_bytes = output_size_bytes
+	+ omp_wavelength_threads * (cid_size_bytes + workspace_bytes)
+	+ (omp_wavelength_threads - 1) * scale_output_bytes;
+      const double requested_ram_gb = requested_ram_bytes / 1024.0 / 1024.0 / 1024.0;
+      sprintf(
+	virtual_line, "iteration data require %.5lg GiB of RAM per thread.\n",
+	cid_size_bytes / 1024.0 / 1024.0 / 1024.0
+      );
+      logger->log(virtual_line);
+      sprintf(
+	virtual_line, "matrix inversion requires %.5lg GiB of RAM per thread.\n",
+	workspace_bytes / 1024.0 / 1024.0 / 1024.0
+      );
+      logger->log(virtual_line);
+      sprintf(
+	virtual_line, "output data require %.5lg GiB of RAM.\n",
+	output_size_bytes / 1024.0 / 1024.0 / 1024.0
+      );
+      logger->log(virtual_line);
+      sprintf(
+	virtual_line, "code execution needs %.5lg GiB of RAM (%d thread(s)).\n",
+	requested_ram_gb, omp_wavelength_threads
+      );
+      logger->log(virtual_line);
+      // GPUs that are missing or failed: stop, or use the CPU (see resources.h).
+      check_devices(survey, gconf->device_policy, logger);
+      check_inversion_mode(gconf->invert_mode);
+      // Needs of all the processes, against the memory of their nodes and
+      // GPUs (see resources.h). With MAGMA or cuBLAS, each thread inverts its
+      // matrix on the GPU of its process (get_device_inversion_size(): the
+      // matrix and the workspaces of the inversion mode and refinement).
+      // The offload pipeline builds the matrix there and inverts it in place.
+      MemoryDemand demand;
+      demand.full_output = output_size_bytes;
+      demand.scale_output = scale_output_bytes;
+      demand.per_thread = cid_size_bytes + workspace_bytes;
+      demand.device_per_thread = (device_count > 0 || gconf->offload_flag) ?
+	get_device_inversion_size(matrix_order, gconf->invert_mode, gconf->refine_flag) : 0;
+      check_memory(survey, demand, gconf->host_ram_gb, gconf->gpu_ram_gb, gconf->memory_policy, logger);
       ScatteringAngles *p_scattering_angles = new ScatteringAngles(gconf);
       double wp = sconf->wp;
       // ClusterOutputInfo : Thread 0 of MPI process 0 allocates the memory to
@@ -364,7 +432,7 @@ void cluster(const string& config_file, const string& data_file, const string& o
       ClusterIterationData *cid = new ClusterIterationData(gconf, sconf, mpidata, device_count);
       const int ndi = cid->c1->nsph * cid->c1->nlim;
       np_int ndit = 2 * ndi;
-      sprintf(virtual_line, "INFO: Size of matrices to invert: %ld x %ld (%.5lg GiB)\n", (int64_t)ndit, (int64_t)ndit, matrix_size_gb);
+      sprintf(virtual_line, "Size of matrices to invert: %ld x %ld (%.5lg GiB)\n", (long)ndit, (long)ndit, matrix_size_gb);
       message = string(virtual_line);
       logger->log(message);
       time_logger->log(message);
@@ -376,13 +444,13 @@ void cluster(const string& config_file, const string& data_file, const string& o
 
       // Create empty virtual binary file
 #ifdef USE_MAGMA
-      logger->log("INFO: using MAGMA calls.\n", LOG_INFO);
+      logger->log("using MAGMA calls.\n", LOG_INFO);
 #elif defined USE_CUBLAS
-      logger->log("INFO: using CUBLAS calls.\n", LOG_INFO);
+      logger->log("using CUBLAS calls.\n", LOG_INFO);
 #elif defined USE_LAPACK
-      logger->log("INFO: using LAPACK calls.\n", LOG_INFO);
+      logger->log("using LAPACK calls.\n", LOG_INFO);
 #else
-      logger->log("INFO: using fall-back lucin() calls.\n", LOG_INFO);
+      logger->log("using fall-back lucin() calls.\n", LOG_INFO);
 #endif
       int iavm = gconf->iavm;
       int isam = gconf->isam;
@@ -400,6 +468,10 @@ void cluster(const string& config_file, const string& data_file, const string& o
 
       int jxi488;
       int jer = 0;
+
+      share_setup_status(mpidata, 0);
+
+      setup_shared = true;
 
       // here go the calls that send data to be duplicated on other MPI processes from process 0 to others, using MPI broadcasts, but only if MPI is actually used
 #ifdef MPI_VERSION
@@ -419,6 +491,11 @@ void cluster(const string& config_file, const string& data_file, const string& o
       int myMPIblock = ompnumthreads;
       // Define here shared arrays of virtual ascii and binary files, so that thread 0 will be able to access them all later
       ClusterOutputInfo **p_outarray = NULL;
+      // Errors of the threads in the loop on scales (see ScaleLoopErrors).
+      ScaleLoopErrors loop_errors;
+      // T-matrix of scale JWTM, if a thread of this process computes it.
+      TransitionMatrix *tmatrix = NULL;
+      int loop_status = 0;
 
 #ifdef USE_NVTX
       nvtxRangePush("Parallel loop");
@@ -440,7 +517,7 @@ void cluster(const string& config_file, const string& data_file, const string& o
 
 	if (myompthread == 0) {
 	  // Initialise some shared variables only on thread 0
-	  p_outarray = new ClusterOutputInfo*[ompnumthreads];
+	  p_outarray = new ClusterOutputInfo*[ompnumthreads]();
 	  myMPIblock = ompnumthreads;
 	  myMPIstride = myMPIblock;
 	}
@@ -477,7 +554,11 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	  p_outarray[0] = p_output_2;
 	} else {
 	  // this is not thread 0, so do create fresh copies of all local variables
-	  cid_2 = new ClusterIterationData(*cid);
+	  try {
+	    cid_2 = new ClusterIterationData(*cid);
+	  } catch (...) {
+	    loop_errors.capture();
+	  }
 	}
 	// make sure all threads align here: I don't want the following loop to accidentally start for thread 0, possibly modifying some variables before they are copied by all other threads
 	if (myompthread==0) {
@@ -487,7 +568,7 @@ void cluster(const string& config_file, const string& data_file, const string& o
 #pragma omp barrier
 	// ok, now I can actually start the parallel calculations
 	// we now start the loop from 1, so that the first iteration is run exactly as the others
-	for (int ixi488=1; ixi488<=cid_2->number_of_scales; ixi488 +=myMPIstride) {
+	for (int ixi488=1; ixi488<=cid->number_of_scales; ixi488 +=myMPIstride) {
 	  // the parallel loop over MPI processes covers a different set of indices for each thread
 #pragma omp barrier
 	  int myjxi488 = ixi488+myompthread;
@@ -495,20 +576,31 @@ void cluster(const string& config_file, const string& data_file, const string& o
 #pragma omp barrier
 
 	  // each MPI process handles a number of contiguous scales corresponding to its number of OMP threads at this omp level of parallelism
-	  if (myjxi488 <= cid_2->number_of_scales) {
-	    if (myompthread > 0) {
-	      // UPDATE: non-0 threads need to allocate memory for one scale at a time.
-	      p_output_2 = new ClusterOutputInfo(sconf, gconf, mpidata, myjxi488, 1);
-	      p_outarray[myompthread] = p_output_2;
-	    }
-	    int jer = cluster_jxi488_cycle(myjxi488, sconf, gconf, p_scattering_angles, cid_2, p_output_2, output_path);
-	  } else {
-	    if (myompthread > 0) {
-	      // If there is no input for this thread, mark to skip.
-	      p_outarray[myompthread] = new ClusterOutputInfo(1);
+	  // A failing thread records its error, and all the threads stop after
+	  // this block of scales (see ScaleLoopErrors).
+	  if (cid_2 != NULL) {
+	    try {
+	      if (myjxi488 <= cid->number_of_scales) {
+		if (myompthread > 0) {
+		  // UPDATE: non-0 threads need to allocate memory for one scale at a time.
+		  p_output_2 = new ClusterOutputInfo(sconf, gconf, mpidata, myjxi488, 1);
+		  p_outarray[myompthread] = p_output_2;
+		}
+		int jer = cluster_jxi488_cycle(myjxi488, sconf, gconf, p_scattering_angles, cid_2, p_output_2, output_path, tmatrix);
+	      } else {
+		if (myompthread > 0) {
+		  // If there is no input for this thread, mark to skip.
+		  p_outarray[myompthread] = new ClusterOutputInfo(1);
+		}
+	      }
+	    } catch (...) {
+	      loop_errors.capture();
 	    }
 	  }
 #pragma omp barrier
+	  if (myompthread == 0) loop_status = loop_errors.agree(mpidata);
+#pragma omp barrier
+	  if (loop_status != 0) break;
 
 #ifdef USE_NVTX
 	  nvtxRangePush("Output concatenation");
@@ -563,10 +655,12 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	// delete the shared arrays I used to make available to thread 0 the virtual files of other threads
 #pragma omp barrier
 	if (myompthread == 0) {
+	  // After an error, the outputs of the interrupted block are left.
+	  for (int ti = 1; ti < ompnumthreads; ti++) delete p_outarray[ti];
 	  delete[] p_outarray;
 	}
 	{
-	  string message = "INFO: Closing thread-local output files of thread " + to_string(myompthread) + " and syncing threads.\n";
+	  string message = "Closing thread-local output files of thread " + to_string(myompthread) + " and syncing threads.\n";
 	  logger->log(message);
 	}
 #ifdef USE_NVTX
@@ -575,6 +669,13 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	delete cid_2;
       }
       delete p_scattering_angles;
+      // Stop here if a thread of any process failed: no partial output files.
+      loop_errors.rethrow(loop_status);
+      // Only MPI process 0 writes the T-matrix (all the processes take part).
+      TransitionMatrix::write_from_main_process(mpidata, tmatrix, output_path);
+      delete tmatrix;
+      check_output_file(output_path + "/c_OCLU.hd5", "output file");
+      check_output_file(output_path + "/c_OCLU", "output file");
       p_output->write(output_path + "/c_OCLU.hd5", "HDF5");
       p_output->write(output_path + "/c_OCLU", "LEGACY");
       delete p_output;
@@ -589,17 +690,40 @@ void cluster(const string& config_file, const string& data_file, const string& o
     delete sconf;
     delete gconf;
 #ifdef USE_MAGMA
-    logger->log("INFO: Process " + to_string(mpidata->rank) + " finalizes MAGMA.\n");
-    magma_finalize();
+    if (magma_ready) {
+      logger->log("Process " + to_string(mpidata->rank) + " finalizes MAGMA.\n");
+      magma_finalize();
+    }
 #endif
     chrono::time_point<chrono::high_resolution_clock> t_end = chrono::high_resolution_clock::now();
     elapsed = t_end - t_start;
-    string message = "INFO: Calculation lasted " + to_string(elapsed.count()) + "s.\n";
+    string message = "Calculation lasted " + to_string(elapsed.count()) + "s.\n";
     logger->log(message);
     logger->log("Finished: output written to " + output_path + "/c_OCLU\n");
     time_logger->log(message);
     fclose(timing_file);
     delete time_logger;
+    } catch (NptmError &ex) {
+      if (!setup_shared) {
+	share_setup_status(mpidata, ex.exit_code());
+	ex.set_all_processes();
+      }
+      throw;
+    } catch (const std::bad_alloc &ex) {
+      if (!setup_shared) {
+	share_setup_status(mpidata, NPTM_EXIT_MEMORY);
+	MemoryError error(
+	  "a memory allocation failed while preparing the calculation: reduce the model "
+	  "size or the number of OpenMP threads, or use a node with more memory"
+	);
+	error.set_all_processes();
+	throw error;
+      }
+      throw;
+    } catch (const std::exception &ex) {
+      if (!setup_shared) share_setup_status(mpidata, NPTM_EXIT_INTERNAL);
+      throw;
+    }
   } // end of instruction block for MPI process 0
   
     //===============================
@@ -609,6 +733,7 @@ void cluster(const string& config_file, const string& data_file, const string& o
   else {
     // here go the code for MPI processes other than 0
     // copy gconf, sconf, cid and p_scattering_angles from MPI process 0
+    receive_setup_status(mpidata);
     GeometryConfiguration *gconf = new GeometryConfiguration(mpidata);
     ScattererConfiguration *sconf = new ScattererConfiguration(mpidata);
     ClusterIterationData *cid = new ClusterIterationData(mpidata, device_count);
@@ -618,6 +743,11 @@ void cluster(const string& config_file, const string& data_file, const string& o
     // Create this variable and initialise it with a default here, so that it is defined anyway, with or without OpenMP support enabled
     int ompnumthreads = 1;
     ClusterOutputInfo **p_outarray = NULL;
+    // Errors of the threads in the loop on scales (see ScaleLoopErrors).
+    ScaleLoopErrors loop_errors;
+    // T-matrix of scale JWTM, if a thread of this process computes it.
+    TransitionMatrix *tmatrix = NULL;
+    int loop_status = 0;
     int myjxi488startoffset;
     int myMPIstride = ompnumthreads;
     int myMPIblock = ompnumthreads;
@@ -639,7 +769,7 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	// receive myMPIstride sent by MPI process 0 to all processes
 	MPI_Bcast(&myMPIstride, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	// allocate virtual files for each thread
-	p_outarray = new ClusterOutputInfo*[ompnumthreads];
+	p_outarray = new ClusterOutputInfo*[ompnumthreads]();
       }
 #pragma omp barrier
       // To test parallelism, I will now start feeding this function with "clean" copies of the parameters, so that they will not be changed by previous iterations, and each one will behave as the first one. Define all (empty) variables here, so they have the correct scope, then they get different definitions depending on thread number
@@ -651,13 +781,17 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	cid_2 = cid;
       } else {
 	// this is not thread 0, so do create fresh copies of all local variables
-	cid_2 = new ClusterIterationData(*cid);
+	try {
+	  cid_2 = new ClusterIterationData(*cid);
+	} catch (...) {
+	  loop_errors.capture();
+	}
       }
       // make sure all threads align here: I don't want the following loop to accidentally start for thread 0, possibly modifying some variables before they are copied by all other threads
 #pragma omp barrier
       // ok, now I can actually start the parallel calculations
       // we now start the loop from 1, so that the first iteration is treated exactly on equal footing as others
-      for (int ixi488=1; ixi488<=cid_2->number_of_scales; ixi488 +=myMPIstride) {
+      for (int ixi488=1; ixi488<=cid->number_of_scales; ixi488 +=myMPIstride) {
 	// the parallel loop over MPI processes covers a different set of indices for each thread
 #pragma omp barrier
 	int myjxi488 = ixi488 + myjxi488startoffset + myompthread;
@@ -666,25 +800,35 @@ void cluster(const string& config_file, const string& data_file, const string& o
 	if (myompthread==0) logger->log("Syncing OpenMP threads and starting one iteration block on wavelengths\n");
 	// ok, now I can actually start the parallel calculations
 	// each MPI process handles a number of contiguous scales corresponding to its number of OMP threads at this omp level of parallelism
-	if (myjxi488 <= cid_2->number_of_scales) {
-	  if (myompthread > 0) {
-	    // UPDATE: non-0 threads need to allocate memory for one scale at a time.
-	    p_output_2 = new ClusterOutputInfo(sconf, gconf, mpidata, myjxi488, 1);
-	    p_outarray[myompthread] = p_output_2;
-	  } else {
-	    // Thread 0 of non-zero MPI processes needs to allocate memory for the
-	    // output of all threads _doing something_.
-	    int iterstodo = cid_2->number_of_scales - myjxi488 + 1;
-	    if (iterstodo > ompnumthreads) iterstodo = ompnumthreads;
-	    p_output_2 = new ClusterOutputInfo(sconf, gconf, mpidata, myjxi488, iterstodo);
-	    p_outarray[0] = p_output_2;
+	// A failing thread records its error, and all the threads stop after
+	// this block of scales (see ScaleLoopErrors).
+	if (cid_2 != NULL) {
+	  try {
+	    if (myjxi488 <= cid->number_of_scales) {
+	      if (myompthread > 0) {
+		// UPDATE: non-0 threads need to allocate memory for one scale at a time.
+		p_output_2 = new ClusterOutputInfo(sconf, gconf, mpidata, myjxi488, 1);
+		p_outarray[myompthread] = p_output_2;
+	      } else {
+		// Thread 0 of non-zero MPI processes needs to allocate memory for the
+		// output of all threads _doing something_.
+		int iterstodo = cid->number_of_scales - myjxi488 + 1;
+		if (iterstodo > ompnumthreads) iterstodo = ompnumthreads;
+		p_output_2 = new ClusterOutputInfo(sconf, gconf, mpidata, myjxi488, iterstodo);
+		p_outarray[0] = p_output_2;
+	      }
+	      int jer = cluster_jxi488_cycle(myjxi488, sconf, gconf, p_scattering_angles, cid_2, p_output_2, output_path, tmatrix);
+	    } else {
+	      p_outarray[myompthread] = new ClusterOutputInfo(1);
+	    }
+	  } catch (...) {
+	    loop_errors.capture();
 	  }
-	  int jer = cluster_jxi488_cycle(myjxi488, sconf, gconf, p_scattering_angles, cid_2, p_output_2, output_path);
-	} else {
-	  p_outarray[myompthread] = new ClusterOutputInfo(1);
 	}
-
 #pragma omp barrier
+	if (myompthread == 0) loop_status = loop_errors.agree(mpidata);
+#pragma omp barrier
+	if (loop_status != 0) break;
 	// threads different from 0 append their virtual files to the one of thread 0, and delete them
 	if (myompthread == 0) {
 	  for (int ti=1; ti<ompnumthreads; ti++) {
@@ -707,6 +851,8 @@ void cluster(const string& config_file, const string& data_file, const string& o
       // Clean memory
 #pragma omp barrier
       if (myompthread == 0) {
+	// After an error, the outputs of the interrupted block are left.
+	for (int ti = 0; ti < ompnumthreads; ti++) delete p_outarray[ti];
 	delete[] p_outarray;
       }
       delete cid_2;
@@ -715,10 +861,17 @@ void cluster(const string& config_file, const string& data_file, const string& o
     delete p_scattering_angles;
     delete sconf;
     delete gconf;
+    // Stop here if a thread of any process failed.
+    loop_errors.rethrow(loop_status);
+    // Only MPI process 0 writes the T-matrix (all the processes take part).
+    TransitionMatrix::write_from_main_process(mpidata, tmatrix, output_path);
+    delete tmatrix;
 #endif
 #ifdef USE_MAGMA
-    logger->log("INFO: Process " + to_string(mpidata->rank) + " finalizes MAGMA.\n");
-    magma_finalize();
+    if (magma_ready) {
+      logger->log("Process " + to_string(mpidata->rank) + " finalizes MAGMA.\n");
+      magma_finalize();
+    }
 #endif
 #ifdef MPI_VERSION
   }
@@ -729,13 +882,13 @@ void cluster(const string& config_file, const string& data_file, const string& o
 int cluster_jxi488_cycle(
   int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf,
   ScatteringAngles *sa, ClusterIterationData *cid, ClusterOutputInfo *output,
-  const string& output_path
+  const string& output_path, TransitionMatrix *&tmatrix
 ) {
   int nxi = sconf->number_of_scales;
   const dcomplex cc0 = 0.0 + I * 0.0;
   const double pi = acos(-1.0);
   char virtual_line[256];
-  string message = "INFO: running scale iteration " + to_string(jxi488) + " of " + to_string(nxi) + ".\n";
+  string message = "running scale iteration " + to_string(jxi488) + " of " + to_string(nxi) + ".\n";
   Logger *logger = new Logger(LOG_DEBG);
   logger->log(message);
   RuntimeSettings rs(gconf, logger);
@@ -792,22 +945,22 @@ int cluster_jxi488_cycle(
   if (recommended_li != cid->c1->li || recommended_le != cid->c1->le) {
     if (recommended_li < cid->c1->li) {
       if (gconf->dyn_order_flag > 0) {
-	message = "INFO: lowering internal order from " + to_string(cid->c1->li) + " to "
+	message = "lowering internal order from " + to_string(cid->c1->li) + " to "
 	  + to_string(recommended_li) + " for scale iteration " + to_string(jxi488) + ".\n";
 	logger->log(message, LOG_INFO);
       } else {
-	message = "WARNING: internal order " + to_string(cid->c1->li) + " too high for scale iteration "
+	message = "internal order " + to_string(cid->c1->li) + " too high for scale iteration "
 	  + to_string(jxi488) + ".\n";
 	logger->log(message, LOG_WARN);
       }
     }
     if (recommended_le < cid->c1->le) {
       if (gconf->dyn_order_flag > 0) {
-	message = "INFO: lowering external order from " + to_string(cid->c1->le) + " to "
+	message = "lowering external order from " + to_string(cid->c1->le) + " to "
 	  + to_string(recommended_le) + " for scale iteration " + to_string(jxi488) + ".\n";
 	logger->log(message, LOG_INFO);
       } else {
-	message = "INFO: external order " + to_string(cid->c1->le) + " too high for scale iteration "
+	message = "external order " + to_string(cid->c1->le) + " too high for scale iteration "
 	  + to_string(jxi488) + ".\n";
 	logger->log(message, LOG_WARN);
       }
@@ -884,15 +1037,18 @@ int cluster_jxi488_cycle(
     string outam0_name = output_path + "/c_AM0_JXI" + to_string(jxi488) + ".txt";
     sprintf(virtual_line, " AM matrix before CMS\n");
     outam0->append_line(virtual_line);
-    sprintf(virtual_line, " %d\n", ndit);
+    sprintf(virtual_line, " %ld\n", (long)ndit);
     outam0->append_line(virtual_line);  
     sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
     outam0->append_line(virtual_line);
     write_dcomplex_matrix(outam0, cid->am, ndit, ndit);
-    outam0->write_to_disk(outam0_name);
+    if (outam0->write_to_disk(outam0_name) != 0) {
+      logger->log("could not write the debug matrix file \"" + outam0_name + "\".\n", LOG_WARN);
+    }
     delete outam0;
   }
-  if (rs.use_offload) {
+  // Without a GPU (proc_device < 0), the offload pipeline is not used.
+  if (rs.use_offload && cid->proc_device >= 0) {
     // whenever rs.use_offload == true, USE_TARGET_OFFLOAD is defined, but we
     // have to check for the compilation flag in order to avoid the compiler
     // to walk the code, if the offload library functions are not available
@@ -929,6 +1085,7 @@ int cluster_jxi488_cycle(
     magma_queue_t queue = NULL;
     magma_device_t device_id = (magma_device_t)(cid->proc_device);
     magma_queue_create(device_id, &queue);
+    string gpu_failure; // description of a GPU failure, if any
 #pragma omp target data map(to: rxx[0:nsph], ryy[0:nsph], rzz[0:nsph]) \
   map(to: ind3j[0:ind3j_size], v3j0[0:nv3j], vh[0:ncou*litpo]) \
   map(to: vyhj[0:ncou*litpos], vj0[0:nsph*lmtpo], vyj0[0:nsph*lmtpos]) \
@@ -939,16 +1096,27 @@ int cluster_jxi488_cycle(
       magma_cms(
         vec_am, cid->c1, rxx, ryy, rzz, ind3j, v3j0, vh, vyhj, vj0, vyj0, rmi, rei, cid->proc_device
       );
-      magma_zinvert_resident(vec_am, (magma_int_t)ndit, jer, queue, cid->proc_device, rs);
+      gpu_failure = magma_zinvert_resident(vec_am, (magma_int_t)ndit, jer, queue, cid->proc_device, rs);
       magma_queue_sync(queue);
       
       if (jer != 0) {
-	sprintf(virtual_line, "ERROR: matrix inversion returned code %d!\n", jer);
+	sprintf(virtual_line, "matrix inversion returned code %d!\n", jer);
 	message = virtual_line;
 	logger->err(message);
       }
     } // end of target data region
     magma_queue_destroy(queue);
+    if (!gpu_failure.empty()) {
+      // The inversion failed before changing the matrix, which is now back
+      // on the host: stop, or invert it on the CPU.
+      if (rs.device_policy != DEVICE_POLICY_USE_CPU_FALLBACK) throw DeviceError(gpu_failure);
+      logger->log(
+	"GPU " + to_string(cid->proc_device) + " failed on scale " + to_string(jxi488) + " ("
+	+ gpu_failure + "): inverting the matrix on the CPU (DEVICE_POLICY=USE_CPU_FALLBACK).\n",
+	LOG_WARN
+      );
+      invert_matrix(cid->am, ndit, jer, output_path, jxi488, mxndm, -1, rs);
+    }
     magma_ztm(
       vec_am, cid->c1, rxx, ryy, rzz, ind3j, v3j0, vh, vyhj, vj0, vyj0, sam_v,
       gis_v, gls_v, vec_am0m, cid->proc_device
@@ -960,9 +1128,7 @@ int cluster_jxi488_cycle(
     ztm(cid->am, cid->c1);
 #endif // USE_MAGMA
 #else // NO_USE_TARGET_OFFLOAD
-    message = "ERROR: offload required, but not supported!\n"; // should never occur
-    logger->err(message);
-    exit(1);
+    throw NptmError("offload required, but not supported by this build"); // should never occur
 #endif // USE_TARGET_OFFLOAD
   } else {
 #ifdef USE_NVTX
@@ -976,12 +1142,14 @@ int cluster_jxi488_cycle(
       string outam1_ppm_name = output_path + "/c_AM1_JXI" + to_string(jxi488) + ".ppm";
       sprintf(virtual_line, " AM matrix after CMS before LUCIN\n");
       outam1->append_line(virtual_line);
-      sprintf(virtual_line, " %d\n", ndit);
+      sprintf(virtual_line, " %ld\n", (long)ndit);
       outam1->append_line(virtual_line);  
       sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
       outam1->append_line(virtual_line);
       write_dcomplex_matrix(outam1, cid->am, ndit, ndit, " %5d %5d (%17.8lE,%17.8lE)\n", 1);
-      outam1->write_to_disk(outam1_name);
+      if (outam1->write_to_disk(outam1_name) != 0) {
+        logger->log("could not write the debug matrix file \"" + outam1_name + "\".\n", LOG_WARN);
+      }
       delete outam1;
       write_matrix_as_ppm(cid->am[0], ndit, ndit, outam1_ppm_name);
     }
@@ -990,7 +1158,7 @@ int cluster_jxi488_cycle(
 #endif // USE_NVTX
     interval_end = chrono::high_resolution_clock::now();
     elapsed = interval_end - interval_start;
-    message = "INFO: matrix calculation for scale " + to_string(jxi488) + " took " + to_string(elapsed.count()) + "s.\n";
+    message = "matrix calculation for scale " + to_string(jxi488) + " took " + to_string(elapsed.count()) + "s.\n";
     logger->log(message);
     interval_start = chrono::high_resolution_clock::now();
 #ifdef USE_NVTX
@@ -1003,12 +1171,14 @@ int cluster_jxi488_cycle(
       string outam2_ppm_name = output_path + "/c_AM2_JXI" + to_string(jxi488) + ".ppm";
       sprintf(virtual_line, " AM matrix after LUCIN before ZTM\n");
       outam2->append_line(virtual_line);
-      sprintf(virtual_line, " %d\n", ndit);
+      sprintf(virtual_line, " %ld\n", (long)ndit);
       outam2->append_line(virtual_line);  
       sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
       outam2->append_line(virtual_line);
       write_dcomplex_matrix(outam2, cid->am, ndit, ndit);
-      outam2->write_to_disk(outam2_name);
+      if (outam2->write_to_disk(outam2_name) != 0) {
+        logger->log("could not write the debug matrix file \"" + outam2_name + "\".\n", LOG_WARN);
+      }
       delete outam2;
       write_matrix_as_ppm(cid->am[0], ndit, ndit, outam2_ppm_name);
     }
@@ -1017,10 +1187,10 @@ int cluster_jxi488_cycle(
 #endif // USE_NVTX
     interval_end = chrono::high_resolution_clock::now();
     elapsed = interval_end - interval_start;
-    message = "INFO: matrix inversion for scale " + to_string(jxi488) + " took " + to_string(elapsed.count()) + "s.\n";
+    message = "matrix inversion for scale " + to_string(jxi488) + " took " + to_string(elapsed.count()) + "s.\n";
     logger->log(message);
     if (jer != 0) {
-      message = "ERROR: matrix inversion ended with error code " + to_string(jer) + ".\n";
+      message = "matrix inversion ended with error code " + to_string(jer) + ".\n";
       logger->err(message);
       return jer;
       // break; // jxi488 loop: goes to memory clean
@@ -1032,12 +1202,14 @@ int cluster_jxi488_cycle(
       string outam3_ppm_name = output_path + "/c_AM3_JXI" + to_string(jxi488) + ".ppm";
       sprintf(virtual_line, " AM0M matrix after ZTM\n");
       outam3->append_line(virtual_line);
-      sprintf(virtual_line, " %d\n", ndit);
+      sprintf(virtual_line, " %ld\n", (long)ndit);
       outam3->append_line(virtual_line);  
       sprintf(virtual_line, " I1+1   I2+1    Real    Imag\n");
       outam3->append_line(virtual_line);
       write_dcomplex_matrix(outam3, cid->c1->am0m, 2 * cid->c1->nlem, 2 * cid->c1->nlem);
-      outam3->write_to_disk(outam3_name);
+      if (outam3->write_to_disk(outam3_name) != 0) {
+        logger->log("could not write the debug matrix file \"" + outam3_name + "\".\n", LOG_WARN);
+      }
       delete outam3;
       write_matrix_as_ppm(cid->c1->am0m[0], 2 * cid->c1->nlem, 2 * cid->c1->nlem, outam3_ppm_name);
     }
@@ -1048,11 +1220,9 @@ int cluster_jxi488_cycle(
 #endif // USE_NVTX
   if (idfc >= 0) {
     if (jxi488 == jwtm) {
+      // Keep the T-matrix: MPI process 0 writes it after the loop on scales.
       int nlemt = 2 * cid->c1->nlem;
-      string ttms_name = output_path + "/c_TTMS.hd5";
-      TransitionMatrix::write_binary(ttms_name, nlemt, lm, cid->vk, exri, cid->c1->am0m, "HDF5");
-      ttms_name = output_path + "/c_TTMS";
-      TransitionMatrix::write_binary(ttms_name, nlemt, lm, cid->vk, exri, cid->c1->am0m);
+      tmatrix = new TransitionMatrix(nlemt, lm, cid->vk, exri, cid->c1->am0m);
     }
   }
   // label 160
@@ -1123,7 +1293,7 @@ int cluster_jxi488_cycle(
 #endif
   interval_end = chrono::high_resolution_clock::now();
   elapsed = interval_end - interval_start;
-  message = "INFO: average calculation for scale " + to_string(jxi488) + " took " + to_string(elapsed.count()) + "s.\n";
+  message = "average calculation for scale " + to_string(jxi488) + " took " + to_string(elapsed.count()) + "s.\n";
   logger->log(message);
   interval_start = chrono::high_resolution_clock::now();
 #ifdef USE_NVTX
@@ -1162,7 +1332,7 @@ int cluster_jxi488_cycle(
       for (int jths = 1; jths <= sa->nths; jths++) {
 	double ths = thsl;
 	int icspnv = 0;
-	if (isam > 1) ths += sa->thsca;
+	if (isam > 1) ths = th + sa->thsca;
 	if (isam >= 1) {
 	  phsph = 0.0;
 	  if (ths < 0.0 || ths > 180.0) phsph = 180.0;
@@ -1175,11 +1345,16 @@ int cluster_jxi488_cycle(
 	for (int jphs = 1; jphs <= sa->nphs; jphs++) {
 	  double costs = 0.0, sints = 0.0, cosps = 0.0, sinps = 0.0;
 	  if (isam >= 1) {
-	    phs = sa->ph + phsph;
-	    if (phs > 360.0) phs -= 360.0;
+	    phs = ph + phsph;
+	    if (phs >= 360.0) phs -= 360.0;
 	  }
-	  // label 188
-	  bool goto190 = (sa->nks == 1 && (!(is_first_scale) || jth486 > 1 || jph484 > 1));
+	  // label 188: the scattered direction is computed again unless it
+	  // cannot change, i.e. it is fixed (ISAM < 1) or there is only one
+	  // incident direction (with ISAM >= 1 it follows the incident one).
+	  // This differs from the original FORTRAN code and is under evaluation
+	  // by its authors: see dev_notes/questions-for-authors.md, question 1.
+	  bool goto190 = (sa->nks == 1) && (isam < 1 || sa->nth * sa->nph == 1)
+	    && (!(is_first_scale) || jth486 > 1 || jph484 > 1);
 	  if (!goto190) {
 	    upvmp(ths, phs, icspnv, costs, sints, cosps, sinps, cid->us, cid->upsmp, cid->unsmp);
 	    if (isam >= 0)
@@ -1534,10 +1709,10 @@ int cluster_jxi488_cycle(
   if (jer == 0) output->vec_jxi[jindex - 1] = jxi488;
   interval_end = chrono::high_resolution_clock::now();
   elapsed = interval_end - interval_start;
-  message = "INFO: angle loop for scale " + to_string(jxi488) + " took " + to_string(elapsed.count()) + "s.\n";
+  message = "angle loop for scale " + to_string(jxi488) + " took " + to_string(elapsed.count()) + "s.\n";
   logger->log(message);
   
-  logger->log("INFO: finished scale iteration " + to_string(jxi488) + " of " + to_string(nxi) + ".\n");
+  logger->log("finished scale iteration " + to_string(jxi488) + " of " + to_string(nxi) + ".\n");
 
   delete logger;
 
@@ -1545,7 +1720,7 @@ int cluster_jxi488_cycle(
 }
 
 // >>> IMPLEMENTATION OF ClusterIterationData CLASS <<<
-ClusterIterationData::ClusterIterationData(GeometryConfiguration *gconf, ScattererConfiguration *sconf, const mixMPI *mpidata, const int device_count) {
+ClusterIterationData::ClusterIterationData(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf, const mixMPI *mpidata, const int device_count) {
   c1 = new ParticleDescriptorCluster(gconf, sconf);
   const int ndi = c1->nsph * c1->nlim;
   const np_int ndit = 2 * ndi;
@@ -1638,8 +1813,9 @@ ClusterIterationData::ClusterIterationData(GeometryConfiguration *gconf, Scatter
   firstxi = lastxi-xiblock+1;
   if (lastxi > sconf->number_of_scales) lastxi = sconf->number_of_scales;
 
-#ifdef USE_MAGMA
-  proc_device = mpidata->rank % device_count;
+#if defined(USE_MAGMA) || defined(USE_CUBLAS)
+  // GPU of the process, or -1 if it has none (the matrices are inverted on the CPU).
+  proc_device = (device_count > 0) ? mpidata->rank % device_count : -1;
 #else
   proc_device = 0;
 #endif
@@ -1918,8 +2094,9 @@ ClusterIterationData::ClusterIterationData(const mixMPI *mpidata, const int devi
   firstxi = lastxi-xiblock+1;
   if (lastxi > number_of_scales) lastxi = number_of_scales;
 
-#ifdef USE_MAGMA
-  proc_device = mpidata->rank % device_count;
+#if defined(USE_MAGMA) || defined(USE_CUBLAS)
+  // GPU of the process, or -1 if it has none (the matrices are inverted on the CPU).
+  proc_device = (device_count > 0) ? mpidata->rank % device_count : -1;
 #else
   proc_device = 0;
 #endif
@@ -2067,7 +2244,7 @@ ClusterIterationData::~ClusterIterationData() {
   delete[] cmul;
 }
 
-long ClusterIterationData::get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf) {
+long ClusterIterationData::get_size(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf) {
   /*
   ParticleDescriptor *c1; double *gaps; double **tqse; dcomplex **tqspe; double **tqss; dcomplex **tqsps;
   double ****zpv; double **gapm; dcomplex **gappm; double *argi; double *args; double **gap; dcomplex **gapp;

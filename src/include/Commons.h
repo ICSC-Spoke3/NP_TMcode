@@ -28,10 +28,15 @@
  * adds an abstraction layer that lifts the need to modify and recompile the
  * code depending on the input.
  *
+ * \ingroup model
  */
 
 #ifndef INCLUDE_COMMONS_H_
 #define INCLUDE_COMMONS_H_
+
+/*! \addtogroup model
+ * @{
+ */
 
 class ParticleDescriptor;
 
@@ -51,12 +56,17 @@ public:
   mixMPI();
 
   /*! \brief mixMPI instance constructor from an actual MPI communicator.
+   *
+   * \param comm: `MPI_Comm` The MPI communicator. Currently unused: rank and
+   * number of processes are taken from `MPI_COMM_WORLD`.
    */
 #ifdef MPI_VERSION
   mixMPI(MPI_Comm comm);
 #endif
   
   /*! \brief mixMPI instance constructor copying its contents from a preexisting object.
+   *
+   * \param rhs: `const mixMPI &` Reference to the mixMPI instance to be copied.
    */
   mixMPI(const mixMPI& rhs);
 
@@ -375,10 +385,10 @@ public:
   
   /*! \brief ParticleDescriptor instance constructor.
    *
-   * \param gconf: `const GeometryConfiguration *` Pointer to GeometryConfiguration instance.
-   * \param sconf: `const ScattererConfiguration *` Pointer to ScattererConfiguration instance.
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to GeometryConfiguration instance.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to ScattererConfiguration instance.
    */
-  ParticleDescriptor(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
+  ParticleDescriptor(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf);
 
   /*! \brief ParticleDescriptor copy constructor.
    *
@@ -410,13 +420,19 @@ public:
    */
   virtual std::string get_descriptor_type() { return "base descriptor"; }
 
-  /*! \brief Compute the memory requirements of an instance.
+  /*! \brief Compute the memory requirements of the base class part.
    *
-   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
-   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * Returns the bytes of the arrays allocated by the base class constructor.
+   * The `get_size()` methods of the derived classes add their own arrays and
+   * the instance itself.
+   *
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
    * \return result: `long` Estimated size in bytes.
+   *
+   * \note Mirrored in `src/scripts/nptm_estimates.py`: change it there too.
    */
-  static long get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
+  static long get_size(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf);
 };
 
 /*! \brief The data structure describing a particle model made by a cluster of spheres.
@@ -429,10 +445,10 @@ class ParticleDescriptorCluster: public ParticleDescriptor {
 public:
   /*! \brief ParticleDescriptorCluster instance constructor.
    *
-   * \param gconf: `const GeometryConfiguration *` Pointer to GeometryConfiguration instance.
-   * \param sconf: `const ScattererConfiguration *` Pointer to ScattererConfiguration instance.
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to GeometryConfiguration instance.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to ScattererConfiguration instance.
    */
-  ParticleDescriptorCluster(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
+  ParticleDescriptorCluster(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf);
 
   /*! \brief ParticleDescriptorCluster copy constructor.
    *
@@ -462,11 +478,13 @@ public:
 
   /*! \brief Compute the memory requirements of an instance.
    *
-   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
-   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
    * \return result: `long` Estimated size in bytes.
+   *
+   * \note Mirrored in `src/scripts/nptm_estimates.py`: change it there too.
    */
-  static long get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
+  static long get_size(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf);
   
   /*! \brief Update the field expansion orders.
    *
@@ -487,10 +505,10 @@ class ParticleDescriptorInclusion: public ParticleDescriptor {
 public:
   /*! \brief ParticleDescriptorInclusion instance constructor.
    *
-   * \param gconf: `const GeometryConfiguration *` Pointer to GeometryConfiguration instance.
-   * \param sconf: `const ScattererConfiguration *` Pointer to ScattererConfiguration instance.
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to GeometryConfiguration instance.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to ScattererConfiguration instance.
    */
-  ParticleDescriptorInclusion(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
+  ParticleDescriptorInclusion(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf);
 
   /*! \brief ParticleDescriptorInclusion copy constructor.
    *
@@ -520,11 +538,13 @@ public:
 
   /*! \brief Compute the memory requirements of an instance.
    *
-   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
-   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
    * \return result: `long` Estimated size in bytes.
+   *
+   * \note Mirrored in `src/scripts/nptm_estimates.py`: change it there too.
    */
-  static long get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
+  static long get_size(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf);
   
   /*! \brief Update the field expansion orders.
    *
@@ -545,10 +565,10 @@ class ParticleDescriptorSphere: public ParticleDescriptor {
 public:
   /*! \brief ParticleDescriptorSphere instance constructor.
    *
-   * \param gconf: `const GeometryConfiguration *` Pointer to GeometryConfiguration instance.
-   * \param sconf: `const ScattererConfiguration *` Pointer to ScattererConfiguration instance.
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to GeometryConfiguration instance.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to ScattererConfiguration instance.
    */
-  ParticleDescriptorSphere(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
+  ParticleDescriptorSphere(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf);
 
   /*! \brief ParticleDescriptorSphere copy constructor.
    *
@@ -578,11 +598,13 @@ public:
 
   /*! \brief Compute the memory requirements of an instance.
    *
-   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
-   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
    * \return result: `long` Estimated size in bytes.
+   *
+   * \note Mirrored in `src/scripts/nptm_estimates.py`: change it there too.
    */
-  static long get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
+  static long get_size(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf);
   
   /*! \brief Update the field expansion order.
    *
@@ -713,5 +735,5 @@ public:
 
 };
 
-
+//! @}
 #endif

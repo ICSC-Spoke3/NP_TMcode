@@ -1,3 +1,14 @@
+/*! \file test_ParticleDescriptor.cpp
+ *
+ * \brief Test the construction of `ParticleDescriptor` instances.
+ *
+ * Builds a sphere, a cluster and an inclusion particle descriptor from
+ * the legacy test data in `test_data` and checks that no exception is
+ * raised. Must be run from a folder two levels below the repository
+ * root (e.g. `build/testing`), since data paths are relative.
+ * \ingroup tests
+ */
+
 #include <string>
 
 #ifndef INCLUDE_TYPES_H_
@@ -22,11 +33,49 @@
 
 using namespace std;
 
+/*! \brief Test a `ParticleDescriptorCluster` built from `test_data/cluster/case_3`.
+ *
+ * Read the legacy configuration files of the test case and build
+ * the corresponding particle descriptor, then release it.
+ *
+ * \return result: `int` 0 if the test passed, 100 if it failed.
+ */
 int test_cluster_case_3();
+
+/*! \brief Test a `ParticleDescriptorCluster` built from `test_data/cluster`.
+ *
+ * Read the legacy configuration files of the test case and build
+ * the corresponding particle descriptor, then release it.
+ *
+ * \return result: `int` 0 if the test passed, 10 if it failed.
+ */
 int test_cluster_devel();
+
+/*! \brief Test a `ParticleDescriptorInclusion` built from `test_data/inclusion`.
+ *
+ * Read the legacy configuration files of the test case and build
+ * the corresponding particle descriptor, then release it.
+ *
+ * \return result: `int` 0 if the test passed, 1000 if it failed.
+ */
 int test_inclusion();
+
+/*! \brief Test a `ParticleDescriptorSphere` built from `test_data/sphere`.
+ *
+ * Read the legacy configuration files of the test case and build
+ * the corresponding particle descriptor, then release it.
+ *
+ * \return result: `int` 0 if the test passed, 1 if it failed.
+ */
 int test_sphere();
 
+/*! \brief Main program execution body.
+ *
+ * Runs each test in sequence and adds up their failure codes, so that
+ * every decimal digit of the result identifies one failing test.
+ *
+ * \return result: `int` Sum of the failure codes (1, 10, 100 and 1000); 0 if all tests passed.
+ */
 int main() {
   int result = 0;
   result += test_sphere(); // 1 if failed

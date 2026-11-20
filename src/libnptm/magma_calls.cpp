@@ -17,12 +17,15 @@
 /*! \file magma_calls.cpp
  *
  * \brief Implementation of the interface with MAGMA libraries.
+ * \ingroup linalg
  */
 
 #ifdef USE_MAGMA
 
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <vector>
 
 #ifdef USE_TARGET_OFFLOAD
 #include "omp.h"
@@ -48,11 +51,12 @@
 #include "../include/magma_calls.h"
 #endif
 
-#ifdef DEBUG_REFINE
-#include <hdf5.h>
 #ifndef INCLUDE_ERRORS_H_
 #include "../include/errors.h"
 #endif // INCLUDE_ERRORS_H_
+
+#ifdef DEBUG_REFINE
+#include <hdf5.h>
 #ifndef INCLUDE_LIST_H_
 #include "../include/List.h"
 #endif // INCLUDE_LIST_H_
@@ -67,17 +71,99 @@
 
 using namespace std;
 
+//! \brief Value of 4 * pi.
 #define FOUR_PI 12.566370614359172
+
+//! \cond
+namespace {
+  // Matrix of complex numbers on a GPU, freed when it goes out of scope.
+  class DeviceMatrix {
+  public:
+    magmaDoubleComplex *ptr;
+    DeviceMatrix() : ptr(NULL) { }
+    ~DeviceMatrix() { release(); }
+    DeviceMatrix(const DeviceMatrix&) = delete;
+    DeviceMatrix& operator=(const DeviceMatrix&) = delete;
+    // Allocate count elements; false if the GPU has no room.
+    bool allocate(magma_int_t count) {
+      if (magma_zmalloc(&ptr, count) != MAGMA_SUCCESS) {
+	ptr = NULL;
+	return false;
+      }
+      return true;
+    }
+    void release() {
+      if (ptr != NULL) magma_free(ptr);
+      ptr = NULL;
+    }
+  };
+
+  // Allocate a GPU matrix, or throw a DeviceError.
+  void allocate_on_device(DeviceMatrix &matrix, magma_int_t count, const char *what, int device_id) {
+    if (!matrix.allocate(count)) {
+      char text[192];
+      snprintf(
+	text, sizeof(text), "could not allocate %.3g MiB of GPU memory for %s on device %d",
+	count * (double)sizeof(magmaDoubleComplex) / 1048576.0, what, device_id
+      );
+      throw DeviceError(string(text));
+    }
+  }
+
+  // MAGMA queue, destroyed when it goes out of scope.
+  class DeviceQueue {
+  public:
+    magma_queue_t queue;
+    DeviceQueue(int device_id) : queue(NULL) { magma_queue_create((magma_device_t)device_id, &queue); }
+    ~DeviceQueue() { if (queue != NULL) magma_queue_destroy(queue); }
+    DeviceQueue(const DeviceQueue&) = delete;
+    DeviceQueue& operator=(const DeviceQueue&) = delete;
+  };
+
+  // Check the info code of a MAGMA routine. MAGMA errors (codes from -100
+  // down, such as failed allocations) throw a DeviceError, illegal arguments
+  // an internal error. Positive codes (a singular matrix, or a decomposition
+  // that did not converge) are logged and returned.
+  int check_info(magma_int_t info, const char *routine, int device_id, const RuntimeSettings& rs) {
+    if (info == 0) return 0;
+    if (info <= -100) {
+      throw DeviceError(
+	string(routine) + " failed on device " + to_string(device_id) + " ("
+	+ magma_strerror(info) + ")"
+      );
+    }
+    if (info < 0) {
+      throw NptmError(string(routine) + " was called with illegal argument " + to_string(-info));
+    }
+    if (rs.logger != NULL) {
+      rs.logger->log(string(routine) + " returned code " + to_string(info) + " (singular matrix).\n", LOG_WARN);
+    }
+    return (int)info;
+  }
+}
+//! \endcond
 
 #ifdef USE_TARGET_OFFLOAD
 
 #pragma omp begin declare target device_type(any)
+/*! \brief Add two MAGMA double precision complex numbers on the device.
+ *
+ * \param a: `const magmaDoubleComplex &` First addend.
+ * \param b: `const magmaDoubleComplex &` Second addend.
+ * \return sum: `magmaDoubleComplex` The sum a + b.
+ */
 inline magmaDoubleComplex magma_zadd(const magmaDoubleComplex& a, const magmaDoubleComplex& b) {
   return MAGMA_Z_MAKE(a.x+b.x,a.y+b.y);
 }
 #pragma omp end declare target
 
 #pragma omp begin declare target device_type(any)
+/*! \brief Multiply two MAGMA double precision complex numbers on the device.
+ *
+ * \param a: `const magmaDoubleComplex &` First factor.
+ * \param b: `const magmaDoubleComplex &` Second factor.
+ * \return product: `magmaDoubleComplex` The product a * b.
+ */
 inline magmaDoubleComplex magma_zprod(const magmaDoubleComplex& a, const magmaDoubleComplex& b) {
   return MAGMA_Z_MAKE(
     a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x
@@ -86,6 +172,12 @@ inline magmaDoubleComplex magma_zprod(const magmaDoubleComplex& a, const magmaDo
 #pragma omp end declare target
 
 #pragma omp begin declare target device_type(any)
+/*! \brief Scale a MAGMA double precision complex number by a real factor on the device.
+ *
+ * \param a: `const magmaDoubleComplex` Complex number to be scaled.
+ * \param b: `const double` Real scaling factor.
+ * \return scaled: `magmaDoubleComplex` The product a * b.
+ */
 inline magmaDoubleComplex magma_zscale(const magmaDoubleComplex a, const double b) {
   return MAGMA_Z_MAKE(a.x*b,a.y*b);
 }
@@ -499,19 +591,7 @@ template<int IHI> magmaDoubleComplex magma_ghit(
 #pragma omp end declare target
 
 #pragma omp begin declare target device_type(any)
-/**
- * \brief Compute the 3j symbol for Clebsch-Gordan coefficients for JJ transitions.
- *
- * This function calculates the 3j(J,J2,J3;-M2-M3,M2,M3) symbol for the Clebsch-Gordan
- * coefficients. See Appendix a.3.1 in Borghese, Denti & Saija (2007). This function
- * is a specialized version to work on GPUs with MAGMA.
- *
- * \param j2: `int` Value of J2. [IN]
- * \param j3: `int` Value of J3. [IN]
- * \param m2: `int` Value of M2. [IN]
- * \param m3: `int` Value of M3. [IN]
- * \param rac3j: `double[]` Vector of 3j symbols. [OUT]
- */
+// Documented in magma_calls.h.
 void magma_r3jjr(int j2, int j3, int m2, int m3, double rac3j[]) {
   int jmx = j3 + j2;
   int jdf = j3 - j2;
@@ -628,82 +708,80 @@ void magma_r3jjr(int j2, int j3, int m2, int m3, double rac3j[]) {
 }
 #pragma omp end declare target
 
-void magma_zinvert_resident(
+std::string magma_zinvert_resident(
   magmaDoubleComplex *a, magma_int_t n, int &jer, magma_queue_t queue,
   int device_id, const RuntimeSettings& rs
 ) {
-  string message;
-  char buffer[128];
-  magma_int_t err = MAGMA_SUCCESS, ref_err = MAGMA_SUCCESS;
-  magma_int_t info;
+  string failure;
+  magma_int_t ref_err = MAGMA_SUCCESS;
+  magma_int_t info = 0;
   magma_int_t m = (magma_int_t)n; // changed rows; a - mxm matrix
   magma_int_t mm = m * m; // size of a
-  const magmaDoubleComplex magma_zero = MAGMA_Z_MAKE(0.0, 0.0);
   const magmaDoubleComplex magma_one = MAGMA_Z_MAKE(1.0, 0.0);
   magmaDoubleComplex *h_a = a;
+  jer = 0;
 #pragma omp target data use_device_ptr(a) device(device_id)
   {
-    if (rs.invert_mode == RuntimeSettings::INV_MODE_LU) { 
-      // >>> LU INVERSION <<<
-      magmaDoubleComplex *dwork; // work space pointer on device
-      magma_int_t ldwork = m * magma_get_zgetri_nb(m); // optimal block size
-      err = magma_zmalloc(&dwork, ldwork); // dev. mem. for ldwork
-      magma_int_t *piv = new magma_int_t[m];
-      if (err != MAGMA_SUCCESS) {
-	message = "ERROR: could not allocate dwork!\n";
-	rs.logger->err(message);
-	exit(1);
-      }
-      magma_zgetrf_gpu(m, m, a, m, piv, &info);
-      magma_zgetri_gpu(m, a, m, piv, dwork, ldwork, &info);
-      delete[] piv; // delete piv created by magma_zgetrf()
-      magma_free(dwork);
-      if (rs.use_refinement) {
-	// magma_newton makes a back-up copy of the unrefined inverted
-	// matrix on the host. If refinement fails, the err flag is set
-	// to a non-zero value, to prevent corrupting the inverted matrix.
-	ref_err = magma_newton(rs, h_a, m, a, queue);
-	if (ref_err != 0) {
-	  err = ref_err;
+    // Exceptions cannot leave the target data region: a failure is returned.
+    try {
+      if (rs.invert_mode == RuntimeSettings::INV_MODE_LU) { 
+	// >>> LU INVERSION <<<
+	magma_int_t ldwork = m * magma_get_zgetri_nb(m); // optimal block size
+	DeviceMatrix dwork; // work space on device
+	allocate_on_device(dwork, ldwork, "the LU workspace", device_id);
+	vector<magma_int_t> piv(m);
+	magma_zgetrf_gpu(m, m, a, m, piv.data(), &info);
+	jer = check_info(info, "magma_zgetrf_gpu", device_id, rs);
+	if (jer == 0) {
+	  magma_zgetri_gpu(m, a, m, piv.data(), dwork.ptr, ldwork, &info);
+	  jer = check_info(info, "magma_zgetri_gpu", device_id, rs);
 	}
-      }
-      // >>> END OF LU INVERSION <<<
-    } else if (rs.invert_mode == RuntimeSettings::INV_MODE_GESV) {
-      // >>> GESV INVERSION <<<
-      magmaDoubleComplex *h_id = new magmaDoubleComplex[mm]();
-      magmaDoubleComplex *d_id;
-      magma_int_t *piv = new magma_int_t[m];
-      for (magma_int_t i = 0; i < m; i++) {
-	h_id[i * (m + 1)] = magma_one;
-      }
-      err = magma_zmalloc(&d_id, mm);
-      if (err != MAGMA_SUCCESS) {
-	message = "ERROR: could not allocate d_id!\n";
-	rs.logger->err(message);
-	exit(1);
-      }
-      magma_zsetmatrix(m, m, h_id, m, d_id , m, queue); // copy identity matrix to device
-      delete[] h_id;
-      magma_zgesv_gpu(m, m, a, m, piv, d_id, m, &info);
-      delete[] piv; // free host memory
-      magma_zcopy(mm, d_id, 1, a, 1, queue); // copy d_id -> a;
-      magma_free(d_id);
-      if (rs.use_refinement) {
-	// magma_newton makes a back-up copy of the unrefined inverted
-	// matrix on the host. If refinement fails, the err flag is set
-	// to a non-zero value, to prevent corrupting the inverted matrix.
-	ref_err = magma_newton(rs, h_a, m, a, queue);
-	if (ref_err != 0) {
-	  err = ref_err;
+	dwork.release();
+	if (rs.use_refinement && jer == 0) {
+	  // magma_newton makes a back-up copy of the unrefined inverted
+	  // matrix on the host. If refinement fails, the err flag is set
+	  // to a non-zero value, to prevent corrupting the inverted matrix.
+	  ref_err = magma_newton(rs, h_a, m, a, queue);
+	  if (ref_err != 0) {
+	    jer = (int)ref_err;
+	  }
 	}
+	// >>> END OF LU INVERSION <<<
+      } else if (rs.invert_mode == RuntimeSettings::INV_MODE_GESV) {
+	// >>> GESV INVERSION <<<
+	DeviceMatrix d_id;
+	allocate_on_device(d_id, mm, "the identity matrix", device_id);
+	{
+	  vector<magmaDoubleComplex> h_id(mm, MAGMA_Z_MAKE(0.0, 0.0));
+	  for (magma_int_t i = 0; i < m; i++) {
+	    h_id[i * (m + 1)] = magma_one;
+	  }
+	  magma_zsetmatrix(m, m, h_id.data(), m, d_id.ptr, m, queue); // copy identity matrix to device
+	}
+	vector<magma_int_t> piv(m);
+	magma_zgesv_gpu(m, m, a, m, piv.data(), d_id.ptr, m, &info);
+	jer = check_info(info, "magma_zgesv_gpu", device_id, rs);
+	magma_zcopy(mm, d_id.ptr, 1, a, 1, queue); // copy d_id -> a;
+	d_id.release();
+	if (rs.use_refinement && jer == 0) {
+	  // magma_newton makes a back-up copy of the unrefined inverted
+	  // matrix on the host. If refinement fails, the err flag is set
+	  // to a non-zero value, to prevent corrupting the inverted matrix.
+	  ref_err = magma_newton(rs, h_a, m, a, queue);
+	  if (ref_err != 0) {
+	    jer = (int)ref_err;
+	  }
+	}
+	if (ref_err == MAGMA_SUCCESS) { // Refinement did improve the inversion accuracy, so we retireve the refined matrix.
+	  magma_zgetmatrix(m, m, a, m, h_a, m, queue); // copy d_id -> a
+	}
+	// >>> END OF GESV INVERSION <<<
       }
-      if (ref_err == MAGMA_SUCCESS) { // Refinement did improve the inversion accuracy, so we retireve the refined matrix.
-	magma_zgetmatrix(m, m, a, m, h_a, m, queue); // copy d_id -> a
-      }
-      // >>> END OF GESV INVERSION <<<
+    } catch (const exception &ex) {
+      failure = ex.what();
     }
   } // end of target region
-  jer = (int)err;
+  return failure;
 }
 
 magma_int_t magma_ztm(
@@ -872,211 +950,166 @@ magma_int_t magma_ztm(
 
 #endif // USE_TARGET_OFFLOAD
 
+bool magma_device_usable(int device_id) {
+  magma_setdevice((magma_device_t)device_id);
+  DeviceMatrix probe;
+  return probe.allocate(1);
+}
+
 void magma_zinvert(dcomplex **mat, np_int n, int &jer, int device_id, const RuntimeSettings& rs) {
+  // The host matrix changes only when the inversion has succeeded, so that a
+  // caller can invert it in another way if a DeviceError is thrown.
   magmaDoubleComplex *a = (magmaDoubleComplex *)mat[0]; // pointer to first element on host
   string message;
   char buffer[128];
-  magma_int_t err = MAGMA_SUCCESS, ref_err = MAGMA_SUCCESS;
-  magma_queue_t queue = NULL;
-  magma_device_t dev = (magma_device_t)device_id;
-  magma_queue_create(dev, &queue);
-  magma_int_t info;
+  magma_int_t ref_err = MAGMA_SUCCESS;
+  DeviceQueue device_queue(device_id);
+  magma_queue_t queue = device_queue.queue;
+  magma_int_t info = 0;
   magma_int_t m = (magma_int_t)n; // changed rows; a - mxm matrix
   magma_int_t mm = m * m; // size of a
   const magmaDoubleComplex magma_zero = MAGMA_Z_MAKE(0.0, 0.0);
   const magmaDoubleComplex magma_one = MAGMA_Z_MAKE(1.0, 0.0);
+  jer = 0;
   if (rs.invert_mode == RuntimeSettings::INV_MODE_LU) { 
     // >>> LU INVERSION <<<
-    magmaDoubleComplex *d_a; // pointer to first element on device
-    magmaDoubleComplex *dwork; // work space pointer on device
     magma_int_t ldwork = m * magma_get_zgetri_nb(m); // optimal block size
-    err = magma_zmalloc(&dwork, ldwork); // dev. mem. for ldwork
-    magma_int_t *piv = new magma_int_t[m];
-    if (err != MAGMA_SUCCESS) {
-      message = "ERROR: could not allocate dwork!\n";
-      rs.logger->err(message);
-      exit(1);
+    DeviceMatrix dwork, d_a; // work space and matrix on device
+    allocate_on_device(dwork, ldwork, "the LU workspace", device_id);
+    allocate_on_device(d_a, mm, "the matrix", device_id);
+    vector<magma_int_t> piv(m);
+    magma_zsetmatrix(m, m, a, m, d_a.ptr, m, queue); // copy a -> d_a
+    magma_zgetrf_gpu(m, m, d_a.ptr, m, piv.data(), &info);
+    jer = check_info(info, "magma_zgetrf_gpu", device_id, rs);
+    if (jer == 0) {
+      magma_zgetri_gpu(m, d_a.ptr, m, piv.data(), dwork.ptr, ldwork, &info);
+      jer = check_info(info, "magma_zgetri_gpu", device_id, rs);
     }
-    err = magma_zmalloc(&d_a, mm); // dev. mem. for matrix
-    if (err != MAGMA_SUCCESS) {
-      message = "ERROR: could not allocate d_a!\n";
-      rs.logger->err(message);
-      exit(1);
-    }
-    magma_zsetmatrix(m, m, a, m, d_a , m, queue); // copy a -> d_a
-    magma_zgetrf_gpu(m, m, d_a, m, piv, &info);
-    magma_zgetri_gpu(m, d_a, m, piv, dwork, ldwork, &info);
-    delete[] piv; // delete piv created by magma_zgetrf()
-    magma_free(dwork);
-    if (rs.use_refinement) {
+    dwork.release();
+    if (rs.use_refinement && jer == 0) {
       // magma_newton makes a back-up copy of the unrefined inverted
       // matrix on the host. If refinement fails, the err flag is set
       // to a non-zero value, to prevent corrupting the inverted matrix.
-      ref_err = magma_newton(rs, a, m, d_a, queue);
+      ref_err = magma_newton(rs, a, m, d_a.ptr, queue);
     }
-    if (ref_err == MAGMA_SUCCESS) { // Refinement did improve the inversion accuracy, so we retireve the refined matrix.
-      magma_zgetmatrix(m, m, d_a , m, a, m, queue); // copy d_a -> a
+    if (ref_err == MAGMA_SUCCESS && jer == 0) { // Refinement did improve the inversion accuracy, so we retireve the refined matrix.
+      magma_zgetmatrix(m, m, d_a.ptr, m, a, m, queue); // copy d_a -> a
     }
-    magma_free(d_a);
     // >>> END OF LU INVERSION <<<
   } else if (rs.invert_mode == RuntimeSettings::INV_MODE_GESV) {
     // >>> GESV INVERSION <<<
-    magmaDoubleComplex *h_id = new magmaDoubleComplex[mm]();
-    magmaDoubleComplex *d_a, *d_id;
-    magma_int_t *piv = new magma_int_t[m];
-    for (magma_int_t i = 0; i < m; i++) {
-      h_id[i * (m + 1)] = magma_one;
+    DeviceMatrix d_a, d_id;
+    allocate_on_device(d_id, mm, "the identity matrix", device_id);
+    allocate_on_device(d_a, mm, "the matrix", device_id);
+    {
+      vector<magmaDoubleComplex> h_id(mm, magma_zero);
+      for (magma_int_t i = 0; i < m; i++) {
+	h_id[i * (m + 1)] = magma_one;
+      }
+      magma_zsetmatrix(m, m, h_id.data(), m, d_id.ptr, m, queue); // copy identity matrix to device
     }
-    err = magma_zmalloc(&d_id, mm);
-    if (err != MAGMA_SUCCESS) {
-      message = "ERROR: could not allocate d_id!\n";
-      rs.logger->err(message);
-      exit(1);
-    }
-    magma_zsetmatrix(m, m, h_id, m, d_id , m, queue); // copy identity matrix to device
-    delete[] h_id;
-    // allocate matrix on device
-    err = magma_zmalloc(&d_a, mm); // device memory for a
-    if (err != MAGMA_SUCCESS) {
-      message = "ERROR: could not allocate d_a!\n";
-      rs.logger->err(message);
-      exit(1);
-    }
-    magma_zsetmatrix(m, m, a, m, d_a , m, queue); // copy a -> d_a
-    magma_zgesv_gpu(m, m, d_a, m, piv, d_id, m, &info);
-    delete[] piv; // free host memory
-    magma_free(d_a);
-    if (rs.use_refinement) {
+    vector<magma_int_t> piv(m);
+    magma_zsetmatrix(m, m, a, m, d_a.ptr, m, queue); // copy a -> d_a
+    magma_zgesv_gpu(m, m, d_a.ptr, m, piv.data(), d_id.ptr, m, &info);
+    jer = check_info(info, "magma_zgesv_gpu", device_id, rs);
+    d_a.release();
+    if (rs.use_refinement && jer == 0) {
       // magma_newton makes a back-up copy of the unrefined inverted
       // matrix on the host. If refinement fails, the err flag is set
       // to a non-zero value, to prevent corrupting the inverted matrix.
-      ref_err = magma_newton(rs, a, m, d_id, queue);
+      ref_err = magma_newton(rs, a, m, d_id.ptr, queue);
     }
-    if (ref_err == MAGMA_SUCCESS) { // Refinement did improve the inversion accuracy, so we retireve the refined matrix.
-      magma_zgetmatrix(m, m, d_id , m, a, m, queue); // copy d_id -> a
+    if (ref_err == MAGMA_SUCCESS && jer == 0) { // Refinement did improve the inversion accuracy, so we retireve the refined matrix.
+      magma_zgetmatrix(m, m, d_id.ptr, m, a, m, queue); // copy d_id -> a
     }
-    magma_free(d_id);
     // >>> END OF GESV INVERSION <<<
   } else if (rs.invert_mode == RuntimeSettings::INV_MODE_RBT) {
     // >>> RBT INVERSION <<<
-    magmaDoubleComplex *d_a; // pointer to first element on device
+    // magma_zgesv_rbt() works on host matrices and handles the GPU itself.
     magma_bool_t iterate = (magma_bool_t)rs.use_refinement;
-    magma_int_t *piv = new magma_int_t[m]; // host mem.
-    magmaDoubleComplex *h_id = new magmaDoubleComplex[mm]();
+    vector<magmaDoubleComplex> h_id(mm, magma_zero);
     for (np_int i = 0; i < m; i++) {
       h_id[i * (m + 1)] = magma_one;
     }
-    err = magma_zmalloc(&d_a, mm); // device memory for a
-    if (err != MAGMA_SUCCESS) {
-      message = "ERROR: could not allocate d_a!\n";
-      rs.logger->err(message);
-      exit(1);
+    vector<magmaDoubleComplex> h_a(a, a + mm); // magma_zgesv_rbt() overwrites its matrix
+    magma_zgesv_rbt(iterate, m, m, h_a.data(), m, h_id.data(), m, &info);
+    jer = check_info(info, "magma_zgesv_rbt", device_id, rs);
+    if (jer == 0) {
+      memcpy(a, h_id.data(), mm * sizeof(magmaDoubleComplex));
     }
-    magma_zsetmatrix(m, m, a, m, d_a , m, queue); // copy a -> d_a
-    magma_zgesv_rbt(iterate, m, m, a, m, h_id, m, &info);
-    memcpy(a, h_id, mm * sizeof(magmaDoubleComplex));
-    delete[] h_id;
-    delete[] piv;
-    magma_free(d_a); 
     // >>> END OF RBT INVERSION <<<
   } else if (rs.invert_mode == RuntimeSettings::INV_MODE_SVD) {
     // >>> SVD INVERSION <<<
     // Step 1: compute singular value decomposition
     magma_int_t lwork;
-    magmaDoubleComplex *h_work = new magmaDoubleComplex[m];
-    magma_zgesdd(
-      MagmaAllVec, m, m, NULL, m, NULL, NULL, m, NULL, m, h_work, -1, NULL, NULL, &info
-    );
-    if (info == 0) {
-      lwork = (magma_int_t)(MAGMA_Z_REAL(h_work[0]));
-      message = "DEBUG: lwork = " + to_string(lwork) + "\n";
-      rs.logger->log(message, LOG_DEBG);
-    } else {
-      message = "ERROR: magma_zgesdd failed on resource querying call!\n";
-      rs.logger->err(message);
-      exit(1);
+    {
+      vector<magmaDoubleComplex> h_query(m);
+      magma_zgesdd(
+	MagmaAllVec, m, m, NULL, m, NULL, NULL, m, NULL, m, h_query.data(), -1, NULL, NULL, &info
+      );
+      check_info(info, "magma_zgesdd (workspace query)", device_id, rs);
+      lwork = (magma_int_t)(MAGMA_Z_REAL(h_query[0]));
     }
-    delete[] h_work;
-    h_work = new magmaDoubleComplex[lwork];
-    magmaDoubleComplex *h_a, *h_U, *h_Vt;
-    h_a = new magmaDoubleComplex[mm];
-    memcpy(h_a, a, mm * sizeof(magmaDoubleComplex));
-    h_U = new magmaDoubleComplex[mm];
-    h_Vt = new magmaDoubleComplex[mm];
-    double *h_s = new double[m];
-    double *h_rwork = new double[5 * mm + 7 * m];
-    magma_int_t *h_iwork = new magma_int_t[8 * m];
-    magma_zgesdd(
-      MagmaAllVec, m, m, h_a, m, h_s, h_U, m, h_Vt, m, h_work, lwork, h_rwork, h_iwork, &info
-    );
-    delete[] h_work;
-    delete[] h_rwork;
-    delete[] h_iwork;
-    delete[] h_a;
-    sprintf(buffer, "DEBUG: s[0] = %.5le; s[%s] = %.5le.\n", h_s[0], to_string(m - 1).c_str(), h_s[m - 1]);
-    message = buffer;
+    message = "lwork = " + to_string(lwork) + "\n";
     rs.logger->log(message, LOG_DEBG);
+    vector<magmaDoubleComplex> h_U(mm), h_Vt(mm);
+    vector<double> h_s(m);
+    {
+      vector<magmaDoubleComplex> h_work(lwork);
+      vector<magmaDoubleComplex> h_a(a, a + mm);
+      vector<double> h_rwork(5 * mm + 7 * m);
+      vector<magma_int_t> h_iwork(8 * m);
+      magma_zgesdd(
+	MagmaAllVec, m, m, h_a.data(), m, h_s.data(), h_U.data(), m, h_Vt.data(), m, h_work.data(),
+	lwork, h_rwork.data(), h_iwork.data(), &info
+      );
+      jer = check_info(info, "magma_zgesdd", device_id, rs);
+    }
+    if (jer == 0) {
+      sprintf(buffer, "s[0] = %.5le; s[%s] = %.5le.\n", h_s[0], to_string(m - 1).c_str(), h_s[m - 1]);
+      message = buffer;
+      rs.logger->log(message, LOG_DEBG);
     
-    // Step 2: Upload decomposed matix to GPU
-    magmaDoubleComplex *d_U, *d_Vt, *d_a;
-    err = magma_zmalloc(&d_Vt, mm);
-    if (err != MAGMA_SUCCESS) {
-      message = "ERROR: could not allocate d_Vt!\n";
-      rs.logger->err(message);
-      exit(1);
-    }
-    magma_zsetmatrix(m, m, h_Vt, m, d_Vt, m, queue);
-    err = magma_zmalloc(&d_U, mm);
-    if (err != MAGMA_SUCCESS) {
-      message = "ERROR: could not allocate d_U!\n";
-      rs.logger->err(message);
-      exit(1);
-    }
-    magma_zsetmatrix(m, m, h_U, m, d_U, m, queue);
-    err = magma_zmalloc(&d_a, mm);
-    if (err != MAGMA_SUCCESS) {
-      message = "ERROR: could not allocate d_a!\n";
-      rs.logger->err(message);
-      exit(1);
-    }
+      // Step 2: Upload decomposed matix to GPU
+      DeviceMatrix d_U, d_Vt, d_a;
+      allocate_on_device(d_Vt, mm, "the SVD factor Vt", device_id);
+      allocate_on_device(d_U, mm, "the SVD factor U", device_id);
+      allocate_on_device(d_a, mm, "the pseudo-inverse", device_id);
+      magma_zsetmatrix(m, m, h_Vt.data(), m, d_Vt.ptr, m, queue);
+      magma_zsetmatrix(m, m, h_U.data(), m, d_U.ptr, m, queue);
 
-    // Step 3: compute threshold-truncated pseudo-inverse on GPU
-    double eps_mach = 2.22e-18;
-    double threshold = h_s[0] * m * eps_mach; 
-    for (magma_int_t i = 0; i < m; i++) {
-      magmaDoubleComplex inv_s = MAGMA_Z_MAKE(h_s[i] / (h_s[i] * h_s[i] + threshold * threshold), 0.0);
-      magma_zscal(m, inv_s, d_Vt + i, m, queue);
-    }
-    delete[] h_s;
-    // d_a = d_vt^H * d_u^H
-    magmablas_zgemm(
-      MagmaConjTrans, MagmaConjTrans, m, m, m, magma_one, d_Vt, m, d_U, m, 
-      magma_zero, d_a, m, queue
-    );
+      // Step 3: compute threshold-truncated pseudo-inverse on GPU
+      double eps_mach = 2.22e-18;
+      double threshold = h_s[0] * m * eps_mach; 
+      for (magma_int_t i = 0; i < m; i++) {
+	magmaDoubleComplex inv_s = MAGMA_Z_MAKE(h_s[i] / (h_s[i] * h_s[i] + threshold * threshold), 0.0);
+	magma_zscal(m, inv_s, d_Vt.ptr + i, m, queue);
+      }
+      // d_a = d_vt^H * d_u^H
+      magmablas_zgemm(
+	MagmaConjTrans, MagmaConjTrans, m, m, m, magma_one, d_Vt.ptr, m, d_U.ptr, m, 
+	magma_zero, d_a.ptr, m, queue
+      );
 
-    // Step 4: release matrix decomposition
-    magma_free(d_U);
-    magma_free(d_Vt);
-    delete[] h_U;
-    delete[] h_Vt;
+      // Step 4: release matrix decomposition
+      d_U.release();
+      d_Vt.release();
 
-    // Step 5: refine inversion
-    if (rs.use_refinement) {
-      // magma_newton makes a back-up copy of the unrefined inverted
-      // matrix on the host. If refinement fails, the err flag is set
-      // to a non-zero value, to prevent corrupting the inverted matrix.
-      ref_err = magma_newton(rs, a, m, d_a, queue);
-    }
+      // Step 5: refine inversion
+      if (rs.use_refinement) {
+	// magma_newton makes a back-up copy of the unrefined inverted
+	// matrix on the host. If refinement fails, the err flag is set
+	// to a non-zero value, to prevent corrupting the inverted matrix.
+	ref_err = magma_newton(rs, a, m, d_a.ptr, queue);
+      }
 
-    // Step 6: get result back to host
-    if (ref_err == MAGMA_SUCCESS) { // Refinement did improve the inversion accuracy, so we retireve the refined matrix.
-      magma_zgetmatrix(m, m, d_a , m, a, m, queue); // copy d_a -> a
+      // Step 6: get result back to host
+      if (ref_err == MAGMA_SUCCESS) { // Refinement did improve the inversion accuracy, so we retireve the refined matrix.
+	magma_zgetmatrix(m, m, d_a.ptr, m, a, m, queue); // copy d_a -> a
+      }
     }
-    magma_free(d_a);
     // >>> END OF SVD INVERSION <<<
   }
-  magma_queue_destroy(queue); // destroy queue
-  jer = (int)err;
 }
 
 magma_int_t magma_newton(
@@ -1092,46 +1125,36 @@ magma_int_t magma_newton(
   const magmaDoubleComplex magma_mone = MAGMA_Z_MAKE(-1.0, 0.0);
   const magmaDoubleComplex magma_two = MAGMA_Z_MAKE(2.0, 0.0);
   const magma_int_t mm = m * m;
-  magmaDoubleComplex *d_a_orig, *d_ax, *d_r;
-  magmaDoubleComplex *h_id_diag = new magmaDoubleComplex[m];
-  magmaDoubleComplex *d_id_diag;
+  // All the GPU buffers are allocated before the host matrix changes: if the
+  // GPU has no room, the refinement is skipped and the unrefined inverse,
+  // still in d_a, is the result.
+  DeviceMatrix d_a_orig_buffer, d_ax_buffer, d_r_buffer, d_id_diag_buffer;
+  if (
+    !d_id_diag_buffer.allocate(m) || !d_a_orig_buffer.allocate(mm)
+    || !d_ax_buffer.allocate(mm) || !d_r_buffer.allocate(mm)
+  ) {
+    if (rs.logger != NULL) {
+      rs.logger->log("not enough GPU memory for the refinement: the inverse is not refined.\n", LOG_WARN);
+    }
+    return MAGMA_SUCCESS;
+  }
+  magmaDoubleComplex *d_a_orig = d_a_orig_buffer.ptr;
+  magmaDoubleComplex *d_ax = d_ax_buffer.ptr;
+  magmaDoubleComplex *d_r = d_r_buffer.ptr;
+  magmaDoubleComplex *d_id_diag = d_id_diag_buffer.ptr;
+  {
+    vector<magmaDoubleComplex> h_id_diag(m, magma_one);
+    magma_zsetvector(m, h_id_diag.data(), 1, d_id_diag, 1, queue);
+  }
   double oldmax = 2.0e+16, curmax = 1.0e+16;
-  for (magma_int_t hi = 0; hi < m; hi++)
-    h_id_diag[hi] = magma_one;
-  err = magma_zmalloc(&d_id_diag, m);
-  if (err != MAGMA_SUCCESS) {
-    message = "ERROR: could not allocate d_id_diag!\n";
-    rs.logger->err(message);
-    exit(1);
-  }
-  magma_zsetvector(m, h_id_diag, 1, d_id_diag, 1, queue);
-  delete[] h_id_diag;
-  err = magma_zmalloc(&d_a_orig, mm);
-  if (err != MAGMA_SUCCESS) {
-    message = "ERROR: could not allocate d_a_orig!\n";
-    rs.logger->err(message);
-    exit(1);
-  }
   magma_zsetmatrix(m, m, a, m, d_a_orig, m, queue); // copy a -> d_a_orig
   magma_zgetmatrix(m, m, d_a, m, a, m, queue); // copy pre-refinement d_a -> a
-  err = magma_zmalloc(&d_ax, mm);
-  if (err != MAGMA_SUCCESS) {
-    message = "ERROR: could not allocate d_ax!\n";
-    rs.logger->err(message);
-    exit(1);
-  }
-  err = magma_zmalloc(&d_r, mm);
-  if (err != MAGMA_SUCCESS) {
-    message = "ERROR: could not allocate d_r!\n";
-    rs.logger->err(message);
-    exit(1);
-  }
   magma_int_t maxindex = magma_izamax(mm, d_a, 1, queue) - 1;
   magma_queue_sync(queue);
   magmaDoubleComplex magmamax = magma_mone;
   magma_zgetvector(1, d_a + maxindex, 1, &magmamax, 1, queue);
   curmax = MAGMA_Z_ABS(magmamax);
-  sprintf(buffer, "INFO: largest matrix value has modulus %.5le.\n", curmax);
+  sprintf(buffer, "largest matrix value has modulus %.5le.\n", curmax);
   message = buffer;
   rs.logger->log(message);
   for (int ri = 0; ri < max_ref_iters; ri++) {
@@ -1147,7 +1170,7 @@ magma_int_t magma_newton(
     magma_queue_sync(queue);
     magma_zgetvector(1, d_ax + maxindex, 1, &magmamax, 1, queue);
     curmax = MAGMA_Z_ABS(magmamax);
-    sprintf(buffer, "DEBUG: iteration %d has residue %.5le; target residue is %.5le.\n", ri, curmax, rs.accuracy_goal);
+    sprintf(buffer, "iteration %d has residue %.5le; target residue is %.5le.\n", ri, curmax, rs.accuracy_goal);
     message = buffer;
     rs.logger->log(message, LOG_DEBG);
     if (curmax < 0.5) { // Safe conditions for Newton-Schultz iteration.
@@ -1160,19 +1183,19 @@ magma_int_t magma_newton(
 	// Set X = X + R
 	magma_zaxpy(mm, magma_one, d_r, 1, d_a, 1, queue);
 	if (curmax < rs.accuracy_goal) {
-	  message = "DEBUG: good news - optimal convergence achieved. Stopping.\n";
+	  message = "good news - optimal convergence achieved. Stopping.\n";
 	  rs.logger->log(message, LOG_DEBG);
 	  err = MAGMA_SUCCESS;
 	  break; // ri for
         }
       } else {
 	if (curmax > 0.1) {
-	  sprintf(buffer, "INFO: iteration %d achieved limiting residue %.5le. Cannot reach goal. Reverting.\n", ri, curmax);
+	  sprintf(buffer, "iteration %d achieved limiting residue %.5le. Cannot reach goal. Reverting.\n", ri, curmax);
 	  message = buffer;
 	  rs.logger->log(message);
 	  err = 1;
 	} else {
-	  sprintf(buffer, "WARN: iteration %d achieved limiting residue %.5le. Stopping.\n", ri, curmax);
+	  sprintf(buffer, "iteration %d achieved limiting residue %.5le. Stopping.\n", ri, curmax);
 	  message = buffer;
 	  rs.logger->log(message, LOG_WARN);
 	}
@@ -1180,23 +1203,19 @@ magma_int_t magma_newton(
       }
     } else { // curmax > 0.5. Newton-Schultz iteration is dangerous.
       if (curmax < oldmax) {
-	sprintf(buffer, "WARN: iteration %d has residue %.5le. Iterating is dangerous. Stopping.\n", ri, curmax);
+	sprintf(buffer, "iteration %d has residue %.5le. Iterating is dangerous. Stopping.\n", ri, curmax);
 	message = buffer;
 	rs.logger->log(message, LOG_WARN);
       } else {
 	err = 1;
-	sprintf(buffer, "INFO: iteration %d has residue %.5le. Reverting to unrefined and stopping.\n", ri, curmax);
+	sprintf(buffer, "iteration %d has residue %.5le. Reverting to unrefined and stopping.\n", ri, curmax);
 	message = buffer;
 	rs.logger->log(message);
       }
       break; // ri for
     }
   } // end of ri for
-  magma_free(d_a_orig);
-  magma_free(d_ax);
-  magma_free(d_r);
-  magma_free(d_id_diag);
-  return err;
+  return err; // the GPU buffers are freed here
 }
 
 #endif

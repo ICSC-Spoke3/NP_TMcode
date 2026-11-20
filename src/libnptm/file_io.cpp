@@ -1,6 +1,7 @@
 /*! \file file_io.cpp
  *
  * \brief Implementation of file I/O operations.
+ * \ingroup io
  */
 #include <exception>
 #include <fstream>

@@ -18,10 +18,15 @@
  *
  * \brief Multi-process communication data structures.
  *
+ * \ingroup model
  */
 
 #ifndef INCLUDE_ITERATION_DATA_H_
 #define INCLUDE_ITERATION_DATA_H_
+
+/*! \addtogroup model
+ * @{
+ */
 
 // >>> DEFINITION OF ClusterIterationData CLASS <<<
 /*! \brief A data structure representing the information used for a single scale
@@ -138,12 +143,12 @@ public:
 
   /*! \brief `ClusterIterationData` default instance constructor.
    *
-   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
-   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
    * \param mpidata: `mixMPI *` Pointer to a `mixMPI` object.
    * \param device_count: `const int` Number of offload devices available on the system.
    */
-  ClusterIterationData(GeometryConfiguration *gconf, ScattererConfiguration *sconf, const mixMPI *mpidata, const int device_count);
+  ClusterIterationData(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf, const mixMPI *mpidata, const int device_count);
   
   /*! \brief `ClusterIterationData` copy constructor.
    *
@@ -177,11 +182,13 @@ public:
 
   /*! \brief Compute the memory requirements of an instance.
    *
-   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
-   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
    * \return result: `long` Estimated size in bytes.
+   *
+   * \note Mirrored in `src/scripts/nptm_estimates.py`: change it there too.
    */
-  static long get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
+  static long get_size(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf);
 
   /*! \brief Update field expansion orders.
    *
@@ -318,12 +325,12 @@ public:
 
   /*! \brief `InclusionIterationData` default instance constructor.
    *
-   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
-   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
    * \param mpidata: `mixMPI *` Pointer to a `mixMPI` object.
    * \param device_count: `const int` Number of offload devices available on the system.
    */
-  InclusionIterationData(GeometryConfiguration *gconf, ScattererConfiguration *sconf, const mixMPI *mpidata, const int device_count);
+  InclusionIterationData(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf, const mixMPI *mpidata, const int device_count);
   
   /*! \brief `InclusionIterationData` copy constructor.
    *
@@ -357,11 +364,13 @@ public:
 
   /*! \brief Compute the memory requirements of an instance.
    *
-   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
-   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
    * \return result: `long` Estimated size in bytes.
+   *
+   * \note Mirrored in `src/scripts/nptm_estimates.py`: change it there too.
    */
-  static long get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf);
+  static long get_size(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf);
 
   /*! \brief Update field expansion orders.
    *
@@ -495,12 +504,12 @@ public:
   
   /*! \brief `SphereIterationData` default instance constructor.
    *
-   * \param gconf: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
-   * \param sconf: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
    * \param mpidata: `mixMPI *` Pointer to a `mixMPI` object.
    * \param device_count: `const int` Number of offload devices available on the system.
    */
-  SphereIterationData(GeometryConfiguration *gconf, ScattererConfiguration *sconf, const mixMPI *mpidata, const int device_count);
+  SphereIterationData(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf, const mixMPI *mpidata, const int device_count);
   
   /*! \brief `SphereIterationData` copy constructor.
    *
@@ -518,15 +527,29 @@ public:
 
   /*! \brief Broadcast over MPI the `SphereIterationData` instance from MPI process 0 to all others.
    *
-   * When using MPI, the initial InclusionIterationData instance created by
+   * When using MPI, the initial SphereIterationData instance created by
    * MPI process 0 needs to be replicated on all other processes. This
    * function sends it using MPI broadcast calls. The MPI broadcast calls in
    * this function must match those in the constructor using the mixMPI pointer.
    *
    * \param mpidata: `mixMPI *` Pointer to `mixMPI` instance.
+   * \return result: `int` Exit code (currently always 0).
    */
   int mpibcast(const mixMPI *mpidata);
 #endif // MPI_VERSION
+
+  /*! \brief Compute the memory requirements of an instance.
+   *
+   * Returns the number of bytes that the constructor from configuration
+   * objects allocates, including the instance and its particle descriptor.
+   *
+   * \param[in] gconf: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` object.
+   * \param[in] sconf: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` object.
+   * \return size: `long` Estimated instance size in bytes.
+   *
+   * \note Mirrored in `src/scripts/nptm_estimates.py`: change it there too.
+   */
+  static long get_size(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf);
 
   /*! \brief `SphereIterationData` instance destroyer.
    */
@@ -541,4 +564,5 @@ public:
 };
 // >>> END OF SphereIterationData CLASS DEFINITION <<<
 
+//! @}
 #endif // INCLUDE_ITERATION_DATA_H_

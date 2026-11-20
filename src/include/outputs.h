@@ -17,9 +17,14 @@
 /*! \file outputs.h
  *
  * \brief Definition of the output format system.
+ * \ingroup io
  */
 #ifndef INCLUDE_OUTPUTS_H_
 #define INCLUDE_OUTPUTS_H_
+
+/*! \addtogroup io
+ * @{
+ */
 
 // >>> OUTPUT FOR CLUSTER <<<
 /*! \brief Class to collect output information for scattering from clusters.
@@ -458,14 +463,14 @@ public:
   
   /*! \brief `ClusterOutputInfo` default instance constructor.
    *
-   * \param sc: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` instance.
-   * \param gc: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
+   * \param[in] sc: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` instance.
+   * \param[in] gc: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
    * \param mpidata: `const mixMPI*` Pointer to a mixMPI instance.
    * \param first_xi: `int` Index of the first scale in output (optional, default is 1).
    * \param xi_length: `int` Number of scales tobe included in output (optional, default is 0, meaning all).
    */   
   ClusterOutputInfo(
-    ScattererConfiguration *sc, GeometryConfiguration *gc,
+    const ScattererConfiguration *sc, const GeometryConfiguration *gc,
     const mixMPI *mpidata, int first_xi = 1, int xi_length = 0
   );
 
@@ -481,28 +486,27 @@ public:
    */   
   ClusterOutputInfo(const int skip_flag);
 
+  /*! \brief Compute the memory requirements of an instance.
+   *
+   * Returns the number of bytes that the constructor with the same arguments
+   * allocates, including the instance itself.
+   *
+   * \param[in] sc: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` instance.
+   * \param[in] gc: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
+   * \param first_xi: `int` Index of the first scale in output (optional, default is 1).
+   * \param xi_length: `int` Number of scales to be included in output (optional, default is 0, meaning all).
+   * \return size: `long` Estimated instance size in bytes.
+   *
+   * \note Mirrored in `src/scripts/nptm_estimates.py`: change it there too.
+   */
+  static long get_size(
+    const ScattererConfiguration *sc, const GeometryConfiguration *gc,
+    int first_xi = 1, int xi_length = 0
+  );
+
   /*! \brief `ClusterOutputInfo` instance destroyer.
    */
   ~ClusterOutputInfo();
-
-  /*! \brief Estimate the size of the structure that would be built for given input.
-   *
-   * \param sc: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` instance.
-   * \param gc: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
-   * \param first_xi: `int` Index of the first scale in output (optional, default is 1).
-   * \param xi_length: `int` Number of scales tobe included in output (optional, default is all).
-   * \return size: `long` Estimated instance size in bytes.
-   */
-  static long compute_size(
-    ScattererConfiguration *sc, GeometryConfiguration *gc,
-    int first_xi = 1, int xi_length = 0
-  );
-  
-  /*! \brief Get the size of a `ClusterOutputInfo` instance in bytes.
-   *
-   * \return size: `long` Estimated instance size in bytes.
-   */
-  long compute_size();
 
   /*! \brief Insert in the current output data the data of another block.
    *
@@ -516,6 +520,10 @@ public:
    * \param output: `const string &` Path to the output to be written.
    * \param format: `const string &` Output format (one of LEGACY or HDF5).
    * \return result: `int` Exit code (0 if successful).
+   *
+   * \note `src/scripts/parse_output.py` reads both formats: the dataset
+   * names and index order of the HDF5 file, and the labels and section
+   * headers of the legacy file. A change to them must be mirrored there.
    */
   int write(const std::string &output, const std::string &format);
 
@@ -541,7 +549,6 @@ public:
    * data transmission.
    *
    * \param mpidata: `const mixMPI*` Pointer to a `mixMPI` instance.
-   * \param pid: `int` Rank of the process that is transmitting data.
    * \return result: `int` An exit code (0 for success).
    */
   int mpisend(const mixMPI *mpidata);
@@ -898,14 +905,14 @@ public:
   
   /*! \brief `InclusionOutputInfo` default instance constructor.
    *
-   * \param sc: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` instance.
-   * \param gc: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
+   * \param[in] sc: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` instance.
+   * \param[in] gc: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
    * \param mpidata: `const mixMPI*` Pointer to a mixMPI instance.
    * \param first_xi: `int` Index of the first scale in output (optional, default is 1).
    * \param xi_length: `int` Number of scales tobe included in output (optional, default is 0, meaning all).
    */   
   InclusionOutputInfo(
-    ScattererConfiguration *sc, GeometryConfiguration *gc,
+    const ScattererConfiguration *sc, const GeometryConfiguration *gc,
     const mixMPI *mpidata, int first_xi = 1, int xi_length = 0
   );
 
@@ -921,28 +928,27 @@ public:
    */   
   InclusionOutputInfo(const int skip_flag);
 
+  /*! \brief Compute the memory requirements of an instance.
+   *
+   * Returns the number of bytes that the constructor with the same arguments
+   * allocates, including the instance itself.
+   *
+   * \param[in] sc: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` instance.
+   * \param[in] gc: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
+   * \param first_xi: `int` Index of the first scale in output (optional, default is 1).
+   * \param xi_length: `int` Number of scales to be included in output (optional, default is 0, meaning all).
+   * \return size: `long` Estimated instance size in bytes.
+   *
+   * \note Mirrored in `src/scripts/nptm_estimates.py`: change it there too.
+   */
+  static long get_size(
+    const ScattererConfiguration *sc, const GeometryConfiguration *gc,
+    int first_xi = 1, int xi_length = 0
+  );
+
   /*! \brief `InclusionOutputInfo` instance destroyer.
    */
   ~InclusionOutputInfo();
-
-  /*! \brief Estimate the size of the structure that would be built for given input.
-   *
-   * \param sc: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` instance.
-   * \param gc: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
-   * \param first_xi: `int` Index of the first scale in output (optional, default is 1).
-   * \param xi_length: `int` Number of scales tobe included in output (optional, default is all).
-   * \return size: `long` Estimated instance size in bytes.
-   */
-  static long compute_size(
-    ScattererConfiguration *sc, GeometryConfiguration *gc,
-    int first_xi = 1, int xi_length = 0
-  );
-  
-  /*! \brief Get the size of an `InclusionOutputInfo` instance in bytes.
-   *
-   * \return size: `long` Estimated instance size in bytes.
-   */
-  long compute_size();
 
   /*! \brief Insert in the current output data the data of another block.
    *
@@ -956,6 +962,10 @@ public:
    * \param output: `const string &` Path to the output to be written.
    * \param format: `const string &` Output format (one of LEGACY or HDF5).
    * \return result: `int` Exit code (0 if successful).
+   *
+   * \note `src/scripts/parse_output.py` reads both formats: the dataset
+   * names and index order of the HDF5 file, and the labels and section
+   * headers of the legacy file. A change to them must be mirrored there.
    */
   int write(const std::string &output, const std::string &format);
 
@@ -981,7 +991,6 @@ public:
    * data transmission.
    *
    * \param mpidata: `const mixMPI*` Pointer to a `mixMPI` instance.
-   * \param pid: `int` Rank of the process that is transmitting data.
    * \return result: `int` An exit code (0 for success).
    */
   int mpisend(const mixMPI *mpidata);
@@ -1188,14 +1197,14 @@ public:
   
   /*! \brief `SphereOutputInfo` default instance constructor.
    *
-   * \param sc: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` instance.
-   * \param gc: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
+   * \param[in] sc: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` instance.
+   * \param[in] gc: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
    * \param mpidata: `const mixMPI*` Pointer to a mixMPI instance.
    * \param first_xi: `int` Index of the first scale in output (optional, default is 1).
    * \param xi_length: `int` Number of scales tobe included in output (optional, default is 0, meaning all).
    */   
   SphereOutputInfo(
-    ScattererConfiguration *sc, GeometryConfiguration *gc,
+    const ScattererConfiguration *sc, const GeometryConfiguration *gc,
     const mixMPI *mpidata, int first_xi = 1, int xi_length = 0
   );
 
@@ -1211,28 +1220,27 @@ public:
    */   
   SphereOutputInfo(const int skip_flag);
 
+  /*! \brief Compute the memory requirements of an instance.
+   *
+   * Returns the number of bytes that the constructor with the same arguments
+   * allocates, including the instance itself.
+   *
+   * \param[in] sc: `const ScattererConfiguration *` Pointer to a `ScattererConfiguration` instance.
+   * \param[in] gc: `const GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
+   * \param first_xi: `int` Index of the first scale in output (optional, default is 1).
+   * \param xi_length: `int` Number of scales to be included in output (optional, default is 0, meaning all).
+   * \return size: `long` Estimated instance size in bytes.
+   *
+   * \note Mirrored in `src/scripts/nptm_estimates.py`: change it there too.
+   */
+  static long get_size(
+    const ScattererConfiguration *sc, const GeometryConfiguration *gc,
+    int first_xi = 1, int xi_length = 0
+  );
+
   /*! \brief `SphereOutputInfo` instance destroyer.
    */
   ~SphereOutputInfo();
-
-  /*! \brief Estimate the size of the structure that would be built for given input.
-   *
-   * \param sc: `ScattererConfiguration *` Pointer to a `ScattererConfiguration` instance.
-   * \param gc: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
-   * \param first_xi: `int` Index of the first scale in output (optional, default is 1).
-   * \param xi_length: `int` Number of scales tobe included in output (optional, default is all).
-   * \return size: `long` Estimated instance size in bytes.
-   */
-  static long compute_size(
-    ScattererConfiguration *sc, GeometryConfiguration *gc,
-    int first_xi = 1, int xi_length = 0
-  );
-  
-  /*! \brief Get the size of a `SphereOutputInfo` instance in bytes.
-   *
-   * \return size: `long` Estimated instance size in bytes.
-   */
-  long compute_size();
 
   /*! \brief Insert in the current output data the data of another block.
    *
@@ -1246,6 +1254,10 @@ public:
    * \param output: `const string &` Path to the output to be written.
    * \param format: `const string &` Output format (one of LEGACY or HDF5).
    * \return result: `int` Exit code (0 if successful).
+   *
+   * \note `src/scripts/parse_output.py` reads both formats: the dataset
+   * names and index order of the HDF5 file, and the labels and section
+   * headers of the legacy file. A change to them must be mirrored there.
    */
   int write(const std::string &output, const std::string &format);
 
@@ -1271,7 +1283,6 @@ public:
    * data transmission.
    *
    * \param mpidata: `const mixMPI*` Pointer to a `mixMPI` instance.
-   * \param pid: `int` Rank of the process that is transmitting data.
    * \return result: `int` An exit code (0 for success).
    */
   int mpisend(const mixMPI *mpidata);
@@ -1400,12 +1411,12 @@ public:
   
   /*! \brief `TrappingOutputInfo` default instance constructor.
    *
-   * \param ift: `int' Force / torque toggle mode.
-   * \param iss: `int' TWS / TFRFME switch.
-   * \param itw: `int' Formatted output switch (0 - disabled, 1 - enabled).
-   * \param nx: `int' Number of vertices along the X-axis.
-   * \param ny: `int' Number of vertices along the Y-axis.
-   * \param nz: `int' Number of vertices along the Z-axis.
+   * \param ift: `int` Force / torque toggle mode.
+   * \param iss: `int` TWS / TFRFME switch.
+   * \param itw: `int` Formatted output switch (0 - disabled, 1 - enabled).
+   * \param nx: `int` Number of vertices along the X-axis.
+   * \param ny: `int` Number of vertices along the Y-axis.
+   * \param nz: `int` Number of vertices along the Z-axis.
    */   
   TrappingOutputInfo(
     int ift, int iss, int itw, int nx, int ny, int nz
@@ -1417,11 +1428,11 @@ public:
 
   /*! \brief Estimate the size of the structure that would be built for given input.
    *
-   * \param ift: `int' Force / torque toggle mode.
-   * \param iss: `int' TWS / TFRFME switch.
-   * \param nx: `int' Number of vertices along the X-axis.
-   * \param ny: `int' Number of vertices along the Y-axis.
-   * \param nz: `int' Number of vertices along the Z-axis.
+   * \param ift: `int` Force / torque toggle mode.
+   * \param iss: `int` TWS / TFRFME switch.
+   * \param nx: `int` Number of vertices along the X-axis.
+   * \param ny: `int` Number of vertices along the Y-axis.
+   * \param nz: `int` Number of vertices along the Z-axis.
    * \return size: `long` Estimated instance size in bytes.
    */
   static long get_size(int ift, int iss, int nx, int ny, int nz);
@@ -1434,8 +1445,8 @@ public:
 
   /*! \brief Set the value of a parameter by its name.
    *
-   * \param pname: `const string&' Name of the parameter to be set.
-   * \param pvalue: `double' Value of the parameter.
+   * \param pname: `const string&` Name of the parameter to be set.
+   * \param pvalue: `double` Value of the parameter.
    */
   void set_param(const std::string& pname, double pvalue);
 
@@ -1449,4 +1460,5 @@ public:
 };
 // >>> END OF OUTPUT FOR TRAPPING <<<
 
+//! @}
 #endif // INCLUDE_OUTPUTS_H_

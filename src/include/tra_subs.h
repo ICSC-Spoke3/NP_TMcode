@@ -26,11 +26,15 @@
  * structures. In order to manage access to such variety of return values, most
  * functions are declared as `void` and they operate on output arguments passed
  * by reference.
+ * \ingroup kernels
  */
 
 #ifndef INCLUDE_TRA_SUBS_H_
 #define INCLUDE_TRA_SUBS_H_
-#endif
+
+/*! \addtogroup kernels
+ * @{
+ */
 
 // Structures for TRAPPING
 /*! \brief CIL data structure.
@@ -185,3 +189,6 @@ void wamff(
 	   dcomplex *wk, double x, double y, double z, int lm, double apfafa,
 	   double tra, double spd, double rir, double ftcn, int lmode, double pmf
 );
+
+//! @}
+#endif // INCLUDE_TRA_SUBS_H_

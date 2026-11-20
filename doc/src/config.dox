@@ -48,7 +48,7 @@ PROJECT_NAME           = "NP Transition Matrix"
 # could be handy for archiving the generated documentation or if some version
 # control system is used.
 
-PROJECT_NUMBER         =
+PROJECT_NUMBER         = $(NPTM_VERSION)
 
 # Using the PROJECT_BRIEF tag one can provide an optional one line description
 # for a project that appears at the top of each page and should give viewer a
@@ -184,7 +184,7 @@ FULL_PATH_NAMES        = YES
 # will be relative from the directory where doxygen is started.
 # This tag requires that the tag FULL_PATH_NAMES is set to YES.
 
-STRIP_FROM_PATH        = /home/lamura/Programming/gits
+STRIP_FROM_PATH        = ../..
 
 # The STRIP_FROM_INC_PATH tag can be used to strip a user-defined part of the
 # path mentioned in the documentation of a class, which tells the reader which
@@ -342,7 +342,7 @@ OPTIMIZE_OUTPUT_SLICE  = NO
 #
 # Note see also the list of default file extension mappings.
 
-EXTENSION_MAPPING      = f=FortranFixed f90=FortranFree
+EXTENSION_MAPPING      =
 
 # If the MARKDOWN_SUPPORT tag is enabled then doxygen pre-processes all comments
 # according to the Markdown format, which allows for more readable
@@ -877,7 +877,7 @@ WARN_IF_INCOMPLETE_DOC = YES
 # WARN_IF_INCOMPLETE_DOC
 # The default value is: NO.
 
-WARN_NO_PARAMDOC       = NO
+WARN_NO_PARAMDOC       = YES
 
 # If WARN_IF_UNDOC_ENUM_VAL option is set to YES, doxygen will warn about
 # undocumented enumeration values. If set to NO, doxygen will accept
@@ -931,7 +931,7 @@ WARN_LINE_FORMAT       = "at line $line of file $file"
 # specified the warning and error messages are written to standard output
 # (stdout).
 
-WARN_LOGFILE           =
+WARN_LOGFILE           = doxygen_warnings.log
 
 #---------------------------------------------------------------------------
 # Configuration options related to the input files
@@ -943,7 +943,9 @@ WARN_LOGFILE           =
 # spaces. See also FILE_PATTERNS and EXTENSION_MAPPING
 # Note: If this tag is empty the current directory is searched.
 
-INPUT                  = ../../src
+INPUT                  = mainpage.md \
+                         groups.dox \
+                         ../../src
 
 # This tag can be used to specify the character encoding of the source files
 # that doxygen parses. Internally doxygen uses the UTF-8 encoding. Doxygen uses
@@ -984,7 +986,6 @@ INPUT_FILE_ENCODING    =
 # *.f18, *.f, *.for, *.vhd, *.vhdl, *.ucf, *.qsf and *.ice.
 
 FILE_PATTERNS          = *.cpp \
-		         *.f \
 		         *.h \
 			 *.md \
 			 *.py
@@ -1113,7 +1114,7 @@ FILTER_SOURCE_PATTERNS =
 # (index.html). This can be useful if you have a project on for instance GitHub
 # and want to reuse the introduction page also for the doxygen output.
 
-USE_MDFILE_AS_MAINPAGE =
+USE_MDFILE_AS_MAINPAGE = mainpage.md
 
 # The Fortran standard specifies that for fixed formatted Fortran code all
 # characters from position 72 are to be considered as comment. A common
@@ -1724,7 +1725,7 @@ FORMULA_MACROFILE      =
 # The default value is: NO.
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
-USE_MATHJAX            = NO
+USE_MATHJAX            = YES
 
 # With MATHJAX_VERSION it is possible to specify the MathJax version to be used.
 # Note that the different versions of MathJax have different requirements with
@@ -2346,7 +2347,14 @@ INCLUDE_FILE_PATTERNS  =
 # recursively expanded use the := operator instead of the = operator.
 # This tag requires that the tag ENABLE_PREPROCESSING is set to YES.
 
-PREDEFINED             =
+PREDEFINED             = USE_MPI \
+                         MPI_VERSION=3 \
+                         _OPENMP \
+                         USE_LAPACK \
+                         USE_MAGMA \
+                         USE_CUBLAS \
+                         USE_TARGET_OFFLOAD \
+                         USE_NVTX
 
 # If the MACRO_EXPANSION and EXPAND_ONLY_PREDEF tags are set to YES then this
 # tag can be used to specify a list of macro names that should be expanded. The

@@ -17,6 +17,7 @@
 /*! \file sph_subs.cpp
  *
  * \brief C++ implementation of SPHERE subroutines.
+ * \ingroup kernels
  */
 #ifndef INCLUDE_TYPES_H_
 #include "../include/types.h"

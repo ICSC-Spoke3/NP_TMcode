@@ -15,6 +15,7 @@
  */
 
 //! \file test_TEDF.cpp
+//! \ingroup tests
 
 #include <cstdio>
 #include <exception>

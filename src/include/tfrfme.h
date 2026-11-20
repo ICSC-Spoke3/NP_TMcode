@@ -17,10 +17,38 @@
 /*! \file tfrfme.h
  *
  * \brief Representation of the trapping calculation objects.
+ * \ingroup model
  */
 
 #ifndef INCLUDE_TFRFME_H_
 #define INCLUDE_TFRFME_H_
+
+#include <cstdlib>
+#include <cstring>
+
+/*! \addtogroup model
+ * @{
+ */
+
+/*! \brief Allocate zero-filled memory aligned to a given boundary.
+ *
+ * `aligned_alloc()` requires the size to be a multiple of the alignment.
+ * This function rounds the size up to the next multiple, allocates the
+ * memory with `aligned_alloc()` and fills it with zeros, like the
+ * value-initialized `new[]` used when the GPU offload is disabled. The
+ * memory must be released with `free()`.
+ *
+ * \param alignment: `size_t` Alignment in bytes (a power of two).
+ * \param size: `size_t` Number of bytes needed.
+ * \return ptr: `void *` Pointer to the memory, or NULL if the allocation failed.
+ */
+inline void *zeroed_aligned_alloc(size_t alignment, size_t size) {
+  size_t padded_size = ((size + alignment - 1) / alignment) * alignment;
+  if (padded_size == 0) padded_size = alignment;
+  void *ptr = aligned_alloc(alignment, padded_size);
+  if (ptr != NULL) memset(ptr, 0, padded_size);
+  return ptr;
+}
 
 /*! \brief Class to represent the first group of trapping swap data.
  */
@@ -487,4 +515,6 @@ public:
    */
   bool operator ==(const TFRFME& other);
 };
+
+//! @}
 #endif

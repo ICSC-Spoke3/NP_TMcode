@@ -1,3 +1,12 @@
+/*! \file test_cluster_outputs.cpp
+ *
+ * \brief Test reading and writing of `ClusterOutputInfo` instances.
+ *
+ * Must be run from a folder two levels below the repository root
+ * (e.g. `build/testing`), since data paths are relative.
+ * \ingroup tests
+ */
+
 #include <string>
 
 #ifndef INCLUDE_TYPES_H_
@@ -26,9 +35,31 @@
 
 using namespace std;
 
+/*! \brief Convert `test_data/cluster/c_OCLU_24.hd5` to a legacy `c_OCLU_24` file.
+ *
+ * Load the output of the test case from its HDF5 file and write it
+ * again in the legacy text format.
+ *
+ * \return result: `int` 0 if the test passed, 1 if it failed.
+ */
 int test_cluster_hdf5_output();
+
+/*! \brief Allocate a `ClusterOutputInfo` for the `test_data/cluster/case_3` case.
+ *
+ * Read the legacy configuration files of the test case and allocate
+ * an empty output structure for it.
+ *
+ * \return result: `int` 0 if the test passed, 100 if it failed.
+ */
 int test_cluster_case_3();
 
+/*! \brief Main program execution body.
+ *
+ * Runs each test in sequence and adds up their failure codes, so that
+ * every decimal digit of the result identifies one failing test.
+ *
+ * \return result: `int` Sum of the failure codes (1 and 100); 0 if all tests passed.
+ */
 int main() {
   int result = 0;
   result += test_cluster_hdf5_output(); // 1 if failed

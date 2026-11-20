@@ -17,10 +17,15 @@
 /*! \file types.h
  *
  * \brief Definition of fundamental types in use.
+ * \ingroup support
  */
 
 #ifndef INCLUDE_TYPES_H_
 #define INCLUDE_TYPES_H_
+
+/*! \addtogroup support
+ * @{
+ */
 
 #include <complex.h>
 
@@ -48,7 +53,16 @@ typedef __complex__ double dcomplex;
 #endif // USE_LAPACK
 
 #ifdef USE_MAGMA
+// In clang's OpenMP offload compilation for NVIDIA GPUs, the CUDA headers
+// define __noinline__ as a macro, which breaks the libstdc++ headers (GCC 12
+// and later) that use __attribute__((__noinline__)). Include those first,
+// and remove the macro after the CUDA headers, unless compiling CUDA code.
+#include <memory>
+#include <string>
 #include <magma_v2.h>
+#if defined(__noinline__) && !defined(__CUDACC__)
+#undef __noinline__
+#endif
 #endif
 
 #ifndef np_int
@@ -80,11 +94,13 @@ typedef __complex__ double dcomplex;
  */
 double inline imag(const dcomplex &z) { return __imag__ z; }
 
-/*! \brief Get the imaginary part of double precision complex number.
+/*! \brief Get the real part of double precision complex number.
  *
  * \param z: `const dcomplex &` Reference to the complex number from
  * which to extract the real part.
  * \return Re(z): `double` Real part of z.
  */
 double inline real(const dcomplex &z) { return __real__ z; }
+
+//! @}
 #endif

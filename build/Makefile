@@ -15,8 +15,8 @@ else
 	CXXFLAGSLIB=-static
 endif # LIBMODE
 NP_DOC_SRCS=../doc/src/config.dox
-NP_LIBNPTM_SRCS=../src/libnptm/algebraic.cpp ../src/libnptm/clu_subs.cpp ../src/libnptm/Commons.cpp ../src/libnptm/Configuration.cpp ../src/libnptm/cublas_calls.cpp ../src/libnptm/file_io.cpp ../src/libnptm/inclu_subs.cpp ../src/libnptm/logging.cpp ../src/libnptm/lapack_calls.cpp ../src/libnptm/magma_calls.cpp ../src/libnptm/outputs.cpp ../src/libnptm/Parsers.cpp ../src/libnptm/sph_subs.cpp ../src/libnptm/tfrfme.cpp ../src/libnptm/tra_subs.cpp ../src/libnptm/TransitionMatrix.cpp ../src/libnptm/utils.cpp
-NP_LIBNPTM_OBJS=../src/libnptm/algebraic.o ../src/libnptm/clu_subs.o ../src/libnptm/Commons.o ../src/libnptm/Configuration.o ../src/libnptm/cublas_calls.o ../src/libnptm/file_io.o ../src/libnptm/inclu_subs.o ../src/libnptm/logging.o ../src/libnptm/lapack_calls.o ../src/libnptm/magma_calls.o ../src/libnptm/outputs.o ../src/libnptm/Parsers.o ../src/libnptm/sph_subs.o ../src/libnptm/tfrfme.o ../src/libnptm/tra_subs.o ../src/libnptm/TransitionMatrix.o ../src/libnptm/utils.o
+NP_LIBNPTM_SRCS=../src/libnptm/algebraic.cpp ../src/libnptm/clu_subs.cpp ../src/libnptm/Commons.cpp ../src/libnptm/Configuration.cpp ../src/libnptm/cublas_calls.cpp ../src/libnptm/file_io.cpp ../src/libnptm/gpu_runtime.cpp ../src/libnptm/inclu_subs.cpp ../src/libnptm/logging.cpp ../src/libnptm/lapack_calls.cpp ../src/libnptm/magma_calls.cpp ../src/libnptm/outputs.cpp ../src/libnptm/Parsers.cpp ../src/libnptm/resources.cpp ../src/libnptm/sph_subs.cpp ../src/libnptm/tfrfme.cpp ../src/libnptm/tra_subs.cpp ../src/libnptm/TransitionMatrix.cpp ../src/libnptm/utils.cpp
+NP_LIBNPTM_OBJS=../src/libnptm/algebraic.o ../src/libnptm/clu_subs.o ../src/libnptm/Commons.o ../src/libnptm/Configuration.o ../src/libnptm/cublas_calls.o ../src/libnptm/file_io.o ../src/libnptm/gpu_runtime.o ../src/libnptm/inclu_subs.o ../src/libnptm/logging.o ../src/libnptm/lapack_calls.o ../src/libnptm/magma_calls.o ../src/libnptm/outputs.o ../src/libnptm/Parsers.o ../src/libnptm/resources.o ../src/libnptm/sph_subs.o ../src/libnptm/tfrfme.o ../src/libnptm/tra_subs.o ../src/libnptm/TransitionMatrix.o ../src/libnptm/utils.o
 NP_CLUSTER_SRCS=../src/cluster/np_cluster.cpp ../src/cluster/cluster.cpp
 NP_CLUSTER_OBJS=../src/cluster/np_cluster.o ../src/cluster/cluster.o
 NP_CLUSTER_BINS=cluster/np_cluster
@@ -29,10 +29,25 @@ NP_SPHERE_BINS=sphere/np_sphere
 NP_TRAPPING_SRCS=../src/trapping/np_trapping.cpp ../src/trapping/cfrfme.cpp ../src/trapping/clffft.cpp
 NP_TRAPPING_OBJS=../src/trapping/np_trapping.o ../src/trapping/cfrfme.o ../src/trapping/clffft.o
 NP_TRAPPING_BINS=trapping/np_trapping
-NP_TESTING_OBJS=../src/testing/test_cluster_outputs.o ../src/testing/test_inclusion_outputs.o ../src/testing/test_sphere_outputs.o ../src/testing/test_ParticleDescriptor.o ../src/testing/test_TEDF.o ../src/testing/test_TTMS.o
-NP_TESTING_BINS=testing/test_cluster_outputs testing/test_inclusion_outputs testing/test_sphere_outputs testing/test_ParticleDescriptor testing/test_TEDF testing/test_TTMS
+NP_TESTING_OBJS=../src/testing/test_cluster_outputs.o ../src/testing/test_inclusion_outputs.o ../src/testing/test_sphere_outputs.o ../src/testing/test_ParticleDescriptor.o ../src/testing/test_TEDF.o ../src/testing/test_TTMS.o ../src/testing/test_memory_estimates.o
+NP_TESTING_BINS=testing/test_cluster_outputs testing/test_inclusion_outputs testing/test_sphere_outputs testing/test_ParticleDescriptor testing/test_TEDF testing/test_TTMS testing/test_memory_estimates
 
 all: $(NPTM_LIB) $(FORTRAN_BINS) $(NP_CLUSTER_BINS) $(NP_INCLUSION_BINS) $(NP_SPHERE_BINS) $(NP_TRAPPING_BINS) $(NP_TESTING_BINS)
+
+# The output folders are not tracked by git, so a fresh clone does not have
+# them: create each one, if missing, before writing into it. They are
+# order-only prerequisites, so their time stamps never trigger a rebuild.
+BUILD_DIRS=libnptm cluster inclusion sphere trapping testing
+
+$(BUILD_DIRS):
+	mkdir -p $@
+
+libnptm/libnptm.a libnptm/libnptm.so: | libnptm
+$(filter cluster/%,$(FORTRAN_BINS)) $(NP_CLUSTER_BINS): | cluster
+$(filter inclusion/%,$(FORTRAN_BINS)) $(NP_INCLUSION_BINS): | inclusion
+$(filter sphere/%,$(FORTRAN_BINS)) $(NP_SPHERE_BINS): | sphere
+$(filter trapping/%,$(FORTRAN_BINS)) $(NP_TRAPPING_BINS): | trapping
+$(NP_TESTING_BINS): | testing
 
 docs: $(NP_LIBNPTM_SRCS) $(NP_CLUSTER_SRCS) $(NP_DOC_SRCS) $(NP_INCLUSION_SRCS) $(NP_SPHERE_SRCS) $(NP_TRAPPING_SRCS)
 	cd ../doc/src; doxygen config.dox
@@ -98,11 +113,19 @@ testing/test_TEDF: $(NPTM_LIB) ../src/testing/test_TEDF.o
 testing/test_TTMS: $(NPTM_LIB) ../src/testing/test_TTMS.o
 	$(CXX) $(CXXFLAGS) ../src/testing/test_TTMS.o -o $@ $(CXXLDFLAGS)
 
+# The iteration data classes are defined with the programs that use them.
+testing/test_memory_estimates: $(NPTM_LIB) ../src/testing/test_memory_estimates.o ../src/cluster/cluster.o ../src/inclusion/inclusion.o ../src/sphere/sphere.o
+	$(CXX) $(CXXFLAGS) ../src/testing/test_memory_estimates.o ../src/cluster/cluster.o ../src/inclusion/inclusion.o ../src/sphere/sphere.o -o $@ $(CXXLDFLAGS)
+
 ../src/cluster/clu.o: ../src/cluster/clu.f
 	$(FC) $(FCFLAGS) -c $? -o $@
 
 ../src/cluster/edfb_clu.o: ../src/cluster/edfb_clu.f
 	$(FC) $(FCFLAGS) -c $? -o $@
+
+# The programs print the version that configure writes in Makefile.in
+# (NPTM_VERSION_ID): rebuild them when it changes.
+../src/cluster/np_cluster.o ../src/inclusion/np_inclusion.o ../src/sphere/np_sphere.o ../src/trapping/np_trapping.o: Makefile.in
 
 ../src/cluster/np_cluster.o: ../src/cluster/np_cluster.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@

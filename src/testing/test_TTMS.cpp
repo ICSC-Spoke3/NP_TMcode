@@ -15,6 +15,7 @@
  */
 
 //! \file test_TTMS.cpp
+//! \ingroup tests
 
 #include <cstdio>
 #include <exception>

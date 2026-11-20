@@ -16,6 +16,7 @@
 #   this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
 
 ## @package guess_resources
+#  \ingroup python_tools
 #  \brief Script to estimate the computational cost of a model.
 #
 #  Script to assist in the creation of model input files starting
@@ -25,12 +26,13 @@
 
 import math
 import numpy as np
-import pdb
 import re
 from sys import argv
 
+import nptm_estimates as est
+
 ## \cond
-__version__ = "0.10.10"
+from nptm_version import __version__
 int_reg = re.compile(r'[-+]?[0-9]+')
 number_reg = re.compile(r'[-+]?[0-9]+\.[0-9]+([eE][-+]?[0-9]+)?')
 ## \endcond
@@ -59,7 +61,7 @@ def main():
             model = scan_model(config['edfb_file'], config['geom_file'])
             if (model is not None):
                 print_model_summary(model)
-                print_resource_summary(model)
+                print_resource_summary(model, config)
             else:
                 result = 1
     return result
@@ -156,7 +158,20 @@ def parse_arguments():
         'edfb_file': '',
         'geom_file': '',
         'help_mode': False,
-        'version_mode': False
+        'version_mode': False,
+        'backend': "lapack",
+        'threads': 1,
+        'processes': 1,
+        'gpus': 1,
+        'host_ram': 0.0,
+        'gpu_ram': 0.0,
+        'no_lapack': False,
+        'int_bytes': 8
+    }
+    value_keys = {
+        "--edfb": 'edfb_file', "--geom": 'geom_file', "--backend": 'backend',
+        "--threads": 'threads', "--processes": 'processes', "--gpus": 'gpus',
+        "--host-ram": 'host_ram', "--gpu-ram": 'gpu_ram'
     }
     skip_arg = False
     dict_key = ''
@@ -171,14 +186,22 @@ def parse_arguments():
             config['help_mode'] = True
         elif (arg.startswith("--version")):
             config['version_mode'] = True
-        elif (arg.startswith("--edfb")):
-            dict_key = 'edfb_file'
-            skip_arg = True
-        elif (arg.startswith("--geom")):
-            dict_key = 'geom_file'
+        elif (arg == "--no-lapack"):
+            config['no_lapack'] = True
+        elif (arg == "--lp64"):
+            config['int_bytes'] = 4
+        elif (arg in value_keys):
+            dict_key = value_keys[arg]
             skip_arg = True
         else:
             raise Exception("Unrecognized argument \'{0:s}\'".format(arg))
+    for key in ('threads', 'processes', 'gpus'):
+        config[key] = int(config[key])
+    for key in ('host_ram', 'gpu_ram'):
+        config[key] = float(config[key])
+    if (config['backend'] not in est.BACKENDS):
+        raise Exception("Unknown back end \'{0:s}\' (use one of {1:s})".format(
+            config['backend'], ", ".join(est.BACKENDS)))
     return config
 
 ## \brief Print a command-line help summary.
@@ -191,11 +214,28 @@ def print_help():
     print("                                                          ")
     print("Evaluate the resources required by a model.               ")
     print("                                                          ")
-    print("Usage: \"./guess_resources.py --edfb EDFB --geom GEOM\"   ")
+    print("Usage: \"./guess_resources.py --edfb EDFB --geom GEOM [OPTIONS]\"")
     print("                                                          ")
     print("EDFB and GEOM must be valid NPTM_code configuration files.")
+    print("The memory estimates are those that the programs log and  ")
+    print("check; the runtime options of GEOM (USE_REFINEMENT,       ")
+    print("INVERSION, DEVICE_POLICY, HOST_RAM_GB, GPU_RAM_GB) apply. ")
     print("                                                          ")
     print("Valid options are:                                        ")
+    print("--backend BACKEND     Inversion back end of the build:    ")
+    print("                      magma, cublas, lapack (default) or  ")
+    print("                      lucin (no LAPACK).                  ")
+    print("--threads N           OpenMP threads per MPI process      ")
+    print("                      (default 1).                        ")
+    print("--processes N         MPI processes per node (default 1). ")
+    print("--gpus N              GPUs per node (default 1).          ")
+    print("--host-ram GIB        Host memory of a node, to check the ")
+    print("                      estimate (HOST_RAM_GB overrides it).")
+    print("--gpu-ram GIB         Free memory of a GPU, to check the  ")
+    print("                      estimate (GPU_RAM_GB overrides it). ")
+    print("--no-lapack           A MAGMA or cuBLAS build without     ")
+    print("                      LAPACK (CPU fall-back with lucin).  ")
+    print("--lp64                32-bit LAPACK and MAGMA integers.   ")
     print("--help                Print this help and exit.           ")
     print("--version             Print script version and exit.      ")
     print("                                                          ")
@@ -220,8 +260,6 @@ def print_model_summary(model):
     Reqm = 0.0
     R3tot = 0.0
     Rcirc = 0.0
-    square_farthest = 0.0
-    # breakpoint()
     for i in range(model['nsph']):
         sph_type_index = model['vec_types'][i] - 1
         ros = model['ros'][sph_type_index]
@@ -247,16 +285,13 @@ def print_model_summary(model):
     cmX /= (avgR3 * model['nsph'])
     cmY /= (avgR3 * model['nsph'])
     cmZ /= (avgR3 * model['nsph'])
-    for i in range(model['nsph']):
-        sph_type_index = model['vec_types'][i] - 1
-        ros = model['ros'][sph_type_index]
-        dX = model['vec_x'][i] - avgX
-        dY = model['vec_y'][i] - avgY
-        dZ = model['vec_z'][i] - avgZ
-        square_range = dX * dX + dY * dY + dZ * dZ + ros * ros
-        if (square_range > square_farthest):
-            square_farthest = square_range
-    Rcirc = math.sqrt(square_farthest)
+    # As in the code: the smallest sphere centred in the origin of the
+    # coordinates that contains the particle (the external sphere of an
+    # inclusion), which sets the external order with dynamic orders.
+    radii = [model['ros'][model['vec_types'][i] - 1] for i in range(model['nsph'])]
+    Rcirc = est.particle_radius(
+        radii, model['vec_x'], model['vec_y'], model['vec_z'], model['ext_radius']
+    )
     if (model['app'] == "SPHERE"):
         print("INFO: maximum expansion order LM = %d."%model['li'])
     else:
@@ -268,7 +303,7 @@ def print_model_summary(model):
         print("INFO: smallest monomer radius is Rmin = %.5em"%Rmin)
         print("INFO: largest monomer radius is Rmax = %.5em"%Rmax)
     print("INFO: equivalent volume radius is Reqv = %.5em"%Reqm)
-    print("INFO: minimum encircling radius is Rcirc = %.5em"%Rcirc)
+    print("INFO: minimum encircling radius around the origin is Rcirc = %.5em"%Rcirc)
     print(
         "INFO: geometric center at [{0:.5e}, {1:.5e}, {2:.5e}]".format(
             avgX, avgY, avgZ
@@ -282,149 +317,85 @@ def print_model_summary(model):
     fill_factor = filling_factor(model)
     print("INFO: the particle's filling factor is %.5g"%fill_factor)
 
-## \brief Print a summary of resources needed per iteration.
+## \brief Format a size in bytes as GiB, as the code logs it.
+#
+#  \param size: `int` Size in bytes.
+#  \return text: `str` The size in GiB, with 5 significant digits.
+def gib(size):
+    return "{0:.5g} GiB".format(size / est.GIB)
+
+## \brief Print a summary of the memory needed by the calculation.
+#
+#  The estimates are those that the programs log and check before the
+#  calculation (see `nptm_estimates`). The host memory of a node is the sum
+#  over its MPI processes; process 0 also holds the results of all the
+#  scales. Each GPU holds the inversion of the threads of the processes that
+#  use it, plus `GPU_PROCESS_OVERHEAD` per process, and the programs allow
+#  `GPU_USABLE_FRACTION` of its free memory.
 #
 #  \param[in] model: `dict` A model description dictionary.
-def print_resource_summary(model):
-    host_mem_gb = 0.0
-    gpu_mem_gb = 0.0
-    half_layers = 1 + int(model['max_layers'] / 2)
-    nhspo = max(model['npnt'], model['npntts']) * 2 - 1
-    if (model['app'] == 'SPHERE'):
-        nlmmt = 2 * model['li'] * (model['li'] + 2)
-        host_mem_gb += 16 * 2 * model['li'] # RMI + REI
-        host_mem_gb += 16 * 4 * nlmmt # W
-        host_mem_gb += 16 * 21 # FSAS + SAS + VINTS
-        host_mem_gb += 8 * 7 # SSCS + SEXS + SABS + SQSCS + SQEXS + SQABS + GCSV
-        host_mem_gb += 8 * (1 + model['max_layers']) # ROS + RC
-        host_mem_gb += 8 # IOG + NSHL
-        host_mem_gb += 16 * 2 * nhspo # RIS + DLRI
-        host_mem_gb += 16 * half_layers # DC0
-        host_mem_gb += 16 + 8 # VKT + VSZ
-        host_mem_gb += 8 * model['max_layers'] # RCF
-        host_mem_gb += 8 * (16 + 16) # CMULLR + CMUL
-        host_mem_gb += 8 * 3 * 11 # UNIT VECTORS
-        host_mem_gb += 8 + 8 # ARGI + ARGS
-        host_mem_gb += 16 * 16 # VINT
-        host_mem_gb += 8 * (model['li'] * 12 + 2) # ZPV + GAPS
-        host_mem_gb += 8 * (2 * 4 + 4 * 4) # TQSE + TQSPE + TQSS + TQSPS
-        host_mem_gb += 16 * half_layers # DC0M
-        host_mem_gb += 8 * model['nxi'] # XIV
-        host_mem_gb += 16 * 3 # ARG + S0 + TFSAS
-    elif (model['app'] == 'CLUSTER'):
-        nsph = model['nsph']
-        ncou = nsph * (nsph - 1)
-        litpo = 2 * model['li'] + 1
-        litpos = litpo * litpo
-        lmtpo = 2 * model['li'] * model['le'] + 1
-        lmtpos = lmtpo * lmtpo
-        lm = max(model['li'], model['le'])
-        lmpo = lm + 1
-        ndi = nsph * model['li'] * (model['li'] + 2)
-        ndit = ndi + ndi
-        nlem = model['le'] * (model['le'] + 2)
-        nlemt = nlem + nlem
-        nv3j = lm * lmpo * (2 * lm + 7) / 6
-        host_mem_gb += 16 * ncou * litpo # VH
-        host_mem_gb += 16 * nsph * lmtpo # VJ0
-        host_mem_gb += 16 * ncou * litpos # VYHJ
-        host_mem_gb += 16 * nsph * lmtpos # VYJ0
-        host_mem_gb += 16 * 2 * nsph * model['li'] # RMI + REI
-        host_mem_gb += 16 * nlemt * 4 # W
-        host_mem_gb += 16 * nlemt * nlemt # AM0M
-        host_mem_gb += 16 * nsph * 5 # FSAS + SAS
-        host_mem_gb += 16 * nsph * 16 # VINTS
-        host_mem_gb += 8 * nv3j # V3J0
-        host_mem_gb += 8 * nsph * 11 # sphere CSs and Qs + coords and radii
-        host_mem_gb += 8 * nsph * model['max_layers'] # RC
-        host_mem_gb += 4 * lmpo * lm # IND3J
-        host_mem_gb += 4 * 2 * nsph # IOG + NSHL
-        host_mem_gb += 16 * (16 + 16 + 8) # VINT + VINTM + SCSCP + ECSCP + SCSCPM + ECSCPM
-        host_mem_gb += 16 * nhspo * 2 # RIS + DLRI
-        host_mem_gb += 16 * half_layers # DC0
-        host_mem_gb += (16 + 8) * nsph # VKT + VSZ
-        host_mem_gb += 16 * 5 # TFSAS + TSAS
-        host_mem_gb += 8 * 4 # GCS + SCS + ECS + ACS
-        host_mem_gb += 8 * lmtpo # RAC3J
-        host_mem_gb += 16 * 2 * ndi * nlem # GIS + GLS
-        host_mem_gb += 16 * ndit * nlemt # SAM
-        host_mem_gb += 16 * ndit * ndit # AM
-        gpu_mem_gb += 16 * ndit * ndit # AM
-        host_mem_gb += 8 * nsph * model['max_layers'] # RCF
-        host_mem_gb += 8 * (16 + 16 + 16 + 16) # CMULLR + CMUL + CEXTLR + CEXT
-        host_mem_gb += 8 * 3 * 11 # UNIT VECTORS
-        host_mem_gb += 8 + 8 # ARGI + ARGS
-        host_mem_gb += 8 * (lm * 12 + nsph) # ZPV + GAPS
-        host_mem_gb += 8 * (3 + 6 + 6) # GAP + GAPV + GAPM
-        host_mem_gb += 16 * (6 + 6) # GAPP + GAPPM
-        host_mem_gb += 8 * (2 * nsph + 4 * nsph) # TQSE + TQSPE + TQSS + TQSPS
-        host_mem_gb += 8 * (2 * 4 + 4 * 4) # TQCE + TQCPE + TQCS + TQCPS
-        host_mem_gb += 8 * (3 + 3) # TQEV + TQSV
-        host_mem_gb += 16 * nsph * half_layers # DC0M
-        host_mem_gb += 8 * model['nxi'] # XIV
-        host_mem_gb += 16 * 4 # ARG + S0 + S0M + CCSAM
-    elif (model['app'] == "INCLUSION"):
-        nsph = model['nsph']
-        ncou = nsph * (nsph - 1)
-        litpo = 2 * model['li'] + 1
-        litpos = litpo * litpo
-        lmtpo = 2 * model['li'] * model['le'] + 1
-        lmtpos = lmtpo * lmtpo
-        lm = max(model['li'], model['le'])
-        lmpo = lm + 1
-        ndi = nsph * model['li'] * (model['li'] + 2)
-        ndit = ndi + ndi
-        nlem = model['le'] * (model['le'] + 2)
-        nlemt = nlem + nlem
-        nv3j = lm * lmpo * (2 * lm + 7) / 6
-        host_mem_gb += 16 * ncou * litpo # VH
-        host_mem_gb += 16 * nsph * lmtpo # VJ0
-        host_mem_gb += 16 * ncou * litpos # VYHJ
-        host_mem_gb += 16 * nsph * lmtpos # VYJ0
-        host_mem_gb += 16 * 2 * nsph * model['li'] # RMI + REI
-        host_mem_gb += 16 * nlemt * 4 # W
-        host_mem_gb += 16 * (8 * model['le']) # RM0 + RE0 + RMW + REW + TM + TE + TM0 + TE0
-        host_mem_gb += 16 * nlemt * nlemt # AM0M
-        host_mem_gb += 8 * nv3j # V3J0
-        host_mem_gb += 16 * 3 * 4 # FSAC + SAC + FSACM
-        host_mem_gb += 16 * (16 + 16 + 8) # VINT + VINTM + SCSCP + ECSCP + SCSCPM + ECSCPM
-        host_mem_gb += 8 * nsph * 4 # sphere coords and radii
-        host_mem_gb += 8 * nsph * model['max_layers'] # RC
-        host_mem_gb += 4 * lmpo * lm # IND3J
-        host_mem_gb += 4 * 2 * nsph # IOG + NSHL
-        host_mem_gb += 16 * nhspo * 2 # RIS + DLRI
-        host_mem_gb += 16 * (half_layers + 1) # DC0
-        host_mem_gb += (16 + 8) * nsph # VKT + VSZ
-        host_mem_gb += 8 * lmtpo # RAC3J
-        host_mem_gb += 16 * nlemt * ndi # AT
-        host_mem_gb += 16 * ndit * ndit # AM
-        gpu_mem_gb += 16 * ndit * ndit # AM
-        host_mem_gb += 8 * nsph * model['max_layers'] # RCF
-        host_mem_gb += 8 * (16 + 16 + 16 + 16) # CMULLR + CMUL + CEXTLR + CEXT
-        host_mem_gb += 8 * 3 * 11 # UNIT VECTORS
-        host_mem_gb += 8 + 8 # ARGI + ARGS
-        host_mem_gb += 8 * (lm * 12 + nsph) # ZPV + GAPS
-        host_mem_gb += 8 * (3 + 6 + 6) # GAP + GAPV + GAPM
-        host_mem_gb += 16 * (6 + 6) # GAPP + GAPPM
-        host_mem_gb += 8 * (2 * nsph + 4 * nsph) # TQSE + TQSPE + TQSS + TQSPS
-        host_mem_gb += 8 * (2 * 4 + 4 * 4) # TQCE + TQCPE + TQCS + TQCPS
-        host_mem_gb += 8 * (3 + 3) # TQEV + TQSV
-        host_mem_gb += 16 * nsph * (half_layers + 1) # DC0M
-        host_mem_gb += 8 * model['nxi'] # XIV
-        host_mem_gb += 16 * 5 # ENT + ENTN + ARG + S0 + S0M
-        
-    host_mem_gb /= (1024.0 * 1024.0 * 1024.0)
-    gpu_mem_gb /= (1024.0 * 1024.0 * 1024.0)
-    print("INFO: 1 wavelength iteration uses %.5g Gb of host memory."%host_mem_gb)
-    print("INFO: 1 wavelength iteration uses %.5g Gb of GPU memory"%gpu_mem_gb)
-    print("      (or %.5g Gb, if iterative refinement is on)."%(3.0 * gpu_mem_gb))
-    
+#  \param[in] config: `dict` The script configuration (build and run settings).
+def print_resource_summary(model, config):
+    threads = config['threads']
+    processes = config['processes']
+    gpus = config['gpus']
+    backend = config['backend']
+    needs = est.memory_needs(
+        model, backend, threads, not config['no_lapack'], config['int_bytes']
+    )
+    print("INFO: estimates for a %s build, %d MPI process(es) per node, %d thread(s) each."%(
+        backend, processes, threads))
+    if (model['app'] != "SPHERE"):
+        print("INFO: refinement is %s; inversion mode is %s."%(
+            "on" if model['refine'] else "off", model['inv_mode']))
+        print("INFO: size of matrices to invert: %d x %d (%s)."%(
+            needs['matrix_order'], needs['matrix_order'], gib(needs['matrix'])))
+    print("INFO: iteration data require %s of RAM per thread."%gib(needs['iteration_data']))
+    if (model['app'] != "SPHERE"):
+        print("INFO: matrix inversion requires %s of RAM per thread."%gib(needs['workspace']))
+    print("INFO: output data require %s of RAM."%gib(needs['output']))
+    print("INFO: MPI process 0 needs %s of RAM (%d thread(s))."%(gib(needs['process_0']), threads))
+    node_need = needs['process_0'] + (processes - 1) * needs['other_process']
+    if (processes > 1):
+        print("INFO: each other MPI process needs %s of RAM."%gib(needs['other_process']))
+        print("INFO: the node of MPI process 0 needs %s of RAM."%gib(node_need))
+    host_ram = model['host_ram_gb'] if model['host_ram_gb'] > 0.0 else config['host_ram']
+    if (host_ram > 0.0):
+        if (node_need <= host_ram * est.GIB):
+            print("INFO: it fits in %.5g GiB of host memory."%host_ram)
+        else:
+            print("WARNING: it does not fit in %.5g GiB of host memory."%host_ram)
+    if (needs['device_per_thread'] > 0 and gpus > 0):
+        sharing = (processes + gpus - 1) // gpus
+        gpu_need = sharing * needs['device_per_process']
+        print("INFO: each thread needs %s on the GPU for the inversion."%gib(needs['device_per_thread']))
+        print("INFO: the calculation needs %s of memory on each GPU (with %s for the GPU runtime)."%(
+            gib(gpu_need), gib(sharing * est.GPU_PROCESS_OVERHEAD)))
+        if (model['gpu_ram_gb'] > 0.0):
+            usable = model['gpu_ram_gb'] * est.GIB
+            source = "allowed by GPU_RAM_GB"
+        elif (config['gpu_ram'] > 0.0):
+            usable = est.GPU_USABLE_FRACTION * config['gpu_ram'] * est.GIB
+            source = "usable ({0:d}% of {1:.5g} GiB free)".format(
+                int(100 * est.GPU_USABLE_FRACTION + 0.5), config['gpu_ram'])
+        else:
+            usable = 0.0
+            print("INFO: it needs at least %s of free GPU memory (%d%% usable)."%(
+                gib(gpu_need / est.GPU_USABLE_FRACTION), int(100 * est.GPU_USABLE_FRACTION + 0.5)))
+        if (usable > 0.0):
+            if (gpu_need <= usable):
+                print("INFO: it fits in %s %s."%(gib(usable), source))
+            else:
+                print("WARNING: it does not fit in %s %s."%(gib(usable), source))
+
 ## \brief Scan the calculation model.
 #
 #  The computational costs depennd the characteristics of the model. This
 #  function scans the model configuration files and returns a model description
 #  dictionary.
 #
+#  \param edfb_name: `str` Path to the scatterer configuration (EDFB) file.
+#  \param geom_name: `str` Path to the geometry configuration file.
 #  \returns model: `dict` A dictionary containing the model description.
 def scan_model(edfb_name, geom_name):
     file_line = "INIT"
@@ -432,6 +403,7 @@ def scan_model(edfb_name, geom_name):
         'app': "",
         'nsph': 0,
         'ies': 0,
+        'lm': 0,
         'li': 0,
         'le': 0,
         'npnt': 0,
@@ -444,7 +416,15 @@ def scan_model(edfb_name, geom_name):
         'vec_types': [],
         'vec_x': [],
         'vec_y': [],
-        'vec_z': []
+        'vec_z': [],
+        'ext_radius': None,
+        'angles': [],
+        'isam': 0,
+        'refine': False,
+        'inv_mode': "LU",
+        'device_policy': "STOP",
+        'host_ram_gb': 0.0,
+        'gpu_ram_gb': 0.0
     }
     # PARSING OF SCATTERER CONFIGURATION
     read_lines = 0
@@ -490,9 +470,9 @@ def scan_model(edfb_name, geom_name):
         insn = int(array_values[3].group())
         model['nxi'] = nxi
         if (instpc != 0):
-            file_line.readline()
-            file_line.readline()
-            read_lines += 2
+            # one line with the first value and the step
+            edfb_file.readline()
+            read_lines += 1
         else:
             for fi in range(nxi):
                 edfb_file.readline()
@@ -564,6 +544,8 @@ def scan_model(edfb_name, geom_name):
                     return None
                 factor = float(array_values[0].group())
                 radius *= factor
+                # the code expands the external field on the external sphere
+                model['ext_radius'] = radius
             # end of if (ci == 0) block
             model['ros'].append(radius)
         # end of for ci block
@@ -597,9 +579,9 @@ def scan_model(edfb_name, geom_name):
             insn = int(array_values[3].group())
             model['nxi'] = nxi
             if (instpc != 0):
-                file_line.readline()
-                file_line.readline()
-                read_lines += 2
+                # one line with the first value and the step
+                edfb_file.readline()
+                read_lines += 1
             else:
                 for fi in range(nxi):
                     edfb_file.readline()
@@ -659,9 +641,9 @@ def scan_model(edfb_name, geom_name):
             insn = int(array_values[3].group())
             model['nxi'] = nxi
             if (instpc != 0):
-                file_line.readline()
-                file_line.readline()
-                read_lines += 2
+                # one line with the first value and the step
+                edfb_file.readline()
+                read_lines += 1
             else:
                 for fi in range(nxi):
                     edfb_file.readline()
@@ -750,6 +732,7 @@ def scan_model(edfb_name, geom_name):
         model['le'] = int(array_values[2].group())
         model['npnt'] = int(array_values[5].group())
         model['npntts'] = int(array_values[6].group())
+        model['isam'] = int(array_values[8].group())
         for si in range(nsph):
             file_line = geom_file.readline()
             read_lines += 1
@@ -782,12 +765,44 @@ def scan_model(edfb_name, geom_name):
             geom_file.close()
             return None
         model['li'] = int(array_values[1].group())
+        model['lm'] = model['li']
         model['npnt'] = int(array_values[3].group())
         model['npntts'] = int(array_values[4].group())
+        model['isam'] = int(array_values[5].group())
         model['vec_x'].append(0.0)
         model['vec_y'].append(0.0)
         model['vec_z'].append(0.0)
+    # Incident and scattered theta, then incident and scattered phi.
+    for ai in range(2):
+        file_line = geom_file.readline()
+        read_lines += 1
+        str_line = file_line.replace('D', 'E').replace('d', 'E')
+        array_values = iter_to_array(number_reg.finditer(str_line))
+        if (len(array_values) != 6):
+            print("ERROR: %s is not a valid geometry configuration file!"%geom_name)
+            print("   INVALID LINE: \"%s\""%file_line[:-1])
+            print("   at line %d in %s."%(read_lines, geom_name))
+            geom_file.close()
+            return None
+        for av in array_values:
+            model['angles'].append(float(av.group()))
+    # Runtime options (KEY=VALUE lines after the mandatory data).
+    for file_line in geom_file:
+        option = file_line.strip()
+        if (option.startswith("USE_REFINEMENT=")):
+            model['refine'] = (int(option.split("=", 1)[1]) > 0)
+        elif (option.startswith("INVERSION=")):
+            model['inv_mode'] = option.split("=", 1)[1].strip()
+        elif (option.startswith("DEVICE_POLICY=")):
+            model['device_policy'] = option.split("=", 1)[1].strip()
+        elif (option.startswith("HOST_RAM_GB=")):
+            model['host_ram_gb'] = float(option.split("=", 1)[1])
+        elif (option.startswith("GPU_RAM_GB=")):
+            model['gpu_ram_gb'] = float(option.split("=", 1)[1])
     geom_file.close()
+    # Names used by nptm_estimates.
+    model['nshl'] = model['vec_nshl']
+    model['configurations'] = len(model['vec_nshl'])
     return model
 
 ## \brief Exit code (0 for success).

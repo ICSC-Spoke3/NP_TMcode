@@ -8,6 +8,7 @@ This folder is intended to store the sources of the original code and the C++ im
 
 - Saija et al. 2001, ApJ, 559, 993, DOI:10.1086/322350
 - Borghese, Denti, Saija 2007, Scattering from Model Nonspherical Particles (ISBN 978-3-540-37413-8), DOI:10.1007/978-3-540-37414-5
+- La Mura et al. 2026, Astronomy and Computing, 55, DOI:10.1016/j.ascom.2026.101077
 
 Instructions on how to set up and use the code are instead given in the project's `build` folder.
 

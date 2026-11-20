@@ -18,10 +18,15 @@
  *
  * \brief C++ interface to LAPACK calls.
  *
+ * \ingroup linalg
  */
 
 #ifndef INCLUDE_LAPACK_CALLS_H_
 #define INCLUDE_LAPACK_CALLS_H_
+
+/*! \addtogroup linalg
+ * @{
+ */
 
 #ifndef LAPACK_SUCCESS
 //! \brief Success code macro for LAPACK functions.
@@ -46,8 +51,10 @@ typedef dcomplex lcomplex;
  * \param n: `np_int` The number of rows and columns of the [n x n] matrix.
  * \param jer: `int &` Reference to an integer return flag.
  * \param rs: `const RuntimeSettings &` Runtime settings instance.
+ * \param mode: `short` Inversion mode (optional, default is -1, for the mode of `rs`).
+ * \throws NptmError If the mode is not implemented (RBT and SVD).
  */
-void zinvert(dcomplex **mat, np_int n, int &jer, const RuntimeSettings& rs=RuntimeSettings());
+void zinvert(dcomplex **mat, np_int n, int &jer, const RuntimeSettings& rs=RuntimeSettings(), short mode=-1);
 
 /**
  * \brief Perform Newton-Schulz iterative refinement of matrix inversion.
@@ -69,4 +76,5 @@ lapack_int lapack_newton(
   const RuntimeSettings& rs, lcomplex* a_orig, const lapack_int m, lcomplex* a
 );
 
+//! @}
 #endif

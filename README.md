@@ -10,6 +10,7 @@ Distributing the code and its sources is possible under the terms of the GNU GPL
 
 - Saija et al. 2001, ApJ, 559, 993, DOI:10.1086/322350
 - Borghese, Denti, Saija 2007, Scattering from Model Nonspherical Particles (ISBN 978-3-540-37413-8), DOI:10.1007/978-3-540-37414-5
+- La Mura et al. 2026, Astronomy and Computing, 55, DOI:10.1016/j.ascom.2026.101077
 
 *NOTE:* The building process requires a working installation of a C++ and a FORTRAN compiler. Many solutions are available, but the recommended option is the *GNU Compiler Collection* `gcc` with the addition of `g++` and `gfortran`. Single-workstation multi-threaded parallelism is supported through _OpenMP_, while the multi-node code implementation further requires the use of parallel compilers complying with the _MPI_ standard (_OpenMPI_, _MPICH_).
 

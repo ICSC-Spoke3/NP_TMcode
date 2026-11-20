@@ -1,8 +1,16 @@
 system_settings:
-  # Limit on host RAM use in Gb (0 for no configuration limit)
+  # Limit on host RAM use in Gb, on each node (0 to use the memory that the
+  # system reports as available)
   max_host_ram : 0
-  # Limit on GPU RAM use in Gb ( 0 for no configuration limit)
+  # Limit on GPU RAM use in Gb, on each GPU (0 to use 90% of the free GPU
+  # memory; a value is used as it is, without that safety margin)
   max_gpu_ram  : 0
+  # What to do when a calculation needs more memory than the limits:
+  # STOP (default) or FORCE_LARGE_RUN (warn and run anyway)
+  memory_policy : STOP
+  # What to do when a GPU is missing or fails (MAGMA and cuBLAS builds):
+  # STOP (default) or USE_CPU_FALLBACK (warn and invert on the CPU)
+  device_policy : STOP
 
 input_settings:
   # Folder to write the code input configuration files
@@ -100,17 +108,17 @@ geometry_settings:
   # Ending incidence azimuth angle
   in_th_end   : 89.0
   # Starting incidence elevation angle
-  in_ph_start : 0.0
+  in_ph_start : 34.0
   # Incidence elevation angle incremental step
-  in_ph_step  : 10.0
+  in_ph_step  : 15.0
   # Ending incidence elevation angle
-  in_ph_end   : 10.0
+  in_ph_end   : 49.0
   # Starting scattered azimuth angle
-  sc_th_start : 34.0
+  sc_th_start : 0.0
   # Scattered azimuth angle incremental step
-  sc_th_step  : 15.0
+  sc_th_step  : 10.0
   # Ending scattered azimuth angle
-  sc_th_end   : 49.0
+  sc_th_end   : 10.0
   # Starting scattered elevation angle
   sc_ph_start : 5.0
   # Scattered elevation angle incremental step

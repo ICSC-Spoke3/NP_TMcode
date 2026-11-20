@@ -16,6 +16,7 @@
 #   this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
 
 ## @package model_maker
+#  \ingroup python_tools
 #  \brief Script to build models from YAML configuration files.
 #
 #  Script to assist in the creation of model input files starting
@@ -32,7 +33,7 @@ import random
 import yaml
 
 ## \cond
-__version__ = "0.10.10"
+from nptm_version import __version__
 ## \endcond
 
 ## \brief 3D software generation capability flag.
@@ -45,6 +46,8 @@ except ModuleNotFoundError as ex:
 
 from pathlib import Path
 from sys import argv
+
+import nptm_estimates as est
 
 ## \brief Main execution code.
 #
@@ -409,6 +412,21 @@ def load_model(model_file):
             gconf['max_gpu_ram_gb'] = float(model['system_settings']['max_gpu_ram'])
         except KeyError as ex:
             print("WARNING: no GPU RAM declared.")
+        gconf['memory_policy'] = "STOP"
+        try:
+            gconf['memory_policy'] = str(model['system_settings']['memory_policy']).strip()
+        except KeyError:
+            gconf['memory_policy'] = "STOP"
+        if (gconf['memory_policy'] not in ["STOP", "FORCE_LARGE_RUN"]):
+            print("ERROR: %s is not a recognized memory policy (use STOP or FORCE_LARGE_RUN)."%gconf['memory_policy'])
+            return (None, None)
+        try:
+            gconf['device_policy'] = str(model['system_settings']['device_policy']).strip()
+        except KeyError:
+            gconf['device_policy'] = "STOP"
+        if (gconf['device_policy'] not in ["STOP", "USE_CPU_FALLBACK"]):
+            print("ERROR: %s is not a recognized device policy (use STOP or USE_CPU_FALLBACK)."%gconf['device_policy'])
+            return (None, None)
         gconf['nsph'] = sconf['nsph']
         gconf['application'] = model['particle_settings']['application']
         gconf['li'] = int(model['geometry_settings']['li'])
@@ -488,7 +506,7 @@ def load_model(model_file):
                 except KeyError:
                     rnd_attempts = 100
                 if (rnd_engine == "COMPACT"):
-                    check = random_compact(sconf, gconf, rnd_seed, max_rad, rnd_attempts)
+                    check = random_compact(sconf, gconf, rnd_seed, max_rad)
                     if (check == -1):
                         print("ERROR: compact random generator works only when all sphere types have the same radius.")
                         return (None, None)
@@ -658,6 +676,58 @@ def print_help():
     print("--version             Print script version and exit.      ")
     print("                                                          ")
 
+## \brief Radius of the smallest sphere centred in the origin that contains the particle.
+#
+#  The radius computed by the code (`get_particle_radius()`): max(|r_i| + a_i)
+#  over the spheres, or the radius of the external sphere of an inclusion.
+#
+#  \param scatterer: `dict` A dictionary for the scatterer configuration.
+#  \param geometry: `dict` A dictionary for the geometry configuration.
+#  \return radius: `float` The encircling radius, in meters.
+def model_radius(scatterer, geometry):
+    nsph = scatterer['nsph']
+    if (scatterer['application'] == "INCLUSION"):
+        return est.particle_radius(
+            [], [], [], [], scatterer['ros'][0] * scatterer['rcf'][0][scatterer['nshl'][0]]
+        )
+    radii = [scatterer['ros'][scatterer['vec_types'][i] - 1] for i in range(nsph)]
+    zeros = [0.0 for i in range(nsph)]
+    return est.particle_radius(
+        radii, geometry.get('vec_sph_x', zeros), geometry.get('vec_sph_y', zeros),
+        geometry.get('vec_sph_z', zeros)
+    )
+
+## \brief Model description for the memory estimates of `nptm_estimates`.
+#
+#  \param scatterer: `dict` A dictionary for the scatterer configuration.
+#  \param geometry: `dict` A dictionary for the geometry configuration.
+#  \return model: `dict` The model description used by `nptm_estimates.memory_needs()`.
+def estimate_model(scatterer, geometry):
+    # Incident and scattered theta, then incident and scattered phi.
+    angles = [
+        geometry['th'], geometry['thstp'], geometry['thlst'],
+        geometry['ths'], geometry['thsstp'], geometry['thslst'],
+        geometry['ph'], geometry['phstp'], geometry['phlst'],
+        geometry['phs'], geometry['phsstp'], geometry['phslst']
+    ]
+    return {
+        'app': scatterer['application'],
+        'nsph': scatterer['nsph'],
+        'lm': geometry['li'],
+        'li': geometry['li'],
+        'le': geometry['le'],
+        'npnt': geometry['npnt'],
+        'npntts': geometry['npntts'],
+        'nxi': scatterer['nxi'],
+        'configurations': scatterer['configurations'],
+        'nshl': scatterer['nshl'],
+        'angles': angles,
+        'isam': geometry['isam'],
+        'refine': bool(geometry['use_refinement']),
+        'inv_mode': geometry['inv_mode'],
+        'device_policy': geometry.get('device_policy', "STOP")
+    }
+
 ## \brief Print a summary of model properties.
 #
 #  This function provides a summary of useful information concerning the
@@ -675,7 +745,6 @@ def print_model_summary(scatterer, geometry):
     Reqm = 0.0
     R3tot = 0.0
     Rcirc = 0.0
-    square_farthest = 0.0
     for i in range(scatterer['nsph']):
         sph_type_index = scatterer['vec_types'][i] - 1
         ros = scatterer['ros'][sph_type_index]
@@ -691,23 +760,17 @@ def print_model_summary(scatterer, geometry):
     avgX /= scatterer['nsph']
     avgY /= scatterer['nsph']
     avgZ /= scatterer['nsph']
-    for i in range(scatterer['nsph']):
-        sph_type_index = scatterer['vec_types'][i] - 1
-        ros = scatterer['ros'][sph_type_index]
-        dX = geometry['vec_sph_x'][i] - avgX
-        dY = geometry['vec_sph_y'][i] - avgY
-        dZ = geometry['vec_sph_z'][i] - avgZ
-        square_range = dX * dX + dY * dY + dZ * dZ + ros * ros
-        if (square_range > square_farthest):
-            square_farthest = square_range
-    Rcirc = math.sqrt(square_farthest)
+    # As in the code: the smallest sphere centred in the origin of the
+    # coordinates that contains the particle (the external sphere of an
+    # inclusion), which sets the external order with dynamic orders.
+    Rcirc = model_radius(scatterer, geometry)
     if (Rmax == Rmin):
         print("INFO: monomer radius is Rsph = %.5em"%Rmin)
     else:
         print("INFO: smallest monomer radius is Rmin = %.5em"%Rmin)
         print("INFO: largest monomer radius is Rmax = %.5em"%Rmax)
     print("INFO: equivalent volume radius is Reqv = %.5em"%Reqm)
-    print("INFO: minimum encircling radius is Rcirc = %.5em"%Rcirc)
+    print("INFO: minimum encircling radius around the origin is Rcirc = %.5em"%Rcirc)
 
 ## \brief Generate a random cluster aggregate from YAML configuration options.
 #
@@ -883,7 +946,9 @@ def random_aggregate(scatterer, geometry, seed, max_rad, max_attempts=100, bbox=
 #  \param geometry: `dict` Geometry configuration dictionary (gets modified)
 #  \param seed: `int` Seed for the random sequence generation
 #  \param max_rad: `float` Maximum allowed radial extension of the aggregate
-#  \return result: `int` Function exit code (0 for success, otherwise error code)
+#  \return result: `int` Number of spheres placed, or a negative error code
+#  (-1: the sphere types have different radii; -2: the spheres are larger than
+#  `max_rad`).
 def random_compact(scatterer, geometry, seed, max_rad):
     result = 0
     random.seed(seed)
@@ -978,7 +1043,8 @@ def random_compact(scatterer, geometry, seed, max_rad):
             geometry['vec_sph_y'][sph_index] = sphere['y']
             geometry['vec_sph_z'][sph_index] = sphere['z']
             sph_index += 1
-    return current_n
+        result = current_n
+    return result
 
 ## \brief Adjust a growing aggregate around its geometric center.
 #
@@ -1016,108 +1082,55 @@ def recenter_aggregate(vec_spheres):
 #  \param gconf: `dict` Geometry description dictionary.
 #  \param sconf: `dict` Scattering description dictionary.
 def test_system_resources(model, gconf, sconf):
-    le = gconf['le'] if (gconf['application'] != "SPH") else 0
-    li = gconf['li']
-    lm = le if le > li else li
-    nsph = gconf['nsph']
-    nlim = li * (li + 2)
-    nlem = le * (le + 2)
-    nlemt = 2 * nlem
-    ncou = nsph * nsph - 1
-    litpo = li + li + 1
-    litpos = litpo * litpo
-    lmpo = lm + 1
-    lmtpo = li + le + 1
-    lmtpos = lmtpo * lmtpo
-    nv3j = (lm * (lm + 1) * (2 * lm + 7)) / 6;
-    ndi = nsph * nlim
-    ndit = 2 * ndi
-    nllt = 2 * nsph * li * (li + 2) if nlemt == 0 else nlemt
-    npnt = gconf['npnt']
-    npntts = gconf['npntts']
-    max_n = npnt if npnt > npntts else npntts
-    nhspo = 2 * max_n - 1
-    configurations = sconf['configurations']
-    num_layers = 0
-    max_layers = 1
-    for nli in range(configurations):
-        nl = sconf['nshl'][nli]
-        if (nli == 0 and gconf['application'] == "INCLU"): nl += 1
-        num_layers += nl
-        if (nl > max_layers): max_layers = nl
+    # The estimates of the code (see nptm_estimates): for one thread of a
+    # LAPACK build on the host, and of a MAGMA build on the GPU.
+    # guess_resources.py gives them for other builds, threads and processes.
+    emodel = estimate_model(sconf, gconf)
+    needs = est.memory_needs(emodel, "lapack", 1)
+    gpu_needs = est.memory_needs(emodel, "magma", 1)
+    gib = est.GIB
+    if (needs['matrix_order'] > 0):
+        print("INFO: estimated matrix size is {0:.3g} GiB.".format(needs['matrix'] / gib))
+    per_thread = needs['iteration_data'] + needs['workspace']
+    print("INFO: each thread needs {0:.3g} GiB of host memory; the output needs {1:.3g} GiB.".format(
+        per_thread / gib, needs['output'] / gib))
     try:
-        max_gpu_ram = int(model['system_settings']['max_gpu_ram'])
-        matrix_dim = 2 * gconf['nsph'] * gconf['li'] * (gconf['li'] + 2)
-        matrix_size_bytes = 16 * matrix_dim * matrix_dim
-        matrix_size_Gb = float(matrix_size_bytes) / 1024.0 / 1024.0 / 1024.0
-        print("INFO: estimated matrix size is {0:.3g} GiB.".format(matrix_size_Gb))
-        if (max_gpu_ram > 0):
-            max_gpu_ram_bytes = max_gpu_ram * 1024 * 1024 * 1024
-            if (matrix_size_bytes < max_gpu_ram_bytes):
-                max_gpu_processes = int(max_gpu_ram_bytes / matrix_size_bytes)
-                print("INFO: system supports up to %d simultaneous processes on GPU."%max_gpu_processes)
-                print("INFO: only %d GPU processes allowed, if using refinement."%(max_gpu_processes / 3))
+        max_host_ram = float(model['system_settings']['max_host_ram'])
+    except KeyError:
+        max_host_ram = 0.0
+    try:
+        max_gpu_ram = float(model['system_settings']['max_gpu_ram'])
+    except KeyError:
+        max_gpu_ram = 0.0
+    if (max_host_ram > 0.0):
+        # Threads of one MPI process: output + T x (thread data) + (T - 1) x one scale.
+        room = max_host_ram * gib - needs['output'] + needs['scale_output']
+        max_threads = int(room / (per_thread + needs['scale_output'])) if room > 0 else 0
+        if (max_threads > 0):
+            print("INFO: the host memory supports up to %d thread(s) in one MPI process."%max_threads)
+        else:
+            print("WARNING: the model needs more than the declared host memory!")
+    else:
+        print("INFO: no host RAM declared.")
+    if (gpu_needs['device_per_thread'] > 0):
+        print("INFO: each thread needs {0:.3g} GiB on the GPU with MAGMA ({1:s} inversion, refinement {2:s}).".format(
+            gpu_needs['device_per_thread'] / gib, emodel['inv_mode'], "on" if emodel['refine'] else "off"))
+        if (max_gpu_ram > 0.0):
+            # max_gpu_ram is written as GPU_RAM_GB, which the programs use as
+            # it is (the 90% margin applies only to the measured free memory),
+            # less a fixed overhead per process.
+            room = max_gpu_ram * gib - est.GPU_PROCESS_OVERHEAD
+            max_gpu_threads = int(room / gpu_needs['device_per_thread']) if room > 0 else 0
+            if (max_gpu_threads > 0):
+                print("INFO: the GPU memory supports up to %d thread(s) on each GPU."%max_gpu_threads)
             else:
-                print("WARNING: estimated matrix size is larger than available GPU memory!")
+                print("WARNING: estimated inversion size is larger than available GPU memory!")
         else:
             print("INFO: no GPU RAM declared.")
-        max_host_ram = int(model['system_settings']['max_host_ram'])
-        max_host_ram_bytes = max_host_ram * 1024 * 1024 * 1024
-        if (max_host_ram > 0):
-            required_ram_bytes = 0
-            if (gconf['application'] == "CLUSTER"):
-                # ClusterIterationData section
-                required_ram_bytes += 8 * 37
-                required_ram_bytes += 8 * 10
-                required_ram_bytes += 16
-                required_ram_bytes += 4 * 7
-                required_ram_bytes += 1
-                required_ram_bytes += 8 * (44 + 6 * lm + ndit)
-                required_ram_bytes += 8 * (132 + 5 * nsph + 12 * lm)
-                required_ram_bytes += 16 * (24 + 4 * nsph + ndit * ndit)
-                # ParticleDescriptorCluster section
-                required_ram_bytes += 2 * 2
-                required_ram_bytes += 4 * 16
-                required_ram_bytes += 8 * 20
-                required_ram_bytes += 8
-                required_ram_bytes += 16 * (2 * li * nsph + 16 + 2 * nhspo + nsph + max_layers + 1)
-                required_ram_bytes += 16 * (2 * li + configurations)
-                required_ram_bytes += 8 * (num_layers + configurations + 4 * nsph)
-                required_ram_bytes += 4 * (nsph + configurations)
-                required_ram_bytes += 8 * 12
-                required_ram_bytes += 16 * 22 * nsph
-                required_ram_bytes += 8 * 7 * nsph
-                required_ram_bytes += 8 * 4 * nsph
-                required_ram_bytes += 8 * 9
-                required_ram_bytes += 16
-                required_ram_bytes += 8 * 3
-                required_ram_bytes += 16 * (20 + 2 * ndi * nlem + ndit * nlemt)
-                required_ram_bytes += 8 * (2 + 2 * ndit)
-                required_ram_bytes += 4 * 29
-                required_ram_bytes += 8 * 31
-                required_ram_bytes += 16
-                required_ram_bytes += 16 * (
-                    4 * nllt + nlemt * nlemt + 36 + ncou * litpo + nsph * lmtpo
-                    + ncou * litpos + nsph * lmtpos
-                )
-                required_ram_bytes += 4 * ((lm + 1) * lm)
-                required_ram_bytes += 8 * (8 + nv3j + lmtpo)
-                required_ram_gb = required_ram_bytes / 1024.0 / 1024.0 / 1024.0
-                print("INFO: model requires %.5gGiB of host RAM."%required_ram_gb)
-                if (required_ram_bytes < max_host_ram_bytes):
-                    max_host_processes = int(max_host_ram_bytes / required_ram_bytes)
-                    print("INFO: system supports up to %d simultaneous processes"%max_host_processes)
-                    print("      (N.B.: not including overheads!)")
-                else:
-                    print("WARNING: estimated matrix size is larger than available host memory!")
-        else:
-            print("WARNING: no host RAM declared!")
-    except KeyError as ex:
-        print(ex)
-        print("WARNING: missing system description! Cannot estimate recommended execution.")
     cpu_count = multiprocessing.cpu_count()
     print("INFO: the number of detected CPUs is %d."%cpu_count)
-    
+    print("INFO: guess_resources.py gives the estimates for other builds and MPI set-ups.")
+
 ## \brief Write the geometry configuration dictionary to legacy format.
 #
 #  \param conf: `dict` Geometry configuration dictionary.
@@ -1146,13 +1159,15 @@ def write_legacy_gconf(conf):
                 conf['vec_sph_x'][si], conf['vec_sph_y'][si], conf['vec_sph_z'][si]
             )
             output.write(str_line)
+    # As read by the code (and the FORTRAN READ TH,THSTP,THLST,THS,THSSTP,THSLST):
+    # incident and scattered theta on the first line, phi on the second.
     str_line = " {0:7.2E}  {1:7.2E}  {2:7.2E}  {3:7.2E}  {4:7.2E}  {5:7.2E}\n".format(
         conf['th'], conf['thstp'], conf['thlst'],
-        conf['ph'], conf['phstp'], conf['phlst']
+        conf['ths'], conf['thsstp'], conf['thslst']
     )
     output.write(str_line)
     str_line = " {0:7.2E}  {1:7.2E}  {2:7.2E}  {3:7.2E}  {4:7.2E}  {5:7.2E}\n".format(
-        conf['ths'], conf['thsstp'], conf['thslst'],
+        conf['ph'], conf['phstp'], conf['phlst'],
         conf['phs'], conf['phsstp'], conf['phslst']
     )
     output.write(str_line)
@@ -1197,6 +1212,12 @@ def write_legacy_gconf(conf):
     max_gpu_ram_gb = conf['max_gpu_ram_gb']
     if (max_gpu_ram_gb > 0.0):
         str_line = "GPU_RAM_GB={0:.3f}\n".format(max_gpu_ram_gb)
+        output.write(str_line)
+    if (conf.get('memory_policy', "STOP") != "STOP"):
+        str_line = "MEMORY_POLICY={0:s}\n".format(conf['memory_policy'])
+        output.write(str_line)
+    if (conf.get('device_policy', "STOP") != "STOP"):
+        str_line = "DEVICE_POLICY={0:s}\n".format(conf['device_policy'])
         output.write(str_line)
     output.close()
     return result

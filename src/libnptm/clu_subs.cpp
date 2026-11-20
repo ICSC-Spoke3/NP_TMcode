@@ -17,6 +17,7 @@
 /*! \file clu_subs.cpp
  *
  * \brief C++ implementation of CLUSTER subroutines.
+ * \ingroup kernels
  */
 
 #include <cstring>
@@ -1857,18 +1858,13 @@ void raba(
     tqcps[ipo][0] = cc0;
     tqcps[ipo][1] = cc0;
     tqcps[ipo][2] = cc0;
-    dcomplex &ctqce0 = ctqce[ipo][0];
-    dcomplex &ctqce1 = ctqce[ipo][1];
-    dcomplex &ctqce2 = ctqce[ipo][2];
-    dcomplex &tqcpe0 = tqcpe[ipo][0];
-    dcomplex &tqcpe1 = tqcpe[ipo][1];
-    dcomplex &tqcpe2 = tqcpe[ipo][2];
-    dcomplex &ctqcs0 = ctqcs[ipo][0];
-    dcomplex &ctqcs1 = ctqcs[ipo][1];
-    dcomplex &ctqcs2 = ctqcs[ipo][2];
-    dcomplex &tqcps0 = tqcps[ipo][0];
-    dcomplex &tqcps1 = tqcps[ipo][1];
-    dcomplex &tqcps2 = tqcps[ipo][2];
+    // The sums are reduced in local variables and copied to the arrays after
+    // the loop: OpenMP reductions cannot use references, which may refer to
+    // different objects in different threads (clang rejects them).
+    dcomplex ctqce0 = cc0, ctqce1 = cc0, ctqce2 = cc0;
+    dcomplex tqcpe0 = cc0, tqcpe1 = cc0, tqcpe2 = cc0;
+    dcomplex ctqcs0 = cc0, ctqcs1 = cc0, ctqcs2 = cc0;
+    dcomplex tqcps0 = cc0, tqcps1 = cc0, tqcps2 = cc0;
     int kmax = le*(le+2);
     // for efficiency I should also linearise array w, but I cannot easily since I do not know for sure its major dimension (changes to containing class needed)
 #ifdef USE_NVTX
@@ -1942,6 +1938,18 @@ void raba(
 	tqcps2 += (acap * rmu);
       } // ends if clause
     } // k loop (previously the l60 and im60 loops
+    ctqce[ipo][0] = ctqce0;
+    ctqce[ipo][1] = ctqce1;
+    ctqce[ipo][2] = ctqce2;
+    tqcpe[ipo][0] = tqcpe0;
+    tqcpe[ipo][1] = tqcpe1;
+    tqcpe[ipo][2] = tqcpe2;
+    ctqcs[ipo][0] = ctqcs0;
+    ctqcs[ipo][1] = ctqcs1;
+    ctqcs[ipo][2] = ctqcs2;
+    tqcps[ipo][0] = tqcps0;
+    tqcps[ipo][1] = tqcps1;
+    tqcps[ipo][2] = tqcps2;
 #ifdef USE_NVTX
   nvtxRangePop();
 #endif

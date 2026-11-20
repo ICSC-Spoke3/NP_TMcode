@@ -6,820 +6,630 @@
 #   it under the terms of the GNU General Public License as published by
 #   the Free Software Foundation, either version 3 of the License, or
 #   (at your option) any later version.
-#   
+#
 #   This program is distributed in the hope that it will be useful,
 #   but WITHOUT ANY WARRANTY; without even the implied warranty of
 #   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #   GNU General Public License for more details.
-#   
+#
 #   A copy of the GNU General Public License is distributed along with
 #   this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
 
 ## @package parse_output
+#  \ingroup python_tools
 #  \brief Script to extract physical quantities from NPTMcode output files.
 #
 #  This script is intended to assist users in the inspection of results. It
-#  can be used to extract physical quantities, such as radiation pressure
-#  forces and cross-sections from the standard code output files and save
-#  the data in machine readable CSV files.
+#  extracts cross-sections, asymmetry parameters, radiation pressure forces
+#  and torques, as functions of wavelength, from the output file of
+#  `np_sphere`, `np_cluster` or `np_inclusion` and saves them in machine
+#  readable CSV files.
 #
-#  The script execution requires python3.
+#  The output file may be the legacy one (`c_OSPH`, `c_OCLU`, `c_OINCLU`,
+#  or the output of the FORTRAN codes) or the HDF5 one (`c_OSPH.hd5`,
+#  `c_OCLU.hd5`, `c_OINCLU.hd5`): both give the same CSV files. The format
+#  is recognized from the file contents.
+#
+#  The CSV files are named after the root given with `--out`:
+#  - `ROOT_ics1.csv`, `ROOT_ics2.csv`: integrated (ensemble average)
+#    cross-sections in the polarization states -1 and +1;
+#  - `ROOT_irp1.csv`, `ROOT_irp2.csv`: integrated asymmetry parameter and
+#    radiation pressure cross-section;
+#  - `ROOT_dcs1.csv`, `ROOT_dcs2.csv`: cross-sections for each incident and
+#    scattered direction;
+#  - `ROOT_drp1.csv`, `ROOT_drp2.csv`: asymmetry parameter, radiation pressure
+#    forces and torques for each direction in which the code computes them
+#    (every direction with ISAM < 0, the first scattered direction of each
+#    incident direction otherwise).
+#
+#  For `np_sphere` the files are `ROOT_ics.csv`, `ROOT_irp.csv` (values of
+#  the first sphere type) and `ROOT_drp.csv` (forces for each incident
+#  direction).
+#
+#  The wavelength is 2 pi / VK, or 2 pi / (XI VK) when XI is a scale factor
+#  for lengths (IDFC < 0 in the scatterer file).
+#
+#  The script execution requires python3; reading HDF5 files also requires
+#  the `h5py` module.
 
 import math
-import pdb
-from sys import argv
+import re
+import sys
+
+from nptm_estimates import angle_count
+from nptm_version import __version__
+
+## \brief The programs whose output can be parsed, by application identifier.
+PROGRAMS = {'SPH': 'np_sphere', 'CLU': 'np_cluster', 'INCLU': 'np_inclusion'}
+
+## \brief The data selections accepted by `--selection`.
+SELECTIONS = ('ALL', 'ICS', 'DCS', 'IRP', 'DRP')
+
+## \brief Header of the integrated cross-section files.
+ICS_HEADER = "Wavelength_m,ScaSec_m2,AbsSec_m2,ExtSec_m2"
+
+## \brief Header of the integrated radiation pressure files.
+IRP_HEADER = "Wavelength_m,CosAv,RaPr_m2"
+
+## \brief Header of the differential cross-section files.
+DCS_HEADER = "Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,ScaSec_m2,AbsSec_m2,ExtSec_m2"
+
+## \brief Header of the differential radiation pressure files of `np_cluster` and `np_inclusion`.
+DRP_HEADER = (
+    "Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,CosAv,RaPr_m2,Fl_m2,Fr_m2,Fk_m2,"
+    "Fx_m2,Fy_m2,Fz_m2,TQEl_m2,TQEr_m2,TQEk_m2,TQEx_m2,TQEy_m2,TQEz_m2,"
+    "TQSl_m2,TQSr_m2,TQSk_m2,TQSx_m2,TQSy_m2,TQSz_m2"
+)
+
+## \brief Header of the differential radiation pressure file of `np_sphere`.
+SPHERE_DRP_HEADER = "Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,Fx_m2,Fy_m2,Fz_m2"
+
+## \brief Labels of the legacy output for the columns of the differential
+#  radiation pressure files of `np_cluster` and `np_inclusion`, after the
+#  angles, in their order.
+DRP_LABELS = (
+    'COSAV', 'RAPRS', 'Fl', 'Fr', 'Fk', 'Fx', 'Fy', 'Fz',
+    'TQEl', 'TQEr', 'TQEk', 'TQEx', 'TQEy', 'TQEz',
+    'TQSl', 'TQSr', 'TQSk', 'TQSx', 'TQSy', 'TQSz'
+)
+
+## \brief Names of the HDF5 datasets that hold the columns of the
+#  differential radiation pressure files, after the angles: a `%d` stands
+#  for the polarization state (1 for -1, 2 for +1).
+DRP_DATASETS = {
+    'CLU': tuple("VEC_DIR_" + q + "C%d" for q in (
+        'COSAV', 'RAPR', 'FL', 'FR', 'FK', 'FX', 'FY', 'FZ',
+        'TQEL', 'TQER', 'TQEK', 'TQEX', 'TQEY', 'TQEZ',
+        'TQSL', 'TQSR', 'TQSK', 'TQSX', 'TQSY', 'TQSZ')),
+    'INCLU': tuple("VEC_DIR_" + q + "%d" for q in (
+        'COSAV', 'RAPR', 'FL', 'FR', 'FK', 'FX', 'FY', 'FZ',
+        'TQEL', 'TQER', 'TQEK', 'TQEX', 'TQEY', 'TQEZ',
+        'TQSL', 'TQSR', 'TQSK', 'TQSX', 'TQSY', 'TQSZ'))
+}
+
+## \brief Names of the HDF5 datasets of the integrated values, by
+#  application: scattering, absorption and extinction cross-sections,
+#  asymmetry parameter and radiation pressure cross-section (`%d` as above).
+AVERAGE_DATASETS = {
+    'SPH': ('VEC_SCS', 'VEC_ABS', 'VEC_EXS', 'VEC_COSAV', 'VEC_RAPRS'),
+    'CLU': ('VEC_SCC%d', 'VEC_ABC%d', 'VEC_EXC%d', 'VEC_COSAVC%d', 'VEC_RAPRC%d'),
+    'INCLU': ('VEC_SCS%d', 'VEC_ABS%d', 'VEC_EXS%d', 'VEC_COSAV%d', 'VEC_RAPRS%d')
+}
+
+## \brief Names of the HDF5 datasets of the differential cross-sections (`%d` as above).
+DCS_DATASETS = {
+    'CLU': ('VEC_DIR_SCC%d', 'VEC_DIR_ABC%d', 'VEC_DIR_EXC%d'),
+    'INCLU': ('VEC_DIR_SCS%d', 'VEC_DIR_ABS%d', 'VEC_DIR_EXS%d')
+}
+
+## \brief Names of the HDF5 datasets of the angle sweeps, in the order of
+#  `direction_list()`.
+ANGLE_DATASETS = (
+    'TH_START', 'TH_STEP', 'TH_END', 'THS_START', 'THS_STEP', 'THS_END',
+    'PH_START', 'PH_STEP', 'PH_END', 'PHS_START', 'PHS_STEP', 'PHS_END'
+)
+
+## \brief First bytes of an HDF5 file.
+HDF5_SIGNATURE = b'\x89HDF\r\n\x1a\n'
+
+## \brief A real number as written in the legacy files (also FORTRAN `D` exponents).
+FLOAT_PATTERN = r'[-+]?(?:\d+\.\d*|\.\d+)(?:[DdEe][-+]?\d+)?'
+
+## \brief A `LABEL=value` pair of the legacy files.
+LABEL_VALUE = re.compile(r'([A-Za-z][A-Za-z0-9]*)=\s*(' + FLOAT_PATTERN + ')')
+
+## \brief A line that starts a polarization state section (`LIN -1`, `CIRC  1`).
+POLARIZATION_LINE = re.compile(r'^\s*(?:LIN|CIRC)\s+(-1|1)\s*$')
+
+## \brief A line that starts the section of a sphere (`SPHERE  1`).
+SPHERE_LINE = re.compile(r'^\s*SPHERE\s+(\d+)\s*$')
+
+## \brief Error in the input data or in the arguments.
+class ParseError(Exception):
+    pass
 
 ## \brief Main execution code
 #
-# `main()` is the function that handles the creation of the script configuration
-# and the execution of the comparison. It returns an integer value corresponding
-# to the number of detected error-level inconsistencies.
+# `main()` reads the arguments, parses the result file and writes the CSV
+# files.
 #
-# \returns errors: `int` Number of runtime errors (0 means successful run).
+# \returns errors: `int` Number of errors (0 means successful run).
 def main():
-    config = {}
-    errors = 0
     try:
-        config = parse_arguments()
-    except ValueError as ex:
-        print(ex)
+        config = parse_arguments(sys.argv[1:])
+    except ParseError as ex:
+        print("ERROR: %s" % ex)
         print("\nType \"parse_output.py --help\" to get more detailed help.")
-        errors = 1
+        return 1
+    if config['version_mode']:
+        print("parse_output.py v%s." % __version__)
+        return 0
     if config['help_mode']:
-        config['help_mode'] = True
         print_help()
-    else:
-        if (config['result_file'] == ''):
-            print("ERROR: no input file name given (missing \"--in FILE\" option).") 
-            errors += 1
-        if (config['output_name'] == ''):
-            print("ERROR: no output file name given (missing \"--out FILE\" option).")
-            errors += 1
-        if (config['application'] == ''):
-            print("ERROR: no application identifier given (missing \"--app=APP\" option).")
-            errors += 1
-        if (errors == 0):
-            if (config['format'] == 'LEGACY'):
-                if (config['application'] == 'INCLU'):
-                    try:
-                        errors += parse_legacy_oinclu(config)
-                    except Exception as ex:
-                        print(ex)
-                        errors += 1
-                elif (config['application'] == 'CLU'):
-                    errors += parse_legacy_oclu(config)
-                elif (config['application'] == 'SPH'):
-                    try:
-                        errors += parse_legacy_osph(config)
-                    except Exception as ex:
-                        print(ex)
-                        errors += 1
-                else:
-                    print("ERROR: unknown application \"%s\" (options are SPH|CLU|INCLU)"%(config['application']))
-                    errors += 1
-    return errors
+        return 0
+    errors = 0
+    if (config['result_file'] == ''):
+        print("ERROR: no input file name given (missing \"--in FILE\" option).")
+        errors += 1
+    if (config['output_name'] == ''):
+        print("ERROR: no output file name given (missing \"--out FILE\" option).")
+        errors += 1
+    if (config['application'] == ''):
+        print("ERROR: no application identifier given (missing \"--app=APP\" option).")
+        errors += 1
+    if (errors > 0):
+        return errors
+    try:
+        file_format = config['format']
+        if (file_format == ''):
+            file_format = detect_format(config['result_file'])
+        if (file_format == 'HDF5'):
+            tables = read_hdf5(config['result_file'], config['application'])
+        else:
+            tables = read_legacy(config['result_file'], config['application'])
+        if (all(len(tables[name]) == 0 for name in tables)):
+            raise ParseError(
+                "no results found in %s: is it an output of %s?" % (
+                    config['result_file'], PROGRAMS[config['application']]
+                )
+            )
+        written = write_tables(tables, config['output_name'], config['selection'])
+    except UnicodeDecodeError:
+        print("ERROR: %s is not a legacy output file." % config['result_file'])
+        return 1
+    except (ParseError, OSError) as ex:
+        print("ERROR: %s" % ex)
+        return 1
+    wavelengths = len(set(row[0] for name in tables for row in tables[name]))
+    print(
+        "%s: %d wavelengths read from %s (%s); written %s." % (
+            "parse_output.py", wavelengths, config['result_file'], file_format,
+            ", ".join(written) if len(written) > 0 else "no files"
+        )
+    )
+    return 0
 
 ## \brief Parse the command line arguments.
 #
-#  The script behaviour can be modified through a set of mandatory and optional
-#  arguments. Mandatory arguments are those required to execute a meaningful
-#  parsing and they are limited to the names of the files that need to be read
-#  and written. The other arguments affect the format and the data fields that
-#  are sought for.
+#  The mandatory arguments are the name of the result file, the root name of
+#  the CSV files and the application. The format is recognized from the file
+#  contents, unless it is given.
 #
+#  \param args: `list(str)` The command line arguments, without the script name.
 #  \returns config: `dict` A dictionary containing the script configuration.
-def parse_arguments():
+def parse_arguments(args):
     config = {
         'result_file': '',
         'output_name': '',
         'application': '',
-        'format': 'LEGACY',
-        'selection': '[ALL]',
-        'help_mode': False
+        'format': '',
+        'selection': ['ALL'],
+        'help_mode': False,
+        'version_mode': False
     }
-    arg_index = 1
-    skip_arg = False
-    for arg in argv[1:]:
-        if skip_arg:
-            skip_arg = False
-            continue
-        split_arg = arg.split('=')
-        if (arg.startswith("--in")):
-            config['result_file'] = argv[arg_index + 1]
-            arg_index += 1
-            skip_arg = True
-            if (config['result_file'].endswith('.hd5')):
-                config['format'] = 'HDF5'
-        elif (arg.startswith("--out")):
-            config['output_name'] = argv[arg_index + 1]
-            arg_index += 1
-            skip_arg = True
-        elif (arg.startswith("--app=")):
-            config['application'] = split_arg[1]
-        elif (arg.startswith("--selection=")):
-            config['selection'] = split_arg[1]
-        elif (arg.startswith("--help")):
+    options = {'--in': 'result_file', '--out': 'output_name', '--app': 'application',
+               '--format': 'format', '--selection': 'selection'}
+    i = 0
+    while (i < len(args)):
+        arg = args[i]
+        name, sep, value = arg.partition('=')
+        if (arg == "--help"):
             config['help_mode'] = True
+        elif (arg == "--version"):
+            config['version_mode'] = True
+        elif (name in options):
+            if (sep == ''):
+                if (i + 1 >= len(args)):
+                    raise ParseError("missing value of option \"%s\"" % name)
+                i += 1
+                value = args[i]
+            config[options[name]] = value
         else:
-            raise ValueError("Unrecognized argument \'{0:s}\'".format(arg))
-        arg_index += 1
+            raise ParseError("unrecognized argument \"%s\"" % arg)
+        i += 1
+    config['application'] = config['application'].upper()
+    if (config['application'] != '' and config['application'] not in PROGRAMS):
+        raise ParseError(
+            "unknown application \"%s\" (options are SPH|CLU|INCLU)" % config['application']
+        )
+    config['format'] = config['format'].upper()
+    if (config['format'] not in ('', 'HDF5', 'LEGACY')):
+        raise ParseError("unknown format \"%s\" (options are HDF5|LEGACY)" % config['format'])
+    if (isinstance(config['selection'], str)):
+        items = [s.strip().upper() for s in config['selection'].strip("[]").split(',')]
+        for item in items:
+            if (item not in SELECTIONS):
+                raise ParseError(
+                    "unknown selection \"%s\" (options are %s)" % (item, ", ".join(SELECTIONS))
+                )
+        config['selection'] = items
     return config
 
-## \brief Parse a legacy output file of np_cluster.
+## \brief Recognize the format of a result file from its first bytes.
 #
-#  \param config: `dict` A dictionary containing the script configuration.
-#  \return errors: `int` The number of encountered errors.
-def parse_legacy_oclu(config):
-    errors = 0
-    oclu_name = config['result_file']
-    root_name = config['output_name']
-    out21 = None # Cluster average cross-sections in state -1
-    out22 = None # Cluster average cross-sections in state +1
-    out31 = None # Cluster differential cross-sections in state -1
-    out32 = None # Cluster differential cross-sections in state +1
-    out41 = None # Cluster integrated asymmetry parameter and radiation pressure in state -1
-    out42 = None # Cluster integrated asymmetry parameter and radiation pressure in state +1
-    out51 = None # Cluster differential asymmetry parameter and radiation pressure forces in state -1
-    out52 = None # Cluster differential asymmetry parameter and radiation pressure forces in state +1
-    oclu_file = open(oclu_name, "r") # open the OCLU file for reading
-    file_line = "first line" # a string to parse the OCLU file lines
-    if ('ALL' in config['selection'] or 'ICS' in config['selection']):
-        out21 = open(root_name + "_ics1.csv", "w") # open a file for integrated cross sections in state -1
-        out22 = open(root_name + "_ics2.csv", "w") # open a file for integrated cross sections in state +1
-        out21.write("Wavelength_m,ScaSec_m2,AbsSec_m2,ExtSec_m2\n")
-        out22.write("Wavelength_m,ScaSec_m2,AbsSec_m2,ExtSec_m2\n")
-    if ('ALL' in config['selection'] or 'DCS' in config['selection']):
-        out31 = open(root_name + "_dcs1.csv", "w") # open a file for differential cross-sections in state -1
-        out31.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,ScaSec_m2,AbsSec_m2,ExtSec_m2\n")
-        out32 = open(root_name + "_dcs2.csv", "w") # open a file for differential cross-sections in state +1
-        out32.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,ScaSec_m2,AbsSec_m2,ExtSec_m2\n")
-    if ('ALL' in config['selection'] or 'IRP' in config['selection']):
-        out41 = open(root_name + "_irp1.csv", "w") # open a file for integrated radiation pressure forces in state -1
-        out42 = open(root_name + "_irp2.csv", "w") # open a file for integrated radiation pressure forces in state +1
-        out41.write("Wavelength_m,CosAv,RaPr_m2\n")
-        out42.write("Wavelength_m,CosAv,RaPr_m2\n")
-    if ('ALL' in config['selection'] or 'DRP' in config['selection']):
-        out51 = open(root_name + "_drp1.csv", "w") # open a file for differential radiation pressure forces in state -1
-        out51.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,CosAv,RaPr_m2,Fl_m2,Fr_m2,Fk_m2,Fx_m2,Fy_m2,Fz_m2,TQEl_m2,TQEr_m2,TQEk_m2,TQEx_m2,TQEy_m2,TQEz_m2,TQSl_m2,TQSr_m2,TQSk_m2,TQSx_m2,TQSy_m2,TQSz_m2\n")
-        out52 = open(root_name + "_drp2.csv", "w") # open a file for differential radiation pressure forces in state +1
-        out52.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,CosAv,RaPr_m2,Fl_m2,Fr_m2,Fk_m2,Fx_m2,Fy_m2,Fz_m2,TQEl_m2,TQEr_m2,TQEk_m2,TQEx_m2,TQEy_m2,TQEz_m2,TQSl_m2,TQSr_m2,TQSk_m2,TQSx_m2,TQSy_m2,TQSz_m2\n")
+#  \param file_name: `str` The result file.
+#  \returns format: `str` `HDF5` or `LEGACY`.
+def detect_format(file_name):
+    with open(file_name, "rb") as result_file:
+        signature = result_file.read(len(HDF5_SIGNATURE))
+    return 'HDF5' if (signature == HDF5_SIGNATURE) else 'LEGACY'
 
-    # Define the quantities that you need to extract
-    alam = 0.0
-    vk = 0.0
-    scaleOnXi = False
+## \brief Empty tables for the CSV files of an application.
+#
+#  \param application: `str` The application identifier (`SPH`, `CLU` or `INCLU`).
+#  \returns tables: `dict` Lists of rows, by file suffix (for instance `ics1`).
+def new_tables(application):
+    if (application == 'SPH'):
+        return {'ics': [], 'irp': [], 'drp': []}
+    return {
+        'ics1': [], 'ics2': [], 'dcs1': [], 'dcs2': [],
+        'irp1': [], 'irp2': [], 'drp1': [], 'drp2': []
+    }
 
-    # Read the output file preamble
-    for i in range(2):
-        file_line = oclu_file.readline()
-    nsph = int(file_line[0:6])
-    iavm = int(file_line[36:41])
-    for i in range(nsph + 3):
-        file_line = oclu_file.readline()
-    thifirst = float(file_line[0:11].replace("D", "E"))
-    thistep = float(file_line[12:21].replace("D", "E"))
-    thilast = float(file_line[22:31].replace("D", "E"))
-    thsfirst = float(file_line[32:41].replace("D", "E"))
-    thsstep = float(file_line[42:51].replace("D", "E"))
-    thslast = float(file_line[52:61].replace("D", "E"))
-    nthi = 1 if thistep == 0.0 else 1 + int((thilast - thifirst) / thistep)
-    nths = 1 if thsstep == 0.0 else 1 + int((thslast - thsfirst) / thsstep)
-    for i in range(2):
-        file_line = oclu_file.readline()
-    phifirst = float(file_line[0:11].replace("D", "E"))
-    phistep = float(file_line[12:21].replace("D", "E"))
-    philast = float(file_line[22:31].replace("D", "E"))
-    phsfirst = float(file_line[32:41].replace("D", "E"))
-    phsstep = float(file_line[42:51].replace("D", "E"))
-    phslast = float(file_line[52:61].replace("D", "E"))
-    nphi = 1 if phistep == 0.0 else 1 + int((philast - phifirst) / phistep)
-    nphs = 1 if phsstep == 0.0 else 1 + int((phslast - phsfirst) / phsstep)
-    ndirs = nthi * nths * nphi * nphs
-    nscas = nths * nphs
-    
-    while ("JXI =" not in file_line):
-        file_line = oclu_file.readline() # read the next OSPH file line
-        if ("XI IS SCALE FACTOR FOR LENGTHS" in file_line):
-            scaleOnXi = True
-            vk = float(file_line[5:20].replace('D', 'E'))
-    
-    # Parsing loop until the end of the OCLU file
-    while (file_line != ""):
-        file_line = oclu_file.readline() # read the next OCLU file line
-        if (scaleOnXi):
-            if (file_line.startswith("  XI=")):
-                xi = float(file_line[5:20].replace('D', 'E'))
-                alam = 2.0 * math.pi * xi / vk
+## \brief Name of the table of a quantity in a polarization state.
+#
+#  \param application: `str` The application identifier.
+#  \param kind: `str` The quantity (`ics`, `irp`, `dcs` or `drp`).
+#  \param state: `int` 1 for the state -1, 2 for the state +1 (ignored for `SPH`).
+#  \returns name: `str` The table name (the suffix of the CSV file).
+def table_name(application, kind, state):
+    return kind if (application == 'SPH') else kind + str(state)
+
+## \brief Wavelength of a scale.
+#
+#  \param vk: `float` Wave number (VK).
+#  \param xi: `float` Scale value (XI).
+#  \param xi_scales_lengths: `bool` Whether XI is a scale factor for lengths (IDFC < 0).
+#  \returns wavelength: `float` The wavelength in meters.
+def wavelength(vk, xi, xi_scales_lengths):
+    if xi_scales_lengths:
+        return 2.0 * math.pi / (xi * vk)
+    return 2.0 * math.pi / vk
+
+## \brief Scattered direction of the output files (`scattered_direction()` in the code).
+#
+#  With ISAM > 1 the scattered theta follows the incident one, with ISAM >= 1
+#  the scattered phi is the incident one (plus 180 degrees across the poles).
+#
+#  \param isam: `int` The ISAM option.
+#  \param th: `float` First incident theta.
+#  \param ths: `float` First scattered theta.
+#  \param tidg: `float` Incident theta.
+#  \param pidg: `float` Incident phi.
+#  \param ths_sweep: `float` Value of the scattered theta sweep.
+#  \param phs_sweep: `float` Value of the scattered phi sweep.
+#  \returns direction: `tuple(float, float)` Scattered theta and phi, in degrees.
+def scattered_direction(isam, th, ths, tidg, pidg, ths_sweep, phs_sweep):
+    tsdg = tidg + (ths - th) if (isam > 1) else ths_sweep
+    phsph = 0.0
+    if (isam >= 1):
+        if (tsdg < 0.0 or tsdg > 180.0):
+            phsph = 180.0
+        if (tsdg < 0.0):
+            tsdg = -tsdg
+        if (tsdg > 180.0):
+            tsdg = 360.0 - tsdg
+    psdg = phs_sweep
+    if (isam >= 1):
+        psdg = pidg + phsph
+        if (psdg >= 360.0):
+            psdg -= 360.0
+    return (tsdg, psdg)
+
+## \brief Directions of the output, in the order of the code.
+#
+#  The order is incident theta, incident phi, scattered theta, scattered phi
+#  (outermost to innermost). With ISAM > 1 there is one scattered theta, with
+#  ISAM >= 1 one scattered phi.
+#
+#  \param angles: `list(float)` The 12 angles of the sweeps: incident theta
+#  (start, step, end), scattered theta, incident phi, scattered phi.
+#  \param isam: `int` The ISAM option.
+#  \returns directions: `list(dict)` For each direction the angles `tidg`,
+#  `tsdg`, `pidg`, `psdg` (degrees), the incident direction index `incident`
+#  and whether it is the first scattered direction (`first`).
+def direction_list(angles, isam):
+    th, thstp, thlst, ths, thsstp, thslst, ph, phstp, phlst, phs, phsstp, phslst = angles
+    num_theta = angle_count(th, thstp, thlst)
+    num_thetas = 1 if (isam > 1) else angle_count(ths, thsstp, thslst)
+    num_phi = angle_count(ph, phstp, phlst)
+    num_phis = 1 if (isam >= 1) else angle_count(phs, phsstp, phslst)
+    directions = []
+    for jth in range(num_theta):
+        for jph in range(num_phi):
+            for jths in range(num_thetas):
+                for jphs in range(num_phis):
+                    tidg = th + jth * thstp
+                    pidg = ph + jph * phstp
+                    tsdg, psdg = scattered_direction(
+                        isam, th, ths, tidg, pidg, ths + jths * thsstp, phs + jphs * phsstp
+                    )
+                    directions.append({
+                        'tidg': tidg, 'tsdg': tsdg, 'pidg': pidg, 'psdg': psdg,
+                        'incident': jth * num_phi + jph,
+                        'first': (jths == 0 and jphs == 0)
+                    })
+    return directions
+
+## \brief Read a dataset of an HDF5 result file as a one-dimensional array.
+#
+#  \param h5_file: `h5py.File` The open result file.
+#  \param name: `str` The dataset name.
+#  \param file_name: `str` The result file name (for the error message).
+#  \param application: `str` The application identifier (for the error message).
+#  \returns values: `numpy.ndarray` The values of the dataset.
+def hdf5_dataset(h5_file, name, file_name, application):
+    if (name not in h5_file):
+        raise ParseError(
+            "%s has no dataset %s: is it an output of %s?" % (
+                file_name, name, PROGRAMS[application]
+            )
+        )
+    return h5_file[name][()].reshape(-1)
+
+## \brief Read the tables from an HDF5 result file.
+#
+#  \param file_name: `str` The result file.
+#  \param application: `str` The application identifier.
+#  \returns tables: `dict` The rows of the CSV files, by file suffix.
+def read_hdf5(file_name, application):
+    try:
+        import h5py
+    except ImportError:
+        raise ParseError(
+            "reading HDF5 files needs the Python module h5py (for instance: pip install h5py)."
+        )
+    tables = new_tables(application)
+    with h5py.File(file_name, "r") as h5_file:
+        data = lambda name: hdf5_dataset(h5_file, name, file_name, application)
+        isam = int(data('ISAM')[0])
+        idfc = int(data('IDFC')[0])
+        nsph = int(data('NSPH')[0])
+        if (application == 'SPH' and nsph != 1):
+            raise ParseError(
+                "the number of spheres is %d, only 1 is supported (is it an output of np_sphere?)" % nsph
+            )
+        configurations = int(data('NUM_CONF' if (application == 'SPH') else 'NCONF')[0])
+        angles = [float(data(name)[0]) for name in ANGLE_DATASETS]
+        directions = direction_list(angles, isam)
+        ndirs = len(directions)
+        num_incident = directions[-1]['incident'] + 1
+        vec_vk = data('VEC_VK')
+        vec_xi = data('VEC_XI')
+        vec_ier = data('VEC_IER')
+        vec_jxi = data('VEC_JXI')
+        states = (0,) if (application == 'SPH') else (1, 2)
+        averages = {}
+        for state in states:
+            averages[state] = [
+                data(name % state if '%' in name else name)
+                for name in AVERAGE_DATASETS[application]
+            ]
+        if (application == 'SPH'):
+            forces = [data(name) for name in ('VEC_DIR_FX', 'VEC_DIR_FY', 'VEC_DIR_FZ')]
         else:
-            if (file_line.startswith("  VK=")):
-                # we found VK, so we calculate lambda
-                # extract VK as a number from a string section, after
-                # replacing FORTRAN's D with E
-                vk = float(file_line[5:20].replace("D", "E"))
-                alam = 2.0 * math.pi / vk
-        if ("CLUSTER (ENSEMBLE AVERAGE, " in file_line):
-            # we are in average section. We know the average cross-sections
-            # are after 3 more lines for state -1.
-            for i in range(3):
-                file_line = oclu_file.readline()
-                # the following check is needed to parse C++ output
-                if ("INSERTION" in file_line):
-                    file_line = oclu_file.readline()
-            # we know we are in state -1 because it is the first one
-            # we also know that the next line contains the values
-            # we are looking for, so we read it
-            scasm = float(file_line[1:15].replace("D", "E"))
-            abssm = float(file_line[17:30].replace("D", "E"))
-            extsm = float(file_line[32:45].replace("D", "E"))
-            # we can write the average values, similarly to fort.22
-            # note that \n puts a new line at the end of the string
-            output_line = "{0:.7E},{1:.7E},{2:.7E},{3:.7E}\n".format(alam, scasm, abssm, extsm)
-            if (out21 is not None): out21.write(output_line)
-            # we know that the asymmetry parameter and the radiation
-            # pressure forces will be after 8 more lines
-            for i in range(8):
-                file_line = oclu_file.readline()
-            cosav = float(file_line[8:23].replace("D", "E"))
-            rapr = float(file_line[31:46].replace("D", "E"))
-            output_line = "{0:.7E},{1:.7E},{2:.7E}\n".format(alam, cosav, rapr)
-            if (out41 is not None): out41.write(output_line)
-            # now we look for state +1 cross-sections, after 4 lines
-            for i in range(4):
-                file_line = oclu_file.readline()
-                # the following check is needed to parse C++ output
-                if ("INSERTION" in file_line):
-                    file_line = oclu_file.readline()
-            scasm = float(file_line[1:15].replace("D", "E"))
-            abssm = float(file_line[17:30].replace("D", "E"))
-            extsm = float(file_line[32:45].replace("D", "E"))
-            # we can write the average values, similarly to fort.22
-            # note that \n puts a new line at the end of the string
-            output_line = "{0:.7E},{1:.7E},{2:.7E},{3:.7E}\n".format(alam, scasm, abssm, extsm)
-            if (out22 is not None): out22.write(output_line)
-            # we know that the asymmetry parameter and the radiation
-            # pressure forces will be after 8 more lines
-            for i in range(8):
-                file_line = oclu_file.readline()
-            cosav = float(file_line[8:23].replace("D", "E"))
-            rapr = float(file_line[31:46].replace("D", "E"))
-            output_line = "{0:.7E},{1:.7E},{2:.7E}\n".format(alam, cosav, rapr)
-            if (out42 is not None): out42.write(output_line)
-            # the averages were written. We look for differential section
+            differentials = {}
+            pressures = {}
+            for state in states:
+                differentials[state] = [data(name % state) for name in DCS_DATASETS[application]]
+                pressures[state] = [data(name % state) for name in DRP_DATASETS[application]]
+        for jxi in range(len(vec_vk)):
+            if (vec_ier[jxi] != 0):
+                print(
+                    "WARNING: scale %d stopped with error code %d: skipped." % (
+                        int(vec_jxi[jxi]), int(vec_ier[jxi])
+                    )
+                )
+                continue
+            alam = wavelength(float(vec_vk[jxi]), float(vec_xi[jxi]), idfc < 0)
+            for state in states:
+                # In np_sphere the first configuration is the first sphere type.
+                ai = jxi * configurations if (application == 'SPH') else jxi
+                values = [float(v[ai]) for v in averages[state]]
+                tables[table_name(application, 'ics', state)].append([alam] + values[0:3])
+                tables[table_name(application, 'irp', state)].append([alam] + values[3:5])
             for di in range(ndirs):
-                while ("JTH =" not in file_line):
-                    file_line = oclu_file.readline()
-                file_line = oclu_file.readline()
-                tidg = float(file_line[7:17].replace("D", "E"))
-                pidg = float(file_line[24:34].replace("D", "E"))
-                tsdg = float(file_line[41:51].replace("D", "E"))
-                psdg = float(file_line[58:68].replace("D", "E"))
-                while ("     CLUSTER" not in file_line):
-                    file_line = oclu_file.readline()
-                # we found CLUSTER. We know cross-sections for
-                # polarization state -1 will be after 3 more lines
-                for i in range(3):
-                    file_line = oclu_file.readline()
-                    # the following check is needed to parse C++ output
-                    if ("INSERTION" in file_line):
-                        file_line = oclu_file.readline()
-                # breakpoint()
-                scc31 = float(file_line[1:15].replace("D", "E"))
-                abc31 = float(file_line[17:30].replace("D", "E"))
-                exc31 = float(file_line[32:45].replace("D", "E"))
-                # we can write the differential values, similarly to fort.31
-                output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, scc31, abc31, exc31)
-                if (out31 is not None): out31.write(output_line)
-                if (di % nscas == 0):
-                    #
-                    # we know that RAPRS values for polarization state -1
-                    # are after 9 more lines
-                    for i in range(9):
-                        file_line = oclu_file.readline()
-                        # the following check is needed to parse C++ output
-                        if ("INSERTION" in file_line):
-                            file_line = oclu_file.readline()
-                    cosav = float(file_line[8:23].replace("D", "E"))
-                    rapr = float(file_line[31:46].replace("D", "E"))
-                    # we read the forces and torques
-                    file_line = oclu_file.readline()
-                    fl = float(file_line[5:20].replace("D", "E"))
-                    fr = float(file_line[25:40].replace("D", "E"))
-                    fk = float(file_line[45:60].replace("D", "E"))
-                    file_line = oclu_file.readline()
-                    fx = float(file_line[5:20].replace("D", "E"))
-                    fy = float(file_line[25:40].replace("D", "E"))
-                    fz = float(file_line[45:60].replace("D", "E"))
-                    file_line = oclu_file.readline()
-                    TQEl = float(file_line[8:23].replace("D", "E"))
-                    TQEr = float(file_line[31:46].replace("D", "E"))
-                    TQEk = float(file_line[54:69].replace("D", "E"))
-                    file_line = oclu_file.readline()
-                    TQSl = float(file_line[8:23].replace("D", "E"))
-                    TQSr = float(file_line[31:46].replace("D", "E"))
-                    TQSk = float(file_line[54:69].replace("D", "E"))
-                    file_line = oclu_file.readline()
-                    TQEx = float(file_line[8:23].replace("D", "E"))
-                    TQEy = float(file_line[31:46].replace("D", "E"))
-                    TQEz = float(file_line[54:69].replace("D", "E"))
-                    file_line = oclu_file.readline()
-                    TQSx = float(file_line[8:23].replace("D", "E"))
-                    TQSy = float(file_line[31:46].replace("D", "E"))
-                    TQSz = float(file_line[54:69].replace("D", "E"))
-                    # we can write the RAPRS values
-                    output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E},{8:.7E},{9:.7E},{10:.7E},{11:.7E},{12:.7E},{13:.7E},{14:.7E},{15:.7E},{16:.7E},{17:.7E},{18:.7E},{19:.7E},{20:.7E},{21:.7E},{22:.7E},{23:.7E},{24:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, cosav, rapr, fl, fr, fk, fx, fy, fx, TQEl, TQEr, TQEk, TQEx, TQEy, TQEz, TQSl, TQSr, TQSk, TQSx, TQSy, TQSz)
-                    if (out51 is not None): out51.write(output_line)
-                    # we know the differential values for polarization
-                    # state 1 are after 3 more lines
-                    for i in range(3):
-                        file_line = oclu_file.readline()
-                        # the following check is needed to parse C++ output
-                        if ("INSERTION" in file_line):
-                            file_line = oclu_file.readline()
-                    scc32 = float(file_line[1:15].replace("D", "E"))
-                    abc32 = float(file_line[17:30].replace("D", "E"))
-                    exc32 = float(file_line[32:45].replace("D", "E"))
-                    # we can write the differential values, similarly to fort.31
-                    output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, scc32, abc32, exc32)
-                    if (out32 is not None): out32.write(output_line)
-                    # we know that RAPRS values for polarization state 1
-                    # are after 9 more lines
-                    for i in range(9):
-                        file_line = oclu_file.readline()
-                        # the following check is needed to parse C++ output
-                        if ("INSERTION" in file_line):
-                            file_line = oclu_file.readline()
-                    cosav = float(file_line[8:23].replace("D", "E"))
-                    rapr = float(file_line[31:46].replace("D", "E"))
-                    # we read the forces and torques
-                    file_line = oclu_file.readline()
-                    fl = float(file_line[5:20].replace("D", "E"))
-                    fr = float(file_line[25:40].replace("D", "E"))
-                    fk = float(file_line[45:60].replace("D", "E"))
-                    file_line = oclu_file.readline()
-                    fx = float(file_line[5:20].replace("D", "E"))
-                    fy = float(file_line[25:40].replace("D", "E"))
-                    fz = float(file_line[45:60].replace("D", "E"))
-                    file_line = oclu_file.readline()
-                    TQEl = float(file_line[8:23].replace("D", "E"))
-                    TQEr = float(file_line[31:46].replace("D", "E"))
-                    TQEk = float(file_line[54:69].replace("D", "E"))
-                    file_line = oclu_file.readline()
-                    TQSl = float(file_line[8:23].replace("D", "E"))
-                    TQSr = float(file_line[31:46].replace("D", "E"))
-                    TQSk = float(file_line[54:69].replace("D", "E"))
-                    file_line = oclu_file.readline()
-                    TQEx = float(file_line[8:23].replace("D", "E"))
-                    TQEy = float(file_line[31:46].replace("D", "E"))
-                    TQEz = float(file_line[54:69].replace("D", "E"))
-                    file_line = oclu_file.readline()
-                    TQSx = float(file_line[8:23].replace("D", "E"))
-                    TQSy = float(file_line[31:46].replace("D", "E"))
-                    TQSz = float(file_line[54:69].replace("D", "E"))
-                    # we can write the RAPRS values
-                    output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E},{8:.7E},{9:.7E},{10:.7E},{11:.7E},{12:.7E},{13:.7E},{14:.7E},{15:.7E},{16:.7E},{17:.7E},{18:.7E},{19:.7E},{20:.7E},{21:.7E},{22:.7E},{23:.7E},{24:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, cosav, rapr, fl, fr, fk, fx, fy, fx, TQEl, TQEr, TQEk, TQEx, TQEy, TQEz, TQSl, TQSr, TQSk, TQSx, TQSy, TQSz)
-                    if (out52 is not None): out52.write(output_line)
-                else: # di % nscas != 0: skip COSAV & RAPRS
-                    # polarization state 1 will be after 11 more lines
-                    for i in range(11):
-                        file_line = oclu_file.readline()
-                        # the following check is needed to parse C++ output
-                        if ("INSERTION" in file_line):
-                            file_line = oclu_file.readline()
-                    # breakpoint()
-                    scc32 = float(file_line[1:15].replace("D", "E"))
-                    abc32 = float(file_line[17:30].replace("D", "E"))
-                    exc32 = float(file_line[32:45].replace("D", "E"))
-                    # we can write the differential values, similarly to fort.32
-                    output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, scc31, abc31, exc31)
-                    if (out32 is not None): out32.write(output_line)
-                # closes if (di % nscas == 0)
-            # closes di for loop
-        # The parsing loop ends here
+                d = directions[di]
+                angle_values = [d['tidg'], d['tsdg'], d['pidg'], d['psdg']]
+                if (application == 'SPH'):
+                    if d['first']:
+                        fi = (jxi * num_incident + d['incident']) * nsph
+                        tables['drp'].append(
+                            [alam] + angle_values + [float(v[fi]) for v in forces]
+                        )
+                    continue
+                k = jxi * ndirs + di
+                for state in states:
+                    tables['dcs%d' % state].append(
+                        [alam] + angle_values + [float(v[k]) for v in differentials[state]]
+                    )
+                    if (isam < 0 or d['first']):
+                        tables['drp%d' % state].append(
+                            [alam] + angle_values + [float(v[k]) for v in pressures[state]]
+                        )
+    return tables
 
-    if (out21 is not None): out21.close()
-    if (out22 is not None): out22.close()
-    if (out31 is not None): out31.close()
-    if (out32 is not None): out32.close()
-    if (out41 is not None): out41.close()
-    if (out42 is not None): out42.close()
-    if (out51 is not None): out51.close()
-    if (out52 is not None): out52.close()
-    oclu_file.close() # close the OCLU file
-    return errors
-
-## \brief Parse a legacy output file of np_inclusion.
+## \brief Convert a number of a legacy file.
 #
-#  \param config: `dict` A dictionary containing the script configuration.
-#  \return errors: `int` The number of encountered errors.
-def parse_legacy_oinclu(config):
-    errors = 0
-    oclu_name = config['result_file']
-    root_name = config['output_name']
-    out21 = None # Inclusion average cross-sections in state -1
-    out22 = None # Inclusion average cross-sections in state +1
-    out31 = None # Inclusion differential cross-sections in state -1
-    out32 = None # Inclusion differential cross-sections in state +1
-    out41 = None # Inclusion integrated asymmetry parameter and radiation pressure in state -1
-    out42 = None # Inclusion integrated asymmetry parameter and radiation pressure in state +1
-    out51 = None # Inclusion differential asymmetry parameter and radiation pressure forces in state -1
-    out52 = None # Inclusion differential asymmetry parameter and radiation pressure forces in state +1
-    try:
-        oclu_file = open(oclu_name, "r") # open the OINCLU file for reading
-        file_line = "first line" # a string to parse the OINCLU file lines
-        if ('ALL' in config['selection'] or 'ICS' in config['selection']):
-            out21 = open(root_name + "_ics1.csv", "w") # open a file for integrated cross sections in state -1
-            out21.write("Wavelength_m,ScaSec_m2,AbsSec_m2,ExtSec_m2\n")
-            out22 = open(root_name + "_ics2.csv", "w") # open a file for integrated cross sections in state +1
-            out22.write("Wavelength_m,ScaSec_m2,AbsSec_m2,ExtSec_m2\n")
-        if ('ALL' in config['selection'] or 'DCS' in config['selection']):
-            out31 = open(root_name + "_dcs1.csv", "w") # open a file for differential cross-sections in state -1
-            out31.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,ScaSec_m2,AbsSec_m2,ExtSec_m2\n")
-            out32 = open(root_name + "_dcs2.csv", "w") # open a file for differential cross-sections in state +1
-            out32.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,ScaSec_m2,AbsSec_m2,ExtSec_m2\n")
-        if ('ALL' in config['selection'] or 'IRP' in config['selection']):
-            out41 = open(root_name + "_irp1.csv", "w") # open a file for integrated radiation pressure forces in state -1
-            out41.write("Wavelength_m,CosAv,RaPr_m2\n")
-            out42 = open(root_name + "_irp1.csv", "w") # open a file for integrated radiation pressure forces in state +1
-            out42.write("Wavelength_m,CosAv,RaPr_m2\n")
-        if ('ALL' in config['selection'] or 'DRP' in config['selection']):
-            out51 = open(root_name + "_drp1.csv", "w") # open a file for differential radiation pressure forces in state -1
-            out51.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,CosAv,RaPr_m2,Fl_m2,Fr_m2,Fk_m2,Fx_m2,Fy_m2,Fz_m2,TQEl_m2,TQEr_m2,TQEk_m2,TQEx_m2,TQEy_m2,TQEz_m2,TQSl_m2,TQSr_m2,TQSk_m2,TQSx_m2,TQSy_m2,TQSz_m2\n")
-            out52 = open(root_name + "_drp2.csv", "w") # open a file for differential radiation pressure forces in state +1
-            out52.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,CosAv,RaPr_m2,Fl_m2,Fr_m2,Fk_m2,Fx_m2,Fy_m2,Fz_m2,TQEl_m2,TQEr_m2,TQEk_m2,TQEx_m2,TQEy_m2,TQEz_m2,TQSl_m2,TQSr_m2,TQSk_m2,TQSx_m2,TQSy_m2,TQSz_m2\n")
+#  \param text: `str` The number, possibly with a FORTRAN `D` exponent.
+#  \returns value: `float` The number.
+def to_float(text):
+    return float(text.replace('D', 'E').replace('d', 'e'))
 
-        # Define the quantities that you need to extract
-        alam = 0.0
-        vk = 0.0
-        scaleOnXi = False
-
-        # Read the output file preamble
-        for i in range(2):
-            file_line = oclu_file.readline()
-        nsph = int(file_line[0:6])
-        for i in range(nsph + 3):
-            file_line = oclu_file.readline()
-        thifirst = float(file_line[0:11].replace("D", "E"))
-        thistep = float(file_line[12:21].replace("D", "E"))
-        thilast = float(file_line[22:31].replace("D", "E"))
-        thsfirst = float(file_line[32:41].replace("D", "E"))
-        thsstep = float(file_line[42:51].replace("D", "E"))
-        thslast = float(file_line[52:61].replace("D", "E"))
-        nthi = 1 if thistep == 0.0 else 1 + int((thilast - thifirst) / thistep)
-        nths = 1 if thsstep == 0.0 else 1 + int((thslast - thsfirst) / thsstep)
-        for i in range(2):
-            file_line = oclu_file.readline()
-        phifirst = float(file_line[0:11].replace("D", "E"))
-        phistep = float(file_line[12:21].replace("D", "E"))
-        philast = float(file_line[22:31].replace("D", "E"))
-        phsfirst = float(file_line[32:41].replace("D", "E"))
-        phsstep = float(file_line[42:51].replace("D", "E"))
-        phslast = float(file_line[52:61].replace("D", "E"))
-        nphi = 1 if phistep == 0.0 else 1 + int((philast - phifirst) / phistep)
-        nphs = 1 if phsstep == 0.0 else 1 + int((phslast - phsfirst) / phsstep)
-        ndirs = nthi * nths * nphi * nphs
-        
-        while ("JXI =" not in file_line):
-            file_line = oclu_file.readline() # read the next OSPH file line
-            if ("XI IS SCALE FACTOR FOR LENGTHS" in file_line):
-                scaleOnXi = True
-                vk = float(file_line[5:20].replace('D', 'E'))
-        
-        # Parsing loop until the end of the OCLU file
-        while (file_line != ""):
-            file_line = oclu_file.readline() # read the next OCLU file line
-            if (scaleOnXi):
-                if (file_line.startswith("  XI=")):
-                    xi = float(file_line[5:20].replace('D', 'E'))
-                    alam = 2.0 * math.pi * xi / vk
-            else:
-                if (file_line.startswith("  VK=")):
-                    # we found VK, so we calculate lambda
-                    # extract VK as a number from a string section, after
-                    # replacing FORTRAN's D with E
-                    vk = float(file_line[5:20].replace("D", "E"))
-                    alam = 2.0 * math.pi / vk
-            if ("ENSEMBLE AVERAGE, MODE" in file_line):
-                # we are in average section. We start a nested loop to
-                # extract the average values
-                found_averages = False
-                while (not found_averages):
-                    file_line = oclu_file.readline()
-                    if ("----- SCS ----- ABS ----- EXS ----- ALBEDS --" in file_line):
-                        # we know we are in state -1 because it is the first one
-                        # we also know that the next line contains the values
-                        # we are looking for, so we read it
-                        file_line = oclu_file.readline()
-                        # we now extract the values from string sections
-                        scasm = float(file_line[1:15].replace("D", "E"))
-                        abssm = float(file_line[17:30].replace("D", "E"))
-                        extsm = float(file_line[32:45].replace("D", "E"))
-                        # we can write the average values, similarly to fort.22
-                        # note that \n puts a new line at the end of the string
-                        output_line = "{0:.7E},{1:.7E},{2:.7E},{3:.7E}\n".format(alam, scasm, abssm, extsm)
-                        if (out21 is not None): out21.write(output_line)
-                        # we know that the asymmetry parameter and the radiation
-                        # pressure forces will be after 5 more lines
-                        for i in range(5):
-                            file_line = oclu_file.readline()
-                        cosav = float(file_line[8:23].replace("D", "E"))
-                        rapr = float(file_line[31:46].replace("D", "E"))
-                        output_line = "{0:.7E},{1:.7E},{2:.7E}\n".format(alam, cosav, rapr)
-                        if (out41 is not None): out41.write(output_line)
-                        # we know that state +1 starts after 4 more lines
-                        for i in range(4):
-                            file_line = oclu_file.readline()
-                        # we now extract the values from string sections
-                        scasm = float(file_line[1:15].replace("D", "E"))
-                        abssm = float(file_line[17:30].replace("D", "E"))
-                        extsm = float(file_line[32:45].replace("D", "E"))
-                        # we can write the average values, similarly to fort.22
-                        # note that \n puts a new line at the end of the string
-                        output_line = "{0:.7E},{1:.7E},{2:.7E},{3:.7E}\n".format(alam, scasm, abssm, extsm)
-                        if (out22 is not None): out22.write(output_line)
-                        # we know that the asymmetry parameter and the radiation
-                        # pressure forces will be after 5 more lines
-                        for i in range(5):
-                            file_line = oclu_file.readline()
-                        cosav = float(file_line[8:23].replace("D", "E"))
-                        rapr = float(file_line[31:46].replace("D", "E"))
-                        output_line = "{0:.7E},{1:.7E},{2:.7E}\n".format(alam, cosav, rapr)
-                        if (out42 is not None): out42.write(output_line)
-                        found_averages = True # terminate the inner loop
-                # the averages were written. We look for SINGLE SCATTERER section
-                # using another inner loop
-                found_differentials = False
-                while (not found_differentials):
-                    for di in range(ndirs):
-                        while ("JTH =" not in file_line):
-                            file_line = oclu_file.readline()
-                        file_line = oclu_file.readline()
-                        tidg = float(file_line[7:17].replace("D", "E"))
-                        pidg = float(file_line[24:34].replace("D", "E"))
-                        tsdg = float(file_line[41:51].replace("D", "E"))
-                        psdg = float(file_line[58:68].replace("D", "E"))
-                        while ("     SINGLE SCATTERER" not in file_line):
-                            file_line = oclu_file.readline()
-                        if ("     SINGLE SCATTERER" in file_line):
-                            # we found SINGLE SCATTERER. We know cross-sections for
-                            # polarization state -1 will be after 3 more lines
-                            for i in range(3):
-                                file_line = oclu_file.readline()
-                                # the following check is needed to parse C++ output
-                                if ("INSERTION" in file_line):
-                                    file_line = oclu_file.readline()
-                            scc31 = float(file_line[1:15].replace("D", "E"))
-                            abc31 = float(file_line[17:30].replace("D", "E"))
-                            exc31 = float(file_line[32:45].replace("D", "E"))
-                            # we can write the differential values, similarly to fort.31
-                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, scc31, abc31, exc31)
-                            if (out31 is not None): out31.write(output_line)
-                            # we know that RAPRS values for polarization state -1
-                            # are after 6 more lines
-                            for i in range(6):
-                                file_line = oclu_file.readline()
-                                # the following check is needed to parse C++ output
-                                if ("INSERTION" in file_line):
-                                    file_line = oclu_file.readline()
-                            cosav = float(file_line[8:23].replace("D", "E"))
-                            rapr = float(file_line[31:46].replace("D", "E"))
-                            # we read the forces and torques
-                            file_line = oclu_file.readline()
-                            fl = float(file_line[5:20].replace("D", "E"))
-                            fr = float(file_line[25:40].replace("D", "E"))
-                            fk = float(file_line[45:60].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            fx = float(file_line[5:20].replace("D", "E"))
-                            fy = float(file_line[25:40].replace("D", "E"))
-                            fz = float(file_line[45:60].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQEl = float(file_line[8:23].replace("D", "E"))
-                            TQEr = float(file_line[31:46].replace("D", "E"))
-                            TQEk = float(file_line[54:69].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQSl = float(file_line[8:23].replace("D", "E"))
-                            TQSr = float(file_line[31:46].replace("D", "E"))
-                            TQSk = float(file_line[54:69].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQEx = float(file_line[8:23].replace("D", "E"))
-                            TQEy = float(file_line[31:46].replace("D", "E"))
-                            TQEz = float(file_line[54:69].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQSx = float(file_line[8:23].replace("D", "E"))
-                            TQSy = float(file_line[31:46].replace("D", "E"))
-                            TQSz = float(file_line[54:69].replace("D", "E"))
-                            # we can write the RAPRS values
-                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E},{8:.7E},{9:.7E},{10:.7E},{11:.7E},{12:.7E},{13:.7E},{14:.7E},{15:.7E},{16:.7E},{17:.7E},{18:.7E},{19:.7E},{20:.7E},{21:.7E},{22:.7E},{23:.7E},{24:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, cosav, rapr, fl, fr, fk, fx, fy, fx, TQEl, TQEr, TQEk, TQEx, TQEy, TQEz, TQSl, TQSr, TQSk, TQSx, TQSy, TQSz)
-                            if (out51 is not None): out51.write(output_line)
-                            # we know the differential values for polarization
-                            # state 1 are after 3 more lines
-                            for i in range(3):
-                                file_line = oclu_file.readline()
-                                # the following check is needed to parse C++ output
-                                if ("INSERTION" in file_line):
-                                    file_line = oclu_file.readline()
-                            scc32 = float(file_line[1:15].replace("D", "E"))
-                            abc32 = float(file_line[17:30].replace("D", "E"))
-                            exc32 = float(file_line[32:45].replace("D", "E"))
-                            # we can write the differential values, similarly to fort.31
-                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, scc32, abc32, exc32)
-                            if (out32 is not None): out32.write(output_line)
-                            # we know that RAPRS values for polarization state 1
-                            # are after 6 more lines
-                            for i in range(6):
-                                file_line = oclu_file.readline()
-                                # the following check is needed to parse C++ output
-                                if ("INSERTION" in file_line):
-                                    file_line = oclu_file.readline()
-                            cosav = float(file_line[8:23].replace("D", "E"))
-                            rapr = float(file_line[31:46].replace("D", "E"))
-                            # we read the forces and torques
-                            file_line = oclu_file.readline()
-                            fl = float(file_line[5:20].replace("D", "E"))
-                            fr = float(file_line[25:40].replace("D", "E"))
-                            fk = float(file_line[45:60].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            fx = float(file_line[5:20].replace("D", "E"))
-                            fy = float(file_line[25:40].replace("D", "E"))
-                            fz = float(file_line[45:60].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQEl = float(file_line[8:23].replace("D", "E"))
-                            TQEr = float(file_line[31:46].replace("D", "E"))
-                            TQEk = float(file_line[54:69].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQSl = float(file_line[8:23].replace("D", "E"))
-                            TQSr = float(file_line[31:46].replace("D", "E"))
-                            TQSk = float(file_line[54:69].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQEx = float(file_line[8:23].replace("D", "E"))
-                            TQEy = float(file_line[31:46].replace("D", "E"))
-                            TQEz = float(file_line[54:69].replace("D", "E"))
-                            file_line = oclu_file.readline()
-                            TQSx = float(file_line[8:23].replace("D", "E"))
-                            TQSy = float(file_line[31:46].replace("D", "E"))
-                            TQSz = float(file_line[54:69].replace("D", "E"))
-                            # we can write the RAPRS values
-                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E},{8:.7E},{9:.7E},{10:.7E},{11:.7E},{12:.7E},{13:.7E},{14:.7E},{15:.7E},{16:.7E},{17:.7E},{18:.7E},{19:.7E},{20:.7E},{21:.7E},{22:.7E},{23:.7E},{24:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, cosav, rapr, fl, fr, fk, fx, fy, fx, TQEl, TQEr, TQEk, TQEx, TQEy, TQEz, TQSl, TQSr, TQSk, TQSx, TQSy, TQSz)
-                            if (out52 is not None): out52.write(output_line)
-                    found_differentials = True # terminate the inner loop
-            # The parsing loop ends here
-
-        if (out21 is not None): out21.close()
-        if (out22 is not None): out22.close()
-        if (out31 is not None): out31.close()
-        if (out32 is not None): out32.close()
-        if (out41 is not None): out41.close()
-        if (out42 is not None): out42.close()
-        if (out51 is not None): out51.close()
-        if (out52 is not None): out52.close()
-        oclu_file.close() # close the OINCLU file
-    except Exception as ex:
-        print(ex)
-        errors += 1
-    return errors
-
-## \brief Parse a legacy output file of np_sphere.
+## \brief Read the tables from a legacy result file.
 #
-#  \param config: `dict` A dictionary containing the script configuration.
-#  \return errors: `int` The number of encountered errors.
-def parse_legacy_osph(config):
-    errors = 0
-    osph_name = config['result_file']
-    root_name = config['output_name']
-    out20 = None # Sphere average cross-sections
-    out30 = None # Sphere integrated asymmetry parameter and radiation pressure
-    out40 = None # Sphere differential radiation forces
-    try:
-        osph_file = open(osph_name, "r") # open the OSPH file for reading
-        file_line = "first line" # a string to parse the OSPH file lines
-        if ('ALL' in config['selection'] or 'ICS' in config['selection']):
-            out20 = open(root_name + "_ics.csv", "w") # open a file for integrated cross sections
-            out20.write("Wavelength_m,ScaSec_m2,AbsSec_m2,ExtSec_m2\n")
-        if ('ALL' in config['selection'] or 'IRP' in config['selection']):
-            out30 = open(root_name + "_irp.csv", "w") # open a file for integrated radiation pressure forces
-            out30.write("Wavelength_m,CosAv,RaPr_m2\n")
-        if ('ALL' in config['selection'] or 'DRP' in config['selection']):
-            out40 = open(root_name + "_drp.csv", "w") # open a file for differential radiation pressure forces in state -1
-            out40.write("Wavelength_m,THi_deg,THs_deg,PHi_deg,PHs_deg,Fx_m2,Fy_m2,Fz_m2\n")
+#  The values are found by their labels and by the section headers, as the
+#  code and the FORTRAN programs write them: the ensemble averages
+#  (`CLUSTER (ENSEMBLE AVERAGE, ...)`, `ENSEMBLE AVERAGE, ...` or the first
+#  sphere of `np_sphere`), and for each direction (`JTH = ...`) the values of
+#  the particle (`CLUSTER`, `SINGLE SCATTERER` or the first sphere), in the
+#  polarization states -1 and +1. Lines starting with `INSERTION` are
+#  skipped.
+#
+#  \param file_name: `str` The result file.
+#  \param application: `str` The application identifier.
+#  \returns tables: `dict` The rows of the CSV files, by file suffix.
+def read_legacy(file_name, application):
+    tables = new_tables(application)
+    scale_vk = None      # VK, when XI is a scale factor for lengths
+    alam = None          # wavelength of the current scale
+    in_directions = False
+    target = None        # 'avg', 'dir' or None (values not extracted)
+    state = 0            # polarization state: 1 for -1, 2 for +1
+    direction = None     # angles of the current direction
+    record = None        # values of the current radiation pressure row
+    expect_cross_sections = False
+    with open(file_name, "r") as result_file:
+        for line_number, line in enumerate(result_file, start=1):
+            stripped = line.strip()
+            if stripped.startswith("INSERTION"):
+                continue
+            where = "%s, line %d" % (file_name, line_number)
+            if expect_cross_sections:
+                expect_cross_sections = False
+                numbers = re.findall(FLOAT_PATTERN, line)
+                if (len(numbers) < 3):
+                    raise ParseError("%s: cross-sections expected." % where)
+                values = [to_float(n) for n in numbers[0:3]]
+                if (alam is None):
+                    raise ParseError("%s: no wavelength before the values." % where)
+                if (target == 'avg'):
+                    tables[table_name(application, 'ics', state)].append([alam] + values)
+                elif (target == 'dir'):
+                    tables['dcs%d' % state].append([alam] + direction + values)
+                continue
+            if (application == 'SPH' and line_number == 2):
+                nsph = int(stripped.split()[0])
+                if (nsph != 1):
+                    raise ParseError(
+                        "the number of spheres is %d, only 1 is supported (is it an output of np_sphere?)" % nsph
+                    )
+            labels = dict(LABEL_VALUE.findall(line))
+            if ("SCALE FACTOR FOR LENGTHS" in line):
+                scale_vk = to_float(labels['VK'])
+            elif ("========== JXI =" in line):
+                alam = None
+                in_directions = False
+                target = None
+            elif ((stripped.startswith("VK=") or stripped.startswith("XI=")) and not in_directions):
+                if (scale_vk is not None):
+                    alam = wavelength(scale_vk, to_float(labels['XI']), True)
+                else:
+                    alam = wavelength(to_float(labels['VK']), 1.0, False)
+            elif ("JTH =" in line):
+                in_directions = True
+                target = None
+                direction = None
+            elif ('TIDG' in labels):
+                direction = [
+                    to_float(labels['TIDG']), to_float(labels['TSDG']),
+                    to_float(labels['PIDG']), to_float(labels['PSDG'])
+                ]
+            elif (POLARIZATION_LINE.match(line) and target is not None):
+                state = 1 if (POLARIZATION_LINE.match(line).group(1) == '-1') else 2
+            elif stripped.startswith("----- SC"):
+                if (target is not None):
+                    if (application != 'SPH' and state == 0):
+                        raise ParseError("%s: values without a polarization state." % where)
+                    if (target == 'dir' and direction is None):
+                        raise ParseError("%s: values without a direction." % where)
+                    expect_cross_sections = True
+            elif (SPHERE_LINE.match(line)):
+                first = (SPHERE_LINE.match(line).group(1) == '1')
+                if (application == 'SPH' and first):
+                    target = 'dir' if in_directions else 'avg'
+                else:
+                    target = None
+            elif (application == 'CLU' and stripped.startswith("CLUSTER (ENSEMBLE AVERAGE")):
+                target, state = 'avg', 0
+            elif (application == 'CLU' and stripped == "CLUSTER"):
+                target, state = 'dir', 0
+            elif (application == 'INCLU' and stripped.startswith("ENSEMBLE AVERAGE")):
+                target, state = 'avg', 0
+            elif (application == 'INCLU' and stripped == "SINGLE SCATTERER"):
+                target, state = 'dir', 0
+            elif (target == 'avg' and 'COSAV' in labels):
+                if (alam is None):
+                    raise ParseError("%s: no wavelength before the values." % where)
+                tables[table_name(application, 'irp', state)].append(
+                    [alam, to_float(labels['COSAV']), to_float(labels['RAPRS'])]
+                )
+            elif (target == 'dir' and application == 'SPH' and 'Fx' in labels):
+                if (direction is None):
+                    raise ParseError("%s: forces without a direction." % where)
+                tables['drp'].append(
+                    [alam] + direction + [to_float(labels[q]) for q in ('Fx', 'Fy', 'Fz')]
+                )
+            elif (target == 'dir' and application != 'SPH'):
+                if ('COSAV' in labels):
+                    record = {}
+                if (record is not None):
+                    record.update(labels)
+                    if ('TQSz' in labels):
+                        missing = [q for q in DRP_LABELS if q not in record]
+                        if (len(missing) > 0):
+                            raise ParseError("%s: missing %s." % (where, ", ".join(missing)))
+                        tables['drp%d' % state].append(
+                            [alam] + direction + [to_float(record[q]) for q in DRP_LABELS]
+                        )
+                        record = None
+    return tables
 
-        # Define the quantities that you need to extract
-        alam = 0.0
-        scaleOnXi = False
-        vk = 0.0
-
-        # Read the output file preamble
-        for i in range(2):
-            file_line = osph_file.readline()
-        nsph = int(file_line[0:6])
-        if (nsph != 1):
-            errors += 1
-            print("ERROR: number of spheres is not 1!")
-            return errors
-        for i in range(2):
-            file_line = osph_file.readline()
-        thifirst = float(file_line[0:11].replace("D", "E"))
-        thistep = float(file_line[12:21].replace("D", "E"))
-        thilast = float(file_line[22:31].replace("D", "E"))
-        thsfirst = float(file_line[32:41].replace("D", "E"))
-        thsstep = float(file_line[42:51].replace("D", "E"))
-        thslast = float(file_line[52:61].replace("D", "E"))
-        nthi = 1 if thistep == 0.0 else 1 + int((thilast - thifirst) / thistep)
-        nths = 1 if thsstep == 0.0 else 1 + int((thslast - thsfirst) / thsstep)
-        for i in range(2):
-            file_line = osph_file.readline()
-        phifirst = float(file_line[0:11].replace("D", "E"))
-        phistep = float(file_line[12:21].replace("D", "E"))
-        philast = float(file_line[22:31].replace("D", "E"))
-        phsfirst = float(file_line[32:41].replace("D", "E"))
-        phsstep = float(file_line[42:51].replace("D", "E"))
-        phslast = float(file_line[52:61].replace("D", "E"))
-        nphi = 1 if phistep == 0.0 else 1 + int((philast - phifirst) / phistep)
-        nphs = 1 if phsstep == 0.0 else 1 + int((phslast - phsfirst) / phsstep)
-        ndirs = nthi * nths * nphi * nphs
-
-        while ("JXI =" not in file_line):
-            file_line = osph_file.readline() # read the next OSPH file line
-            if ("XI IS SCALE FACTOR FOR LENGTHS" in file_line):
-                scaleOnXi = True
-                vk = float(file_line[5:20].replace('D', 'E'))
-        
-        # Parsing loop until the end of the OSPH file
-        while (file_line != ""):
-            file_line = osph_file.readline() # read the next OSPH file line
-            if (scaleOnXi):
-                if (file_line.startswith("  XI=")):
-                    xi = float(file_line[5:20].replace('D', 'E'))
-                    alam = 2.0 * math.pi * xi / vk
-            else:
-                if (file_line.startswith("  VK=")):
-                    # we found VK, so we calculate lambda
-                    # extract VK as a number from a string section, after
-                    # replacing FORTRAN's D with E
-                    vk = float(file_line[5:20].replace("D", "E"))
-                    alam = 2.0 * math.pi / vk
-            if ("SPHERE  1" in file_line):
-                # we are in average section. We start a nested loop to
-                # extract the average values
-                found_averages = False
-                while (not found_averages):
-                    file_line = osph_file.readline()
-                    if ("----- SCS ----- ABS ----- EXS ----- ALBEDS --" in file_line):
-                        file_line = osph_file.readline()
-                        # we now extract the values from string sections
-                        scasm = float(file_line[1:15].replace("D", "E"))
-                        abssm = float(file_line[17:30].replace("D", "E"))
-                        extsm = float(file_line[32:45].replace("D", "E"))
-                        # we can write the average values, similarly to fort.22
-                        # note that \n puts a new line at the end of the string
-                        output_line = "{0:.7E},{1:.7E},{2:.7E},{3:.7E}\n".format(alam, scasm, abssm, extsm)
-                        if (out20 is not None): out20.write(output_line)
-                        # we know that the asymmetry parameter and the radiation
-                        # pressure forces will be after 5 more lines
-                        for i in range(5):
-                            file_line = osph_file.readline()
-                        cosav = float(file_line[8:23].replace("D", "E"))
-                        rapr = float(file_line[31:46].replace("D", "E"))
-                        output_line = "{0:.7E},{1:.7E},{2:.7E}\n".format(alam, cosav, rapr)
-                        if (out30 is not None): out30.write(output_line)
-                        found_averages = True # terminate the inner loop
-                # the averages were written. We look for the differential
-                # section
-                found_differentials = False
-                while (not found_differentials):
-                    for di in range(ndirs):
-                        while ("JTH =" not in file_line):
-                            file_line = osph_file.readline()
-                        file_line = osph_file.readline()
-                        tidg = float(file_line[7:17].replace("D", "E"))
-                        pidg = float(file_line[24:34].replace("D", "E"))
-                        tsdg = float(file_line[41:51].replace("D", "E"))
-                        psdg = float(file_line[58:68].replace("D", "E"))
-                        while ("SPHERE  1" not in file_line):
-                            file_line = osph_file.readline()
-                        if ("SPHERE  1" in file_line):
-                            # we found SPHERE section. We know that the forces
-                            # will be after 3 more lines
-                            for i in range(3):
-                                file_line = osph_file.readline()
-                                # the following check is needed to parse C++ output
-                                if ("INSERTION" in file_line):
-                                    file_line = osph_file.readline()
-                            fx = float(file_line[5:20].replace("D", "E"))
-                            fy = float(file_line[25:40].replace("D", "E"))
-                            fz = float(file_line[45:60].replace("D", "E"))
-                            # we can write the differential values, similarly to fort.31
-                            output_line = "{0:.7E},{1:.3E},{2:.3E},{3:.3E},{4:.3E},{5:.7E},{6:.7E},{7:.7E}\n".format(alam, tidg, tsdg, pidg, psdg, fx, fy, fz)
-                            if (out40 is not None): out40.write(output_line)
-                    found_differentials = True # terminate the inner loop
-            # The parsing loop ends here
-
-        if (out20 is not None): out20.close()
-        if (out30 is not None): out30.close()
-        if (out40 is not None): out40.close()
-        osph_file.close() # close the OSPH file
-    except Exception as ex:
-        print(ex)
-        errors += 1
-    return errors
+## \brief Write the selected tables as CSV files.
+#
+#  \param tables: `dict` The rows of the CSV files, by file suffix.
+#  \param root_name: `str` The root name of the CSV files.
+#  \param selection: `list(str)` The selected quantities (`ALL`, `ICS`, `DCS`, `IRP`, `DRP`).
+#  \returns written: `list(str)` The names of the written files.
+def write_tables(tables, root_name, selection):
+    written = []
+    for name in tables:
+        kind = name[0:3]
+        if ('ALL' not in selection and kind.upper() not in selection):
+            continue
+        if (kind == 'ics'):
+            header = ICS_HEADER
+        elif (kind == 'irp'):
+            header = IRP_HEADER
+        elif (kind == 'dcs'):
+            header = DCS_HEADER
+        else:
+            header = SPHERE_DRP_HEADER if (name == 'drp') else DRP_HEADER
+        file_name = root_name + "_" + name + ".csv"
+        with open(file_name, "w") as csv_file:
+            csv_file.write(header + "\n")
+            for row in tables[name]:
+                if (kind in ('dcs', 'drp')):
+                    fields = (
+                        ["{0:.7E}".format(row[0])]
+                        + ["{0:.3E}".format(v) for v in row[1:5]]
+                        + ["{0:.7E}".format(v) for v in row[5:]]
+                    )
+                else:
+                    fields = ["{0:.7E}".format(v) for v in row]
+                csv_file.write(",".join(fields) + "\n")
+        written.append(file_name)
+    return written
 
 ## \brief Print a command-line help summary.
 def print_help():
@@ -828,10 +638,11 @@ def print_help():
     print("                                                  ")
     print("Parse the results of a NPTMcode model calculation.")
     print("                                                                                          ")
-    print("Usage: \"./parse_results.py --in INPUT --out OUTPUT [OPTIONS]\"                           ")
+    print("Usage: \"./parse_output.py --in INPUT --out OUTPUT --app=APP [OPTIONS]\"                  ")
     print("                                                                                          ")
     print("Valid options are:                                                                        ")
-    print("--in INPUT               File containing the results of the model calculation (mandatory).")
+    print("--in INPUT               File containing the results of the model calculation, legacy or  ")
+    print("                         HDF5 (mandatory).                                                ")
     print("--out OUTPUT             Root name for the output CSV data files (mandatory).             ")
     print("--app=[SPH|CLU|INCLU]    Application whose output needs to be parsed (mandatory).         ")
     print("--format=HDF5|LEGACY     Format of the result file to be parsed (autodetected by default).")
@@ -841,10 +652,12 @@ def print_help():
     print("                         tions), IRP (i. e. Integrated Radiation Pressures), or DRP (i. e.")
     print("                         Differential Radiation Pressures)                                ")
     print("--help                   Print this help and exit.                                        ")
+    print("--version                Print the version and exit.                                      ")
+    print("                                                                                          ")
+    print("Reading HDF5 files requires the Python module h5py.                                       ")
     print("                                                                                          ")
 
-# ### PROGRAM EXECUTION ###
 ## \cond
-res = main()
+if __name__ == "__main__":
+    sys.exit(main())
 ## \endcond
-exit(res)

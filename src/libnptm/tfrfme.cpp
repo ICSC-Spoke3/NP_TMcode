@@ -17,6 +17,7 @@
 /*! \file tfrfme.cpp
  *
  * \brief Implementation of the trapping calculation objects.
+ * \ingroup model
  */
 
 #include <exception>
@@ -122,7 +123,7 @@ Swap1* Swap1::from_legacy(const std::string& file_name) {
     }
     input.close();
   } else {
-    printf("ERROR: could not open input file \"%s\"\n", file_name.c_str());
+    printf("[ERROR] could not open input file \"%s\"\n", file_name.c_str());
   }
   return instance;
 }
@@ -200,7 +201,7 @@ void Swap1::write_legacy(const std::string& file_name) {
     }
     output.close();
   } else { // Should never occur
-    printf("ERROR: could not open output file \"%s\"\n", file_name.c_str());
+    printf("[ERROR] could not open output file \"%s\"\n", file_name.c_str());
   }
 }
 
@@ -225,15 +226,8 @@ bool Swap1::operator ==(Swap1 &other) {
 Swap2::Swap2(int nkv) {
   _nkv = nkv;
 #ifdef USE_TARGET_OFFLOAD
-  vkv = (double *)aligned_alloc(64, _nkv * sizeof(double));
-  vec_vkzm = (double *)aligned_alloc(64, _nkv * _nkv * sizeof(double));
-#pragma omp parallel for collapse(2)
-  for (int i = 0; i < _nkv; i++) {
-    for (int j = 0; j < _nkv; j++) {
-      vkv[i] = 0.0;
-      vec_vkzm[_nkv * i +j] = 0.0;
-    }
-  }
+  vkv = (double *)zeroed_aligned_alloc(64, _nkv * sizeof(double));
+  vec_vkzm = (double *)zeroed_aligned_alloc(64, _nkv * _nkv * sizeof(double));
 #else
   vkv = new double[_nkv]();
   vec_vkzm = new double[_nkv * _nkv]();
@@ -295,6 +289,8 @@ Swap2* Swap2::from_hdf5(const std::string& file_name) {
     status = hdf_file->read("VXYZMX", "FLOAT64", &value);
     instance->set_param("vxyzmx", value);
     status = hdf_file->read("DELXYZ", "FLOAT64", &value);
+    // Files written before this record name was fixed call it "delxyz".
+    if (status < 0) status = hdf_file->read("delxyz", "FLOAT64", &value);
     instance->set_param("delxyz", value);
     status = hdf_file->read("VKNMX", "FLOAT64", &value);
     instance->set_param("vknmx", value);
@@ -363,7 +359,7 @@ Swap2* Swap2::from_legacy(const std::string& file_name) {
     instance->set_param("nrvc", 1.0 * fnrvc);
     input.close();
   } else {
-    printf("ERROR: could not open input file \"%s\"\n", file_name.c_str());
+    printf("[ERROR] could not open input file \"%s\"\n", file_name.c_str());
   }
   return instance;
 }
@@ -375,9 +371,10 @@ long Swap2::get_size(int nkv) {
 }
 
 void Swap2::push_matrix(double value) {
-  int col = _last_matrix % (_nkv - 1);
-  int row = _last_matrix - (_nkv * row);
-  vec_vkzm[nkv * row + col] = value;
+  // The matrix is NKV x NKV, filled by rows.
+  int row = _last_matrix / _nkv;
+  int col = _last_matrix % _nkv;
+  vec_vkzm[_nkv * row + col] = value;
   _last_matrix++;
 }
 
@@ -451,7 +448,7 @@ void Swap2::write_hdf5(const std::string& file_name) {
   rec_name_list.append("VXYZMX");
   rec_type_list.append("FLOAT64_(1)");
   rec_ptr_list.append(&_vxyzmx);
-  rec_name_list.append("delxyz");
+  rec_name_list.append("DELXYZ");
   rec_type_list.append("FLOAT64_(1)");
   rec_ptr_list.append(&_delxyz);
   rec_name_list.append("VKNMX");
@@ -517,7 +514,7 @@ void Swap2::write_legacy(const std::string& file_name) {
     output.write(reinterpret_cast<const char*>(&_nrvc), sizeof(int));
     output.close();
   } else { // Should never occur
-    printf("ERROR: could not open output file \"%s\"\n", file_name.c_str());
+    printf("[ERROR] could not open output file \"%s\"\n", file_name.c_str());
   }
 }
 
@@ -602,10 +599,10 @@ TFRFME::TFRFME(int lmode, int lm, int nkv, int nxv, int nyv, int nzv) {
   _nlmmt = _lm * (_lm + 2) * 2;
   _nrvc = _nxv * _nyv * _nzv;
 #ifdef USE_TARGET_OFFLOAD
-  xv = (double *)aligned_alloc(64, sizeof(double) * _nxv);
-  yv = (double *)aligned_alloc(64, sizeof(double) * _nyv);
-  zv = (double *)aligned_alloc(64, sizeof(double) * _nzv);
-  vec_wsum = (dcomplex *)aligned_alloc(64, sizeof(dcomplex) * _nrvc * _nlmmt);
+  xv = (double *)zeroed_aligned_alloc(64, sizeof(double) * _nxv);
+  yv = (double *)zeroed_aligned_alloc(64, sizeof(double) * _nyv);
+  zv = (double *)zeroed_aligned_alloc(64, sizeof(double) * _nzv);
+  vec_wsum = (dcomplex *)zeroed_aligned_alloc(64, sizeof(dcomplex) * _nrvc * _nlmmt);
 #else
   xv = new double[_nxv]();
   yv = new double[_nyv]();
@@ -762,7 +759,7 @@ TFRFME* TFRFME::from_legacy(const std::string& file_name) {
     } // wj loop
     input.close();
   } else {
-    printf("ERROR: could not open input file \"%s\"\n", file_name.c_str());
+    printf("[ERROR] could not open input file \"%s\"\n", file_name.c_str());
   }
   return instance;
 }
@@ -929,7 +926,7 @@ void TFRFME::write_legacy(const std::string& file_name) {
     } // wj loop
     output.close();
   } else { // Should never occur
-    printf("ERROR: could not open output file \"%s\"\n", file_name.c_str());
+    printf("[ERROR] could not open output file \"%s\"\n", file_name.c_str());
   }
 }
 
