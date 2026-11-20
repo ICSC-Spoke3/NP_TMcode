@@ -17,6 +17,7 @@
 /*! \file Configuration.cpp
  *
  * \brief Implementation of the configuration classes.
+ * \ingroup model
  */
 
 #include <cmath>
@@ -57,6 +58,10 @@
 #include "../include/Configuration.h"
 #endif
 
+#ifndef INCLUDE_RESOURCES_H_
+#include "../include/resources.h"
+#endif
+
 #ifndef INCLUDE_COMMONS_H
 #include "../include/Commons.h"
 #endif
@@ -66,6 +71,11 @@
 #endif
 
 using namespace std;
+
+int angle_sweep_count(double start, double step, double last) {
+  if (step == 0.0) return 1;
+  return 1 + (int)((last - start) / step + 1.0e-3);
+}
 
 // >>> GeometryConfiguration CLASS IMPLEMENTATION <<<
 
@@ -107,6 +117,8 @@ GeometryConfiguration::GeometryConfiguration(
   _dyn_order_flag = 1;
   _host_ram_gb = 0.0;
   _gpu_ram_gb = 0.0;
+  _memory_policy = MEMORY_POLICY_STOP;
+  _device_policy = DEVICE_POLICY_STOP;
   _tolerance = -1.0;
   _invert_mode = 0;
   _accuracy_goal = 1.0e-07;
@@ -152,6 +164,8 @@ GeometryConfiguration::GeometryConfiguration(const GeometryConfiguration& rhs)
   _dyn_order_flag = rhs._dyn_order_flag;
   _host_ram_gb = rhs._host_ram_gb;
   _gpu_ram_gb = rhs._gpu_ram_gb;
+  _memory_policy = rhs._memory_policy;
+  _device_policy = rhs._device_policy;
   _tolerance = rhs._tolerance;
   _invert_mode = rhs._invert_mode;
   _accuracy_goal = rhs._accuracy_goal;
@@ -197,6 +211,8 @@ GeometryConfiguration::GeometryConfiguration(const mixMPI *mpidata) {
   MPI_Bcast(&_dyn_order_flag, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_host_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_gpu_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_memory_policy, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_device_policy, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_tolerance, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_invert_mode, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_accuracy_goal, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -238,6 +254,8 @@ void GeometryConfiguration::mpibcast(const mixMPI *mpidata) {
   MPI_Bcast(&_dyn_order_flag, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_host_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_gpu_ram_gb, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_memory_policy, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&_device_policy, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_tolerance, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_invert_mode, 1, MPI_SHORT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&_accuracy_goal, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -265,17 +283,25 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
     OpenConfigurationFileException ex(file_name);
     throw ex;
   }
+  // Lines are read through line_at(), which reports a file that ends too
+  // early, and the parsing runs in parse_guarded(), which reports malformed
+  // values with the file name and line.
+  int current_line = 0;
+  auto line_at = [&](int index) -> string& {
+    return checked_line(file_lines, num_lines, index, file_name, current_line);
+  };
+  return parse_guarded(file_name, current_line, [&]() -> GeometryConfiguration* {
   // Read the legacy FORTRAN mandatory configuration data
   int _nsph = 0, _lm = 0, _in_pol = 0, _npnt = 0, _npntts = 0, _isam = 0;
   int _li = 0, _le = 0, _iavm = 0, num_params = 0;
   np_int _mxndm = 0;
   regex re = regex("-?[0-9]+");
-  str_target = file_lines[last_read_line];
+  str_target = line_at(last_read_line);
   while(regex_search(str_target, m, re)) {
     str_target = m.suffix().str();
     num_params++;
   }
-  str_target = file_lines[last_read_line++];
+  str_target = line_at(last_read_line++);
   regex_search(str_target, m, re);
   _nsph = stoi(m.str());
   if (num_params == 6) {
@@ -302,8 +328,10 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
       if (ri == 7) _isam = stoi(m.str());
     }
   } else {
-    OpenConfigurationFileException ex("ERROR: " + file_name + " is not a recognized input file.");
-    throw ex;
+    throw ParseError(
+      "\"" + file_name + "\" is not a recognized geometry configuration file "
+      "(unexpected number of values on its first line)"
+    );
   }
   double *x, *y, *z;
   x = new double[_nsph];
@@ -315,7 +343,7 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
     z[0] = 0.0;
   } else {
     for (int i = 0; i < _nsph; i++) {
-      str_target = file_lines[last_read_line++];
+      str_target = line_at(last_read_line++);
       re = regex("-?[0-9]+\\.[0-9]+([eEdD][-+]?[0-9]+)?");
       for (int ri = 0; ri < 3; ri++) {
 	regex_search(str_target, m, re);
@@ -330,7 +358,7 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
   }
   double in_th_start, in_th_end, in_th_step, sc_th_start, sc_th_end, sc_th_step;
   re = regex("-?[0-9]+\\.[0-9]+([eEdD][-+]?[0-9]+)?");
-  str_target = file_lines[last_read_line++];
+  str_target = line_at(last_read_line++);
   for (int ri = 0; ri < 6; ri++) {
     regex_search(str_target, m, re);
     str_num = regex_replace(m.str(), regex("D"), "e");
@@ -345,7 +373,7 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
   }
 
   double in_ph_start, in_ph_end, in_ph_step, sc_ph_start, sc_ph_end, sc_ph_step;
-  str_target = file_lines[last_read_line++];
+  str_target = line_at(last_read_line++);
   for (int ri = 0; ri < 6; ri++) {
     regex_search(str_target, m, re);
     str_num = regex_replace(m.str(), regex("D"), "e");
@@ -361,7 +389,7 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
 
   int fjwtm;
   re = regex("[0-9]+");
-  str_target = file_lines[last_read_line++];
+  str_target = line_at(last_read_line++);
   regex_search(str_target, m, re);
   fjwtm = stoi(m.str());
   // Mandatory configuration data were read. Create the configuration object.
@@ -378,7 +406,7 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
   last_read_line++; // skip the end-of-data code
   // Read optional configuration data used only by the C++ code.
   while (num_lines > last_read_line) {
-    str_target = file_lines[last_read_line++];
+    str_target = line_at(last_read_line++);
     bool is_parsed = false;
     int str_target_size = str_target.size();
     if (str_target_size > 15) {
@@ -394,6 +422,16 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
 	regex_search(str_target, m, re);
 	short dyn_order_flag = (short)stoi(m.str());
 	conf->_dyn_order_flag = dyn_order_flag;
+	is_parsed = true;
+      }
+    }
+    if (str_target_size > 14) {
+      if (str_target.substr(0, 14).compare("MEMORY_POLICY=") == 0) {
+	conf->_memory_policy = parse_memory_policy(str_target.substr(14));
+	is_parsed = true;
+      }
+      if (str_target.substr(0, 14).compare("DEVICE_POLICY=") == 0) {
+	conf->_device_policy = parse_device_policy(str_target.substr(14));
 	is_parsed = true;
       }
     }
@@ -439,7 +477,7 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
 	else if (str_inv_mode.compare("RBT") == 0) inv_mode = RuntimeSettings::INV_MODE_RBT;
 	// else if (str_inv_mode.compare("SVD") == 0) inv_mode = RuntimeSettings::INV_MODE_SVD;
 	else {
-	  throw(UnrecognizedConfigurationException("ERROR: unrecognized option \"" + str_target + "\"!\n"));
+	  throw(UnrecognizedConfigurationException("[ERROR] unrecognized option \"" + str_target + "\"!\n"));
 	}
 	conf->_invert_mode = inv_mode;
 	is_parsed = true;
@@ -463,7 +501,7 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
       if (str_target.size() > 0) {
 	if (str_target.substr(0, 1).compare("#") != 0) {
 	  // ERROR: found an unrecognized option that is not marked as comment
-	  throw(UnrecognizedConfigurationException("ERROR: unrecognized option \"" + str_target + "\"!\n"));
+	  throw(UnrecognizedConfigurationException("[ERROR] unrecognized option \"" + str_target + "\"!\n"));
 	}
       }
     }
@@ -471,7 +509,7 @@ GeometryConfiguration* GeometryConfiguration::from_legacy(const std::string& fil
   
   // Clean up memory and return configuration object.
   delete[] file_lines;
-  return conf;
+  return conf;  });
 }
 // >>> END OF GeometryConfiguration CLASS IMPLEMENTATION <<<
 
@@ -488,6 +526,7 @@ RuntimeSettings::RuntimeSettings() {
 #ifndef USE_TARGET_OFFLOAD
   _use_offload = false;
 #endif // USE_TARGET_OFFLOAD
+  _device_policy = DEVICE_POLICY_STOP;
   logger = NULL;
 }
 
@@ -500,6 +539,7 @@ RuntimeSettings::RuntimeSettings(GeometryConfiguration *gconf, Logger *ptr_logge
   _max_ref_iters = gconf->ref_iters;
   _use_refinement = gconf->refine_flag;
   _use_offload = gconf->offload_flag;
+  _device_policy = gconf->device_policy;
 #ifndef USE_TARGET_OFFLOAD
   _use_offload = false;
 #endif // USE_TARGET_OFFLOAD
@@ -536,7 +576,7 @@ ScattererConfiguration::ScattererConfiguration(
     double last_rcf = -1.0;
     for (int cj = 0; cj < num_layers; cj++) {
       if (rcf_vector[ci][cj] < last_rcf) {
-	string message = "ERROR: invalid radius in layer " + to_string(cj + 1) +
+	string message = "[ERROR] invalid radius in layer " + to_string(cj + 1) +
 	  " for spheres of type " + to_string(ci + 1) + "!\n";
 	throw(UnrecognizedConfigurationException(message));
       } else {
@@ -545,7 +585,7 @@ ScattererConfiguration::ScattererConfiguration(
     }
     if (ci == 0 && _use_external_sphere) {
       if (rcf_vector[0][num_layers] < 1.0) {
-	string message = "ERROR: invalid radius in layer " + to_string(num_layers + 1) +
+	string message = "[ERROR] invalid radius in layer " + to_string(num_layers + 1) +
 	  " for sphere of type 1!\n";
 	throw(UnrecognizedConfigurationException(message));
       }
@@ -738,9 +778,17 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
     OpenConfigurationFileException ex(dedfb_file_name);
     throw ex;
   }
+  // Lines are read through line_at(), which reports a file that ends too
+  // early, and the parsing runs in parse_guarded(), which reports malformed
+  // values with the file name and line.
+  int current_line = 0;
+  auto line_at = [&](int index) -> string& {
+    return checked_line(file_lines, num_lines, index, dedfb_file_name, current_line);
+  };
+  return parse_guarded(dedfb_file_name, current_line, [&]() -> ScattererConfiguration* {
   int fnsph, fies;
   re = regex("[0-9]+");
-  string str_target = file_lines[last_read_line];
+  string str_target = line_at(last_read_line);
   for (int ri = 0; ri < 2; ri++) {
     regex_search(str_target, m, re);
     if (ri == 0) fnsph = stoi(m.str());
@@ -749,7 +797,7 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
   }
   if (fies != 0) fies = 1;
   double fexdc, fwp, fxip;
-  str_target = file_lines[++last_read_line];
+  str_target = line_at(++last_read_line);
   re = regex("-?[0-9]+\\.[0-9]+([eEdD][-+]?[0-9]+)?");
   for (int ri = 0; ri < 3; ri++) {
     regex_search(str_target, m, re);
@@ -780,7 +828,7 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
     if (finstpc < 1) { // The variable vector is explicitly defined.
       double xi;
       List<double> *xi_vector = new List<double>(1);
-      str_target = file_lines[++last_read_line];
+      str_target = line_at(++last_read_line);
       re = regex("-?[0-9]+\\.[0-9]+([eEdD][-+]?[0-9]+)?");
       regex_search(str_target, m, re);
       string str_number = m.str();
@@ -789,7 +837,7 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
       xi = stod(str_number);
       xi_vector->set(0, xi);
       for (int jxi310 = 1; jxi310 < fnxi; jxi310++) {
-	str_target = file_lines[++last_read_line];
+	str_target = line_at(++last_read_line);
 	regex_search(str_target, m, re);
 	str_number = m.str();
 	str_number = regex_replace(str_number, regex("D"), "e");
@@ -801,7 +849,7 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
       delete xi_vector;
     } else { // instpc >= 1: the variable vector is defined in steps
       double xi, xi_step;
-      str_target = file_lines[++last_read_line];
+      str_target = line_at(++last_read_line);
       re = regex("-?[0-9]+\\.[0-9]+([eEdD][-+]?[0-9]+)?");
       regex_search(str_target, m, re);
       for (int ri = 0; ri < 2; ri++) {
@@ -824,7 +872,7 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
     if (finstpc == 0) { // The variable vector is explicitly defined
       double vs;
       for (int jxi_r = 0; jxi_r < fnxi; jxi_r++) {
-	str_target = file_lines[++last_read_line];
+	str_target = line_at(++last_read_line);
 	re = regex("-?[0-9]+\\.[0-9]+([eEdD][-+]?[0-9]+)?");
 	regex_search(str_target, m, re);
 	string str_number = m.str();
@@ -852,7 +900,7 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
       }
     } else { // The variable vector needs to be computed in steps
       double vs, vs_step;
-      str_target = file_lines[++last_read_line];
+      str_target = line_at(++last_read_line);
       re = regex("-?[0-9]+\\.[0-9]+([eEdD][-+]?[0-9]+)?");
       regex_search(str_target, m, re);
       for (int ri = 0; ri < 2; ri++) {
@@ -888,7 +936,7 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
     }
   }
   int *iog_vector = new int[fnsph]();
-  str_target = file_lines[++last_read_line];
+  str_target = line_at(++last_read_line);
   re = regex("[0-9]+");
   int configurations = 0;
   for (int i = 1; i <= fnsph; i++) {
@@ -898,7 +946,7 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
       str_target = m.suffix().str();
       if (iog_vector[i - 1] >= i) configurations++;
     } else {
-      str_target = file_lines[++last_read_line];
+      str_target = line_at(++last_read_line);
       i--;
     }
   }
@@ -910,7 +958,7 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
   for (int i113 = 1; i113 <= fnsph; i113++) {
     if (iog_vector[i113 - 1] < i113) continue;
     else last_configuration++;
-    str_target = file_lines[++last_read_line];
+    str_target = line_at(++last_read_line);
     re = regex("[0-9]+");
     regex_search(str_target, m, re);
     nshl_vector[last_configuration - 1] = stoi(m.str());
@@ -928,7 +976,7 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
     if (i113 == 1) nsh += fies;
     rcf_vector[last_configuration - 1] = new double[nsh]();
     for (int ns112 = 0; ns112 < nsh; ns112++) {
-      str_target = file_lines[++last_read_line];
+      str_target = line_at(++last_read_line);
       regex_search(str_target, m, re);
       str_number = m.str();
       str_number = regex_replace(str_number, regex("D"), "e");
@@ -954,7 +1002,7 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
 	int ici = (nsh + 1) / 2;
 	if (i162 == 1) ici += fies;
 	for (int ic157 = 0; ic157 < ici; ic157++) {
-	  str_target = file_lines[++last_read_line];
+	  str_target = line_at(++last_read_line);
 	  regex_search(str_target, m, re);
 	  string str_number = m.str();
 	  str_number = regex_replace(str_number, regex("D"), "e");
@@ -981,7 +1029,7 @@ ScattererConfiguration* ScattererConfiguration::from_dedfb(const std::string& de
   );
   delete[] file_lines;
   delete[] variable_vector;
-  return config;
+  return config;  });
 }
 
 ScattererConfiguration* ScattererConfiguration::from_hdf5(const std::string& file_name) {
@@ -1163,7 +1211,7 @@ ScattererConfiguration* ScattererConfiguration::from_legacy(const std::string& f
   return conf;
 }
 
-double ScattererConfiguration::get_max_radius() {
+double ScattererConfiguration::get_max_radius() const {
   double result = 0.0;
   for (int ci = 0; ci < _configurations; ci++) {
     if (_radii_of_spheres[ci] > result)
@@ -1172,7 +1220,7 @@ double ScattererConfiguration::get_max_radius() {
   return result;
 }
 
-double ScattererConfiguration::get_min_radius() {
+double ScattererConfiguration::get_min_radius() const {
   double result = -1.0;
   for (int ci = 0; ci < _configurations; ci++) {
     if (_radii_of_spheres[ci] < result or result <= 0.0)
@@ -1181,44 +1229,26 @@ double ScattererConfiguration::get_min_radius() {
   return result;
 }
 
-double ScattererConfiguration::get_particle_radius(GeometryConfiguration *gc) {
+double ScattererConfiguration::get_particle_radius(const GeometryConfiguration *gc) const {
   double result = 0.0;
   if (_use_external_sphere) {
     result = _radii_of_spheres[0] * _rcf[0][_nshl_vec[0]];
   } else {
-    double dist2, max_dist;
-    double max_dist2 = 0.0;
-    double avgX = 0.0, avgY = 0.0, avgZ = 0.0;
+    // The external field is expanded around the origin of the coordinates,
+    // so the relevant radius is that of the smallest sphere centred in the
+    // origin that contains all the spheres: max(|r_i| + a_i).
     for (int si = 0; si < _number_of_spheres; si++) {
-      double sph_radius = get_radius(si);
-      avgX += (sph_radius * gc->get_sph_x(si));
-      avgY += (sph_radius * gc->get_sph_y(si));
-      avgZ += (sph_radius * gc->get_sph_z(si));
+      double x = gc->get_sph_x(si);
+      double y = gc->get_sph_y(si);
+      double z = gc->get_sph_z(si);
+      double dist = sqrt(x * x + y * y + z * z) + get_radius(si);
+      if (dist > result) result = dist;
     }
-    avgX /= _number_of_spheres;
-    avgY /= _number_of_spheres;
-    avgZ /= _number_of_spheres;
-    // int configuration = 0;
-    for (int si = 0; si < _number_of_spheres; si++) {
-      // int iogi = _iog_vec[si];
-      // if (iogi >= si + 1) configuration++;
-      double dX = gc->get_sph_x(si) - avgX;
-      double dY = gc->get_sph_y(si) - avgY;
-      double dZ = gc->get_sph_z(si) - avgZ;
-      // double radius = _radii_of_spheres[configuration - 1];
-      double radius = get_radius(si);
-      dist2 = dX * dX + dY * dY + dZ * dZ + radius * radius;
-      if (dist2 > max_dist2) {
-	max_dist2 = dist2;
-      }
-    }
-    max_dist = sqrt(max_dist2);
-    result = max_dist;
   }
   return result;
 }
 
-double ScattererConfiguration::get_radius(int index) {
+double ScattererConfiguration::get_radius(int index) const {
   int type_id = _iog_vec[index];
   double radius = _radii_of_spheres[type_id - 1];
   return radius;
@@ -1695,7 +1725,7 @@ int *check_overlaps(
   const int nsphg = gconf->number_of_spheres;
   const int nn = nsphs * nsphs;
   if (nsphs != nsphg)
-    throw(UnrecognizedConfigurationException("ERROR: mismatch in number of spheres!"));
+    throw(UnrecognizedConfigurationException("[ERROR] mismatch in number of spheres!"));
   int num_overlaps = 0;
   int *index_matrix = new int[nn]();
 #pragma omp parallel for reduction(+: num_overlaps)

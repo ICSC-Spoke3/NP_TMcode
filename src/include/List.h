@@ -1,10 +1,15 @@
 /*! \file List.h
  *
  * \brief A library of classes used to manage dynamic lists.
+ * \ingroup support
  */
 
 #ifndef INCLUDE_LIST_H_
 #define INCLUDE_LIST_H_
+
+/*! \addtogroup support
+ * @{
+ */
 
 /*! \brief A class to represent dynamic lists.
  *
@@ -166,4 +171,5 @@ public:
   }
 };
 
+//! @}
 #endif

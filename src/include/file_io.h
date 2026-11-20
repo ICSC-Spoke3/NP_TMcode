@@ -1,9 +1,14 @@
 /*! \file file_io.h
  *
  * \brief Library to handle I/O operations with files.
+ * \ingroup io
  */
 #ifndef INCLUDE_FILE_IO_H_
 #define INCLUDE_FILE_IO_H_
+
+/*! \addtogroup io
+ * @{
+ */
 
 #include <vector>
 
@@ -97,6 +102,8 @@ class HDFFile {
   ~HDFFile();
   
   /*! \brief Close the current file.
+   *
+   * \return status: `herr_t` Status returned by `H5Fclose()` (non-negative on success).
    */
   herr_t close();
 
@@ -114,15 +121,21 @@ class HDFFile {
 			      hid_t fcpl_id=H5P_DEFAULT, hid_t fapl_id=H5P_DEFAULT
   );
 
-  /*! \brief Get current status.
+  /*! \brief Get the HDF5 identifier of the attached file.
+   *
+   * \return file_id: `hid_t` The HDF5 file identifier.
    */
   hid_t get_file_id() { return file_id; }
   
   /*! \brief Get current status.
+   *
+   * \return status: `herr_t` Status of the last HDF5 operation on the file.
    */
   herr_t get_status() { return status; }
   
   /*! \brief Check whether the attached file is currently open.
+   *
+   * \return is_open: `bool` True if the file is open, false otherwise.
    */
   bool is_open() { return file_open_flag; }
   
@@ -269,8 +282,8 @@ public:
   char *_data_pointer;
   //! \brief the size of the data block.
   size_t _data_size;
-  //! \brief Read only view of `_data_pointer`.
-  const char* data_pointer = _data_pointer;
+  //! \brief Read only view of `_data_pointer` (a reference, so that it follows the member).
+  char * const & data_pointer = _data_pointer;
   //! \brief Read only view of `_data_size`.
   const size_t & data_size = _data_size;
 
@@ -404,6 +417,8 @@ public:
    */
   void mpisend(const mixMPI *mpidata);
 };
+
+//! @}
 #endif
 
 

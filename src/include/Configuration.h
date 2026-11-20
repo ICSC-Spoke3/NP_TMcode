@@ -46,12 +46,32 @@
  * Additional functions and auxiliary classes are defined to manage the runtime
  * settings, the communication with MPI, and the sanity checks on input and
  * system resources.
+ * \ingroup model
  */
 
 #ifndef INCLUDE_CONFIGURATION_H_
 #define INCLUDE_CONFIGURATION_H_
 
+/*! \addtogroup model
+ * @{
+ */
+
 class mixMPI;
+
+/**
+ * \brief Number of values of an angle sweep (start, step, last).
+ *
+ * As computed by the FORTRAN codes and by `ScatteringAngles`: 1 if the step
+ * is 0, otherwise 1 + IDINT((last - start) / step + 1.0E-3). With ISAM > 1
+ * the scattered theta and phi sweeps have one value each, with ISAM = 1 the
+ * scattered phi sweep has one value: callers apply that rule.
+ *
+ * \param start: `double` First value.
+ * \param step: `double` Increment.
+ * \param last: `double` Last value.
+ * \return count: `int` Number of values.
+ */
+int angle_sweep_count(double start, double step, double last);
 
 /**
  * \brief A class to represent the configuration of the scattering geometry.
@@ -124,6 +144,10 @@ protected:
   double _host_ram_gb;
   //! \brief GPU RAM in GB
   double _gpu_ram_gb;
+  //! \brief Memory policy (a `MemoryPolicy` value).
+  short _memory_policy;
+  //! \brief Device policy (a `DevicePolicy` value).
+  short _device_policy;
   //! \brief Sphere overlap tolerance;
   double _tolerance;
   //! \brief Inversion algorithm (0 - LU, 1 - SVD, 2 - RBT)
@@ -192,6 +216,10 @@ public:
   const double& host_ram_gb = _host_ram_gb;
   //! \brief Read-only view on GPU RAM in GB.
   const double& gpu_ram_gb = _gpu_ram_gb;
+  //! \brief Read-only view on the memory policy (a `MemoryPolicy` value).
+  const short& memory_policy = _memory_policy;
+  //! \brief Read-only view on the device policy (a `DevicePolicy` value).
+  const short& device_policy = _device_policy;
   //! \brief Read-only view on sphere overlap tolerance.
   const double& tolerance = _tolerance;
   //! \brief Read-only view on inversion algorithm.
@@ -260,7 +288,7 @@ public:
   /**
    * \brief Build a scattering geometry configuration structure copying it via MPI from MPI process 0.
    *
-   * \param rhs: `mixMPI *` pointer to the mpidata instance to use for the MPI communications.
+   * \param mpidata: `const mixMPI *` Pointer to the mixMPI instance to use for the MPI communications.
    */
   GeometryConfiguration(const mixMPI *mpidata);
 
@@ -305,7 +333,7 @@ public:
    * \param index: `int` Index of the sphere (0-based).
    * \return scale: `double` The X coordinate of the requested sphere.
    */
-  double get_sph_x(int index) { return _sph_x[index]; }
+  double get_sph_x(int index) const { return _sph_x[index]; }
   
   /**
    * \brief Get the Y coordinate of a sphere by its index.
@@ -316,7 +344,7 @@ public:
    * \param index: `int` Index of the sphere (0-based).
    * \return scale: `double` The Y coordinate of the requested sphere.
    */
-  double get_sph_y(int index) { return _sph_y[index]; }
+  double get_sph_y(int index) const { return _sph_y[index]; }
   
   /**
    * \brief Get the Z coordinate of a sphere by its index.
@@ -327,7 +355,7 @@ public:
    * \param index: `int` Index of the sphere (0-based).
    * \return scale: `double` The Z coordinate of the requested sphere.
    */
-  double get_sph_z(int index) { return _sph_z[index]; }
+  double get_sph_z(int index) const { return _sph_z[index]; }
 
 };
 
@@ -357,6 +385,8 @@ protected:
   bool _use_refinement;
   //! \brief Offload flag.
   bool _use_offload;
+  //! \brief Device policy (a `DevicePolicy` value).
+  short _device_policy;
 
 public:
   //! \brief Flag for LU factorization inversion.
@@ -384,6 +414,8 @@ public:
   const bool& use_refinement = _use_refinement;
   //! \brief Read-only view on offload flag.
   const bool& use_offload = _use_offload;
+  //! \brief Read-only view on the device policy (a `DevicePolicy` value).
+  const short& device_policy = _device_policy;
   //! \brief Pointer to a Logger instance.
   const Logger *logger;
 
@@ -578,7 +610,7 @@ public:
   /**
    * \brief Build a scatterer configuration structure copying it via MPI from MPI process 0.
    *
-   * \param rhs: `mixMPI *` pointer to the mpidata instance to use for the MPI communications.
+   * \param mpidata: `const mixMPI *` Pointer to the mixMPI instance to use for the MPI communications.
    */
   ScattererConfiguration(const mixMPI *mpidata);
 
@@ -644,7 +676,7 @@ public:
    * \param k: `int` Index of the current scale.
    * \return radius: `dcomplex` The requested dielectric constant.
    */
-  dcomplex get_dielectric_constant(int i, int j, int k) { return _dc0_matrix[i][j][k]; }
+  dcomplex get_dielectric_constant(int i, int j, int k) const { return _dc0_matrix[i][j][k]; }
   
   /**
    * \brief Get the ID of a configuration from the index of the sphere.
@@ -655,21 +687,21 @@ public:
    * \param index: `int` Index of the sphere.
    * \return ID: `int` ID of the configuration to be applied.
    */
-  int get_iog(int index) { return _iog_vec[index]; }
+  int get_iog(int index) const { return _iog_vec[index]; }
   
   /**
    * \brief Get the maximum radius of the sphere components.
    *
    * \return radius: `double` The radius of the largest sphere.
    */
-  double get_max_radius();
+  double get_max_radius() const;
   
   /**
    * \brief Get the minimum radius of the sphere components.
    *
    * \return radius: `double` The radius of the smallest sphere.
    */
-  double get_min_radius();
+  double get_min_radius() const;
   
   /**
    * \brief Get the number of layers for a given configuration.
@@ -680,15 +712,25 @@ public:
    * \param index: `int` Index of the configuration.
    * \return nl: `int` The number of layers for the given configuration.
    */
-  int get_nshl(int index) { return _nshl_vec[index]; }
+  int get_nshl(int index) const { return _nshl_vec[index]; }
 
   /**
-   * \brief Get the radius of the smallest sphere containing the particle.
+   * \brief Get the radius of the smallest sphere centred in the origin of the
+   * coordinates that contains the particle.
+   *
+   * The external field of the particle is expanded around the origin of the
+   * coordinates, so this is the radius that sets the external order. Without
+   * an external sphere it is the largest value, over the spheres, of the
+   * distance of the sphere centre from the origin plus the sphere radius;
+   * with an external sphere it is the outer radius of the
+   * external sphere.
    *
    * \param gc: `GeometryConfiguration *` Pointer to a `GeometryConfiguration` instance.
    * \return radius: `double` The radius of the sphere containing the particle.
+   *
+   * \note Mirrored in `src/scripts/nptm_estimates.py`: change it there too.
    */
-  double get_particle_radius(GeometryConfiguration *gc);
+  double get_particle_radius(const GeometryConfiguration *gc) const;
   
   /**
    * \brief Get the radius of a sphere by its index.
@@ -699,7 +741,7 @@ public:
    * \param index: `int` Index of the ID to be retrieved.
    * \return radius: `double` The requested sphere radius.
    */
-  double get_radius(int index);
+  double get_radius(int index) const;
   
   /**
    * \brief Get the value of a scale by its index.
@@ -711,7 +753,7 @@ public:
    * \param column: `int` Column index of the element to be retrieved.
    * \return scale: `double` The desired scale.
    */
-  double get_rcf(int row, int column) { return _rcf[row][column]; }
+  double get_rcf(int row, int column) const { return _rcf[row][column]; }
 
   /**
    * \brief Get the value of a scale by its index.
@@ -722,7 +764,7 @@ public:
    * \param index: `int` Index of the scale to be retrieved.
    * \return scale: `double` The desired scale.
    */
-  double get_scale(int index) { return _scale_vec[index]; }
+  double get_scale(int index) const { return _scale_vec[index]; }
   
   /**
    * \brief Get the radius of a sphere type by its index.
@@ -733,7 +775,7 @@ public:
    * \param index: `int` Index of the ID to be retrieved.
    * \return radius: `double` The requested sphere radius.
    */
-  double get_type_radius(int index) { return _radii_of_spheres[index]; }
+  double get_type_radius(int index) const { return _radii_of_spheres[index]; }
   
   /**
    * \brief Print the contents of the configuration object to terminal.
@@ -824,4 +866,5 @@ double get_overlap(
   const int index_0, const int index_1
 );
 
+//! @}
 #endif // INCLUDE_CONFIGURATION_H_

@@ -17,6 +17,7 @@
 /*! \file logging.cpp
  *
  * \brief Implementation of the logging system.
+ * \ingroup support
  */
 #include <cstdio>
 #include <string>
@@ -27,34 +28,70 @@
 
 using namespace std;
 
+//! \cond
+// Tags of the logging levels, indexed by LOG_DEBG, LOG_INFO, LOG_WARN, LOG_ERRO.
+static const char *level_tags[4] = {"[DEBUG] ", "[INFO] ", "[WARN] ", "[ERROR] "};
+
+static const char *tag_of(int level) {
+  if (level < LOG_DEBG) level = LOG_DEBG;
+  if (level > LOG_ERRO) level = LOG_ERRO;
+  return level_tags[level];
+}
+
+// Whether text starts with a level tag at position pos.
+static bool starts_with_tag(const string& text, size_t pos) {
+  for (int ti = 0; ti < 4; ti++) {
+    if (text.compare(pos, string(level_tags[ti]).size(), level_tags[ti]) == 0) return true;
+  }
+  return false;
+}
+//! \endcond
+
 Logger::Logger(int threshold, FILE *logging_output, FILE *error_output) {
   last_message = new string("");
   log_threshold = threshold;
   log_output = logging_output;
   err_output = error_output;
   repetitions = 0;
+  log_at_line_start = true;
+  err_at_line_start = true;
 }
 
 Logger::~Logger() {
   delete last_message;
 }
 
+string Logger::tag_lines(const string& message, const char *tag, bool &at_line_start) const {
+  string result;
+  result.reserve(message.size() + 16);
+  for (size_t ci = 0; ci < message.size(); ci++) {
+    const char c = message[ci];
+    if (at_line_start && c != '\n') {
+      if (!starts_with_tag(message, ci)) result += tag;
+      at_line_start = false;
+    }
+    result += c;
+    if (c == '\n') at_line_start = true;
+  }
+  return result;
+}
+
 void Logger::err(const std::string& message) const {
-  fprintf(err_output, "%s", message.c_str());
-  fflush(err_output);
+  // One thread at a time, so that the lines of different messages are not
+  // mixed and the line-start state stays consistent.
+#pragma omp critical(np_logger_output)
+  {
+    string text = tag_lines(message, tag_of(LOG_ERRO), err_at_line_start);
+    fprintf(err_output, "%s", text.c_str());
+    fflush(err_output);
+  }
 }
 
 void Logger::flush(int level) {
   string summary = "\"" + *last_message + "\" issued " + to_string(repetitions);
   if (repetitions == 1) summary += " time.\n";
   else summary += " times.\n";
-  if (level == LOG_ERRO) err(summary);
-  else {
-    if (level >= log_threshold) {
-      fprintf(log_output, "%s", summary.c_str());
-      fflush(log_output);
-    }
-  }
+  log(summary, level);
   delete last_message;
   last_message = new string("");
   repetitions = 0;
@@ -64,8 +101,12 @@ void Logger::log(const std::string& message, int level) const {
   if (level == LOG_ERRO) err(message);
   else {
     if (level >= log_threshold) {
-      fprintf(log_output, "%s", message.c_str());
-      fflush(log_output);
+#pragma omp critical(np_logger_output)
+      {
+	string text = tag_lines(message, tag_of(level), log_at_line_start);
+	fprintf(log_output, "%s", text.c_str());
+	fflush(log_output);
+      }
     }
   }
 }

@@ -17,6 +17,7 @@
 /*! \file Commons.cpp
  *
  * \brief Implementation of the common data structures.
+ * \ingroup model
  */
 #include <cstring>
 
@@ -66,7 +67,7 @@ mixMPI::~mixMPI() {
 }
 
 // >>> ParticleDescriptor class implementation. <<< //
-ParticleDescriptor::ParticleDescriptor(GeometryConfiguration *gconf, ScattererConfiguration *sconf) {
+ParticleDescriptor::ParticleDescriptor(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf) {
   _class_type = BASE_TYPE;
   _nsph = gconf->number_of_spheres;
   _li = (_nsph == 1) ? gconf->l_max : gconf->li;
@@ -646,13 +647,40 @@ ParticleDescriptor::~ParticleDescriptor() {
   }
 }
 
-long ParticleDescriptor::get_size(GeometryConfiguration *gconf, ScattererConfiguration *sconf) {
-  return 0;
+long ParticleDescriptor::get_size(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf) {
+  // Arrays allocated by the base class constructor (the instance itself is
+  // counted by the derived classes).
+  const long nsph = gconf->number_of_spheres;
+  const long li = (nsph == 1) ? gconf->l_max : gconf->li;
+  const long num_configurations = sconf->configurations;
+  long num_layers = 0, max_layers = 1;
+  for (int nli = 0; nli < num_configurations; nli++) {
+    int nl = sconf->get_nshl(nli);
+    if (nli == 0 && sconf->use_external_sphere) nl++;
+    num_layers += nl;
+    if (nl > max_layers) max_layers = nl;
+  }
+  const long max_n = (gconf->npnt > gconf->npntts) ? gconf->npnt : gconf->npntts;
+  const long nhspo = 2 * max_n - 1;
+  long result = 0;
+  result += 2 * sizeof(dcomplex) * li * nsph; // vec_rmi, vec_rei
+  result += 2 * sizeof(dcomplex *) * li; // rmi, rei
+  result += sizeof(double) * num_layers; // vec_rc
+  result += sizeof(double *) * num_configurations; // rc
+  result += sizeof(dcomplex) * 16; // vint
+  result += 4 * sizeof(double) * nsph; // rxx, ryy, rzz, vsz
+  result += sizeof(int) * nsph; // iog
+  result += sizeof(double) * num_configurations; // ros
+  result += sizeof(int) * num_configurations; // nshl
+  result += 2 * sizeof(dcomplex) * nhspo; // ris, dlri
+  result += sizeof(dcomplex) * nsph; // vkt
+  result += sizeof(dcomplex) * (max_layers + 1); // dc0
+  return result;
 }
 // >>> End of ParticleDescriptor class implementation. <<< //
 
 // >>> ParticleDescriptorCluster class implementation. <<< //
-ParticleDescriptorCluster::ParticleDescriptorCluster(GeometryConfiguration *gconf, ScattererConfiguration *sconf) : ParticleDescriptor(gconf, sconf) {
+ParticleDescriptorCluster::ParticleDescriptorCluster(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf) : ParticleDescriptor(gconf, sconf) {
   _class_type = CLUSTER_TYPE;
   // Needed by SPHERE and CLUSTER
   vec_sas = new dcomplex[4 * _nsph]();
@@ -1080,7 +1108,7 @@ int ParticleDescriptorCluster::update_orders(int inner_order, int outer_order) {
   return result;
 }
 
-long ParticleDescriptorCluster::get_size(GeometryConfiguration* gconf, ScattererConfiguration *sconf) {
+long ParticleDescriptorCluster::get_size(const GeometryConfiguration * gconf, const ScattererConfiguration *sconf) {
   /*
   // >>> COMMON TO ALL DESCRIPTOR TYPES <<< //
   short _class_type; const short& class_type = _class_type;
@@ -1260,7 +1288,7 @@ long ParticleDescriptorCluster::get_size(GeometryConfiguration* gconf, Scatterer
 // >>> End of ParticleDescriptorCluster class implementation. <<< //
 
 // >>> ParticleDescriptorInclusion class implementation. <<< //
-ParticleDescriptorInclusion::ParticleDescriptorInclusion(GeometryConfiguration *gconf, ScattererConfiguration *sconf) : ParticleDescriptor(gconf, sconf) {
+ParticleDescriptorInclusion::ParticleDescriptorInclusion(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf) : ParticleDescriptor(gconf, sconf) {
   _class_type = INCLUSION_TYPE;
   // Needed by CLUSTER and INCLU
   _le = gconf->le;
@@ -1497,7 +1525,7 @@ ParticleDescriptorInclusion::ParticleDescriptorInclusion(const mixMPI *mpidata) 
 }
 #endif // MPI_VERSION
 
-long ParticleDescriptorInclusion::get_size(GeometryConfiguration* gconf, ScattererConfiguration* sconf) {
+long ParticleDescriptorInclusion::get_size(const GeometryConfiguration * gconf, const ScattererConfiguration * sconf) {
   /*
   // >>> COMMON TO ALL DESCRIPTOR TYPES <<< //
   short _class_type; const short& class_type = _class_type;
@@ -1732,7 +1760,7 @@ int ParticleDescriptorInclusion::update_orders(int inner_order, int outer_order)
 // >>> End of ParticleDescriptorInclusion class implementation. <<< //
 
 // >>> ParticleDescriptorSphere class implementation. <<< //
-ParticleDescriptorSphere::ParticleDescriptorSphere(GeometryConfiguration *gconf, ScattererConfiguration *sconf) : ParticleDescriptor(gconf, sconf) {
+ParticleDescriptorSphere::ParticleDescriptorSphere(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf) : ParticleDescriptor(gconf, sconf) {
   _class_type = SPHERE_TYPE;
   vec_sas = new dcomplex[4 * _nsph]();
   vec_vints = new dcomplex[16 * _nsph]();
@@ -1829,8 +1857,22 @@ ParticleDescriptorSphere::ParticleDescriptorSphere(const mixMPI *mpidata) : Part
 }
 #endif // MPI_VERSION
 
-long ParticleDescriptorSphere::get_size(GeometryConfiguration * gconf, ScattererConfiguration* sconf) {
-  return 0;
+long ParticleDescriptorSphere::get_size(const GeometryConfiguration * gconf, const ScattererConfiguration * sconf) {
+  const long nsph = gconf->number_of_spheres;
+  const long li = (nsph == 1) ? gconf->l_max : gconf->li;
+  const long nllt = 2 * nsph * li * (li + 2);
+  long result = sizeof(ParticleDescriptorSphere);
+  result += ParticleDescriptor::get_size(gconf, sconf);
+  result += sizeof(dcomplex) * 4 * nsph; // vec_sas
+  result += sizeof(dcomplex) * 16 * nsph; // vec_vints
+  result += sizeof(dcomplex) * nllt * 4; // vec_w
+  result += sizeof(dcomplex *) * nllt; // w
+  result += sizeof(dcomplex) * nsph; // fsas
+  result += 7 * sizeof(double) * nsph; // sscs, sexs, sabs, sqscs, sqexs, sqabs, gcsv
+  result += sizeof(dcomplex **) * nsph; // sas
+  result += sizeof(dcomplex *) * nsph; // vints
+  result += sizeof(dcomplex *) * 2 * nsph; // sas[i]
+  return result;
 }
 
 int ParticleDescriptorSphere::update_order(int order) {
@@ -1876,31 +1918,12 @@ ScatteringAngles::ScatteringAngles(GeometryConfiguration *gconf) {
   _phs = gconf->sc_phi_start;
   _phsstp = gconf->sc_phi_step;
   _phslst = gconf->sc_phi_end;
-  double small = 1.0e-3;
-  _nth = 0;
-  _nph = 0;
-  if (_thstp != 0.0) _nth = int((_thlst - _th) / _thstp + small);
-  _nth++;
-  if (_phstp != 0.0) _nph = int((_phlst - _ph) / _phstp + small);
-  _nph++;
-  _nths = 0;
-  _nphs = 0;
-  _thsca = 0.0;
-  if (isam > 1) {
-    _nths = 1;
-    _thsca = _ths - _th;
-  } else { // ISAM <= 1
-    if (_thsstp == 0.0) _nths = 0;
-    else _nths = int ((_thslst - _ths) / _thsstp + small);
-    _nths++;
-  }
-  if (isam >= 1) {
-    _nphs = 1;
-  } else {
-    if (_phsstp == 0.0) _nphs = 0;
-    else _nphs = int((_phslst - _phs) / _phsstp + small);
-    _nphs++;
-  }
+  // The same counts are used by the output classes (outputs.cpp).
+  _nth = angle_sweep_count(_th, _thstp, _thlst);
+  _nph = angle_sweep_count(_ph, _phstp, _phlst);
+  _thsca = (isam > 1) ? _ths - _th : 0.0;
+  _nths = (isam > 1) ? 1 : angle_sweep_count(_ths, _thsstp, _thslst);
+  _nphs = (isam >= 1) ? 1 : angle_sweep_count(_phs, _phsstp, _phslst);
   _nk = nth * nph;
   _nks = nths * nphs;
   _nkks = nk * nks;

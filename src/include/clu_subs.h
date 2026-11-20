@@ -27,10 +27,15 @@
  * rather multi-component structures. In order to manage access to such variety
  * of return values, most functions are declared as `void` and they operate on
  * output arguments passed by reference.
+ * \ingroup kernels
  */
 
 #ifndef INCLUDE_CLU_SUBS_H_
 #define INCLUDE_CLU_SUBS_H_
+
+/*! \addtogroup kernels
+ * @{
+ */
 
 /**
  * \brief Compute the asymmetry-corrected scattering cross-section of a cluster.
@@ -84,6 +89,9 @@ void apcra(
  * \param k: `int` Index of second sub-matrix row.
  * \param nj: `int` Range of first sub-matrix columns.
  * \param istep: `np_int` Size of rows in the matrix.
+ * \return result: `complex double` The starting element `z` plus the sum over
+ * `j = jf, ..., jf + nj - 1` of `A(i, j) * A(j, k)`, with 1-based indices into
+ * the row-major vectorized matrix `vec_am`.
  */
 dcomplex cdtp(dcomplex z, dcomplex *vec_am, int i, int jf, int k, int nj, np_int istep);
 
@@ -415,4 +423,5 @@ void tqr(
  */
 void ztm(dcomplex **am, ParticleDescriptor *c1);
 
+//! @}
 #endif

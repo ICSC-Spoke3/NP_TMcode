@@ -16,6 +16,7 @@
 #   this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
 
 ## @package scale_model
+#  \ingroup python_tools
 #  \brief Script to re-scale an existing model by multiplicative factor.
 #
 #  This script is designed to create scaled versions of pre-existing
@@ -29,7 +30,7 @@ import re
 from sys import argv
 
 ## \cond
-__version__ = "0.10.10"
+from nptm_version import __version__
 int_reg = re.compile(r'-?[0-9]+')
 float_reg = re.compile(r'-?[0-9]+\.[0-9]+([eEdD][-+]?[0-9]+)?')
 ## \endcond

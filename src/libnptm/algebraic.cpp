@@ -17,6 +17,7 @@
 /*! \file algebraic.cpp
  *
  * \brief Implementation of algebraic functions with different call-backs.
+ * \ingroup linalg
  */
 
 #include <string>
@@ -56,6 +57,14 @@ using namespace std;
 #endif
 #endif
 
+#ifndef INCLUDE_ERRORS_H_
+#include "../include/errors.h"
+#endif
+
+#ifndef INCLUDE_RESOURCES_H_
+#include "../include/resources.h"
+#endif
+
 #ifndef INCLUDE_ALGEBRAIC_H_
 #include "../include/algebraic.h"
 #endif
@@ -66,18 +75,70 @@ extern void lucin(dcomplex **am, const np_int nddmst, np_int n, int &ier);
 
 using namespace std;
 
+void check_inversion_mode(short invert_mode) {
+  const char *names[] = {"LU", "GESV", "RBT", "SVD"};
+  string name = (invert_mode >= 0 && invert_mode <= 3) ? names[invert_mode] : to_string(invert_mode);
+#ifdef USE_MAGMA
+  bool available = (invert_mode >= RuntimeSettings::INV_MODE_LU && invert_mode <= RuntimeSettings::INV_MODE_SVD);
+  string build = "MAGMA";
+#elif defined USE_CUBLAS
+  bool available = (invert_mode == RuntimeSettings::INV_MODE_LU);
+  string build = "cuBLAS (LU only)";
+#elif defined USE_LAPACK
+  bool available = (invert_mode == RuntimeSettings::INV_MODE_LU || invert_mode == RuntimeSettings::INV_MODE_GESV);
+  string build = "LAPACK (LU and GESV only)";
+#else
+  bool available = true; // lucin() inverts by LU decomposition in all modes.
+  string build = "";
+#endif
+  if (!available) {
+    throw ParseError("inversion mode " + name + " is not available in this build, which uses " + build);
+  }
+}
+
+//! \cond
+// Invert a matrix on the CPU: with LAPACK, if available (by LU decomposition
+// for the modes that LAPACK does not implement), with lucin() otherwise.
+static void cpu_invert(dcomplex **mat, np_int size, int &ier, const RuntimeSettings& rs) {
+#ifdef USE_LAPACK
+  short mode = rs.invert_mode;
+  if (mode != RuntimeSettings::INV_MODE_LU && mode != RuntimeSettings::INV_MODE_GESV) {
+    mode = RuntimeSettings::INV_MODE_LU;
+  }
+  zinvert(mat, size, ier, rs, mode);
+#else
+  lucin(mat, size, size, ier);
+#endif
+}
+//! \endcond
+
 void invert_matrix(
   dcomplex **mat, np_int size, int &ier, const string& output_path, int jxi488, np_int max_size,
   int target_device, const RuntimeSettings& rs
 ) {
   ier = 0;
+#if defined(USE_MAGMA) || defined(USE_CUBLAS)
+  if (target_device >= 0) {
+    try {
 #ifdef USE_MAGMA
-  magma_zinvert(mat, size, ier, target_device, rs);
-#elif defined USE_CUBLAS
-  cublas_zinvert(mat, size, target_device, rs);
-#elif defined USE_LAPACK
-  zinvert(mat, size, ier, rs);
+      magma_zinvert(mat, size, ier, target_device, rs);
 #else
-  lucin(mat, size, size, ier);
+      cublas_zinvert(mat, size, ier, target_device, rs);
 #endif
+      return;
+    } catch (const DeviceError &ex) {
+      // The GPU wrappers leave the matrix unchanged when they fail.
+      if (rs.device_policy != DEVICE_POLICY_USE_CPU_FALLBACK) throw;
+      if (rs.logger != NULL) {
+	rs.logger->log(
+	  "GPU " + to_string(target_device) + " failed on scale " + to_string(jxi488) + " ("
+	  + ex.what() + "): inverting the matrix on the CPU (DEVICE_POLICY=USE_CPU_FALLBACK).\n",
+	  LOG_WARN
+	);
+      }
+      ier = 0;
+    }
+  }
+#endif
+  cpu_invert(mat, size, ier, rs);
 }

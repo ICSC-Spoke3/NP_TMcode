@@ -17,6 +17,7 @@
 /*! \file np_trapping.cpp
  *
  * \brief Trapping problem handler.
+ * \ingroup prog_trapping
  */
 #include <chrono>
 #include <cstdio>
@@ -24,6 +25,14 @@
 
 #ifndef INCLUDE_LOGGING_H_
 #include "../include/logging.h"
+#endif
+
+#ifndef INCLUDE_ERRORS_H_
+#include "../include/errors.h"
+#endif
+
+#ifndef INCLUDE_UTILS_H_
+#include "../include/utils.h"
 #endif
 
 using namespace std;
@@ -44,27 +53,36 @@ int main(int argc, char **argv) {
   string frfme_data_file = "../../test_data/trapping/DFRFME";
   string lffft_data_file = "../../test_data/trapping/DLFFFT";
   string output_path = ".";
-  if (argc != 2) {
-    string message;
-    Logger logger(LOG_DEBG);
-    if (argc == 4) {
-      frfme_data_file = string(argv[1]);
-      lffft_data_file = string(argv[2]);
-      output_path = string(argv[3]);
-    }
-    frfme(frfme_data_file, output_path);
-    lffft(lffft_data_file, output_path);
-    elapsed = chrono::high_resolution_clock::now() - t_start;
-    message = "INFO: calculation lasted " + to_string(elapsed.count()) + "s.\n";
-    logger.log(message);
-  } else { // argc == 2
-    string arg = argv[1];
-    if (arg.compare("--version") == 0) {
-      printf("np_trapping v%s.\n", NPTM_VERSION);
+  const string usage = "usage: np_trapping [FRFME_INPUT LFFFT_INPUT OUTPUT_FOLDER]";
+  // Errors stop the program with the exit status of their category (see
+  // errors.h).
+  try {
+    if (argc == 2) {
+      string arg = argv[1];
+      if (arg.compare("--version") == 0) {
+	printf("np_trapping v%s.\n", NPTM_VERSION);
+      } else {
+	throw UsageError("unrecognized argument \"" + arg + "\"; " + usage);
+      }
     } else {
-      printf("ERROR: unrecognized argument \"%s\".\n", argv[1]);
-      ierr = 1;
+      if (argc == 4) {
+	frfme_data_file = string(argv[1]);
+	lffft_data_file = string(argv[2]);
+	output_path = string(argv[3]);
+      } else if (argc != 1) {
+	throw UsageError("wrong number of arguments; " + usage);
+      }
+      check_input_file(frfme_data_file, "FRFME input");
+      check_input_file(lffft_data_file, "LFFFT input");
+      check_output_folder(output_path);
+      Logger logger(LOG_DEBG);
+      frfme(frfme_data_file, output_path);
+      lffft(lffft_data_file, output_path);
+      elapsed = chrono::high_resolution_clock::now() - t_start;
+      logger.log("calculation lasted " + to_string(elapsed.count()) + "s.\n");
     }
+  } catch (const std::exception &ex) {
+    ierr = report_stopping_error(ex, NULL);
   }
   return ierr;
 }

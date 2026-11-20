@@ -17,6 +17,7 @@
 /*! \file outputs.cpp
  *
  * \brief Implementation of the code output format system.
+ * \ingroup io
  */
 #include <cstdio>
 #include <exception>
@@ -60,9 +61,38 @@
 
 using namespace std;
 
+//! \cond
+namespace {
+  // Scattered theta and phi of a direction (TSDG, PSDG), as the FORTRAN
+  // codes compute and print them: with ISAM > 1 the scattered theta follows
+  // the incident one at the fixed angle THSCA = THS - TH; with ISAM >= 1 the
+  // scattering plane contains the z axis, so the scattered phi is the
+  // incident one (or the opposite one, for a scattered theta out of
+  // [0, 180] degrees). src/scripts/parse_output.py repeats this rule to
+  // rebuild the directions of the HDF5 output: keep the two in step.
+  void scattered_direction(
+    int isam, double th, double ths, double tidg, double pidg,
+    double ths_sweep, double phs_sweep, double &tsdg, double &psdg
+  ) {
+    tsdg = (isam > 1) ? tidg + (ths - th) : ths_sweep;
+    double phsph = 0.0;
+    if (isam >= 1) {
+      if (tsdg < 0.0 || tsdg > 180.0) phsph = 180.0;
+      if (tsdg < 0.0) tsdg = -tsdg;
+      if (tsdg > 180.0) tsdg = 360.0 - tsdg;
+    }
+    psdg = phs_sweep;
+    if (isam >= 1) {
+      psdg = pidg + phsph;
+      if (psdg >= 360.0) psdg -= 360.0;
+    }
+  }
+}
+//! \endcond
+
 // >>> ClusterOutputInfo CLASS IMPLEMENTATION <<<
 ClusterOutputInfo::ClusterOutputInfo(
-  ScattererConfiguration *sc, GeometryConfiguration *gc,
+  const ScattererConfiguration *sc, const GeometryConfiguration *gc,
   const mixMPI *mpidata, int first_xi, int xi_length
 ) {
   _skip_flag = 0;
@@ -93,16 +123,16 @@ ClusterOutputInfo::ClusterOutputInfo(
   ths = gc->sc_theta_start;
   thsstp = gc->sc_theta_step;
   thslst = gc->sc_theta_end;
-  _num_theta = (thstp == 0.0) ? 1 : 1 + int((thlst - th) / thstp);
-  _num_thetas = (thsstp == 0.0) ? 1 : 1 + int((thslst - ths) / thsstp);
+  _num_theta = angle_sweep_count(th, thstp, thlst);
+  _num_thetas = (isam > 1) ? 1 : angle_sweep_count(ths, thsstp, thslst);
   ph = gc->in_phi_start;
   phstp = gc->in_phi_step;
   phlst = gc->in_phi_end;
   phs = gc->sc_phi_start;
   phsstp = gc->sc_phi_step;
   phslst = gc->sc_phi_end;
-  _num_phi = (phstp == 0.0) ? 1 : 1 + int((phlst - ph) / phstp);
-  _num_phis = (phsstp == 0.0) ? 1 : 1 + int((phslst - phs) / phsstp);
+  _num_phi = angle_sweep_count(ph, phstp, phlst);
+  _num_phis = (isam >= 1) ? 1 : angle_sweep_count(phs, phsstp, phslst);
   ndirs = _num_theta * _num_thetas * _num_phi * _num_phis;
   // Get scattering problem configuration
   double exdc = sc->exdc;
@@ -293,6 +323,49 @@ ClusterOutputInfo::ClusterOutputInfo(
   vec_dir_mulclr = new double[16 * ndirs * xi_block_size]();
 }
 
+long ClusterOutputInfo::get_size(
+  const ScattererConfiguration *sc, const GeometryConfiguration *gc,
+  int first_xi, int xi_length
+) {
+  const long nsph = gc->number_of_spheres;
+  const long configurations = sc->configurations;
+  const long nxi = sc->number_of_scales;
+  const long xi_block_size = (xi_length == 0) ? nxi - (first_xi - 1) : xi_length;
+  // Number of directions, computed as in the constructor (and in ScatteringAngles).
+  const double th = gc->in_theta_start, thstp = gc->in_theta_step, thlst = gc->in_theta_end;
+  const double ths = gc->sc_theta_start, thsstp = gc->sc_theta_step, thslst = gc->sc_theta_end;
+  const double ph = gc->in_phi_start, phstp = gc->in_phi_step, phlst = gc->in_phi_end;
+  const double phs = gc->sc_phi_start, phsstp = gc->sc_phi_step, phslst = gc->sc_phi_end;
+  const int isam = gc->isam;
+  const long _num_theta = angle_sweep_count(th, thstp, thlst);
+  const long _num_thetas = (isam > 1) ? 1 : angle_sweep_count(ths, thsstp, thslst);
+  const long _num_phi = angle_sweep_count(ph, phstp, phlst);
+  const long _num_phis = (isam >= 1) ? 1 : angle_sweep_count(phs, phsstp, phslst);
+  const long ndirs = _num_theta * _num_thetas * _num_phi * _num_phis;
+  // The instance itself and its arrays, as allocated by the constructor
+  // (163 arrays, grouped by type and length).
+  long result = sizeof(ClusterOutputInfo);
+  result += 3 * sizeof(double) * (nsph);
+  result += sizeof(int) * (xi_block_size);
+  result += sizeof(short) * (xi_block_size);
+  result += 37 * sizeof(double) * (xi_block_size);
+  result += 17 * sizeof(double) * (xi_block_size * configurations);
+  result += 2 * sizeof(dcomplex) * (xi_block_size * configurations);
+  result += 5 * sizeof(dcomplex) * (xi_block_size);
+  result += sizeof(double) * (_num_theta);
+  result += sizeof(double) * (_num_phi);
+  result += sizeof(double) * (_num_thetas);
+  result += sizeof(double) * (_num_phis);
+  result += 5 * sizeof(double) * (ndirs);
+  result += 2 * sizeof(double) * (3 * ndirs);
+  result += 4 * sizeof(dcomplex) * (ndirs * configurations * xi_block_size);
+  result += 2 * sizeof(double) * (16 * ndirs * configurations * xi_block_size);
+  result += 12 * sizeof(dcomplex) * (ndirs * xi_block_size);
+  result += 66 * sizeof(double) * (ndirs * xi_block_size);
+  result += 2 * sizeof(double) * (16 * ndirs * xi_block_size);
+  return result;
+}
+
 ClusterOutputInfo::ClusterOutputInfo(const std::string &hdf5_name) {
   unsigned int flags = H5F_ACC_RDONLY;
   HDFFile *hdf_file = new HDFFile(hdf5_name, flags);
@@ -323,19 +396,19 @@ ClusterOutputInfo::ClusterOutputInfo(const std::string &hdf5_name) {
     status = hdf_file->read("TH_START", "FLOAT64_(1)", &th);
     status = hdf_file->read("TH_STEP", "FLOAT64_(1)", &thstp);
     status = hdf_file->read("TH_END", "FLOAT64_(1)", &thlst);
-    _num_theta = (thstp == 0.0) ? 1 : 1 + int((thlst - th) / thstp);
+    _num_theta = angle_sweep_count(th, thstp, thlst);
     status = hdf_file->read("THS_START", "FLOAT64_(1)", &ths);
     status = hdf_file->read("THS_STEP", "FLOAT64_(1)", &thsstp);
     status = hdf_file->read("THS_END", "FLOAT64_(1)", &thslst);
-    _num_thetas = (thsstp == 0.0) ? 1 : 1 + int((thslst - ths) / thsstp);
+    _num_thetas = (isam > 1) ? 1 : angle_sweep_count(ths, thsstp, thslst);
     status = hdf_file->read("PH_START", "FLOAT64_(1)", &ph);
     status = hdf_file->read("PH_STEP", "FLOAT64_(1)", &phstp);
     status = hdf_file->read("PH_END", "FLOAT64_(1)", &phlst);
-    _num_phi = (phstp == 0.0) ? 1 : 1 + int((phlst - ph) / phstp);
+    _num_phi = angle_sweep_count(ph, phstp, phlst);
     status = hdf_file->read("PHS_START", "FLOAT64_(1)", &phs);
     status = hdf_file->read("PHS_STEP", "FLOAT64_(1)", &phsstp);
     status = hdf_file->read("PHS_END", "FLOAT64_(1)", &phslst);
-    _num_phis = (phsstp == 0.0) ? 1 : 1 + int((phslst - phs) / phsstp);
+    _num_phis = (isam >= 1) ? 1 : angle_sweep_count(phs, phsstp, phslst);
     ndirs = _num_theta * _num_thetas * _num_phi * _num_phis;
     status = hdf_file->read("EXRI", "FLOAT64_(1)", &exri);
     status = hdf_file->read("IDFC", "INT32_(1)", &idfc);
@@ -885,98 +958,6 @@ ClusterOutputInfo::~ClusterOutputInfo() {
     delete[] vec_dir_mulc;
     delete[] vec_dir_mulclr;
   }
-}
-
-long ClusterOutputInfo::compute_size(
-  ScattererConfiguration *sc, GeometryConfiguration *gc,
-  int first_xi, int xi_length
-) {
-  long result = sizeof(np_int);
-  result += 21 * sizeof(int);
-  result += 14 * sizeof(double);
-  result += 121 * sizeof(long);
-  int _nsph = gc->number_of_spheres;
-  double _th = gc->in_theta_start;
-  double _thstp = gc->in_theta_step;
-  double _thlst = gc->in_theta_end;
-  double _ths = gc->sc_theta_start;
-  double _thsstp = gc->sc_theta_step;
-  double _thslst = gc->sc_theta_end;
-  int num_theta = 1 + int((_thlst - _th) / _thstp);
-  int num_thetas = 1 + int((_thslst - _ths) / _thsstp);
-  double _ph = gc->in_phi_start;
-  double _phstp = gc->in_phi_step;
-  double _phlst = gc->in_phi_end;
-  double _phs = gc->sc_phi_start;
-  double _phsstp = gc->sc_phi_step;
-  double _phslst = gc->sc_phi_end;
-  int num_phi = 1 + int((_phlst - _ph) / _phstp);
-  int num_phis = 1 + int((_phslst - _phs) / _phsstp);
-  int _ndirs = num_theta * num_thetas * num_phi * num_phis;
-  int _nxi = sc->number_of_scales;
-  int _xi_block_size = (xi_length == 0) ? _nxi : xi_length;
-  int _configurations = sc->configurations;
-  result += 3 * _nsph * sizeof(double); // sphere coordinate vectors
-  result += _xi_block_size * sizeof(int); // scale index vector
-  result += _xi_block_size * sizeof(short); // error code vector
-  result += 2 * _xi_block_size * sizeof(double); // scale vectors
-  result += _xi_block_size * _configurations * sizeof(dcomplex); // refraction indices vector
-  result += 5 * _xi_block_size * _configurations * sizeof(double); // sphere sizes, albedos and cross-sections
-  result += 3 * _xi_block_size * _configurations * sizeof(double); // cross-section to geometric section ratios
-  result += _xi_block_size * _configurations * sizeof(dcomplex); // fsas vector
-  result += 9 * _xi_block_size * _configurations * sizeof(double); // up to tqsk2 vector
-  result += _xi_block_size * sizeof(dcomplex); // fsat vector
-  result += 3 * _xi_block_size * sizeof(double); // up to s0magt vector
-  result += 20 * _xi_block_size * sizeof(double); // up to excrtt vector
-  result += 4 * _xi_block_size * sizeof(dcomplex); // up to fsac12 vector
-  result += 12 * _xi_block_size * sizeof(double); // up to fkc vector
-  result += num_theta * sizeof(double); // vec_dir_tidg;
-  result += num_thetas * sizeof(double); // vec_dir_tsdg;
-  result += num_phi * sizeof(double); // vec_dir_pidg;
-  result += num_phis * sizeof(double); // vec_dir_psdg;
-  result += 11 * _ndirs * sizeof(double); // up to dir_uns vector
-  result += 4 * _ndirs * _configurations * _xi_block_size * sizeof(dcomplex); // up to dir_sas22 vector
-  result += 32 * _ndirs * _configurations * _xi_block_size * sizeof(double); // up to dir_mulslr vector
-  result += 4 * _ndirs * _xi_block_size * sizeof(dcomplex); // up to dir_sat22 vector
-  result += 20 * _ndirs * _xi_block_size * sizeof(double); // up to dir_excrt vector
-  result += 8 * _ndirs * _xi_block_size * sizeof(dcomplex); // up to dir_sac22 vector
-  result += 80 * _ndirs * _xi_block_size * sizeof(double); // up to dir_mulclr vector
-  
-  return result;
-}
-
-long ClusterOutputInfo::compute_size() {
-  long result = sizeof(np_int);
-  result += 21 * sizeof(int);
-  result += 14 * sizeof(double);
-  result += 121 * sizeof(long);
-  result += 3 * nsph * sizeof(double); // sphere coordinate vectors
-  result += xi_block_size * sizeof(int); // scale index vector
-  result += xi_block_size * sizeof(short); // error code vector
-  result += 2 * xi_block_size * sizeof(double); // scale vectors
-  result += xi_block_size * configurations * sizeof(dcomplex); // refraction indices vector
-  result += 5 * xi_block_size * configurations * sizeof(double); // sphere sizes, albedos and cross-sections
-  result += 3 * xi_block_size * configurations * sizeof(double); // cross-sections to geometric section ratios
-  result += configurations * sizeof(double); // sphere geometric sections
-  result += xi_block_size * configurations * sizeof(dcomplex); // fsas vector
-  result += 9 * xi_block_size * configurations * sizeof(double); // up to tqsk2 vector
-  result += xi_block_size * sizeof(dcomplex); // fsat vector
-  result += 3 * xi_block_size * sizeof(double); // up to s0magt vector
-  result += 20 * xi_block_size * sizeof(double); // up to excrtt vector
-  result += 4 * xi_block_size * sizeof(dcomplex); // up to fsac12 vector
-  result += 12 * xi_block_size * sizeof(double); // up to fkc vector
-  result += _num_theta * sizeof(double); // vec_dir_tidg;
-  result += _num_thetas * sizeof(double); // vec_dir_tsdg;
-  result += _num_phi * sizeof(double); // vec_dir_pidg;
-  result += _num_phis * sizeof(double); // vec_dir_psdg;
-  result += 11 * ndirs * sizeof(double); // up to dir_uns vector
-  result += 4 * ndirs * configurations * xi_block_size * sizeof(dcomplex); // up to dir_sas22 vector
-  result += 32 * ndirs * configurations * xi_block_size * sizeof(double); // up to dir_mulslr vector
-  result += 4 * ndirs * xi_block_size * sizeof(dcomplex); // up to dir_sat22 vector
-  result += 20 * ndirs * xi_block_size * sizeof(double); // up to dir_excrt vector
-  result += 8 * ndirs * xi_block_size * sizeof(dcomplex); // up to dir_sac22 vector
-  result += 80 * ndirs * xi_block_size * sizeof(double); // up to dir_mulclr vector
-  return result;
 }
 
 int ClusterOutputInfo::insert(const ClusterOutputInfo &rhs) {
@@ -1774,17 +1755,10 @@ int ClusterOutputInfo::write_legacy(const std::string &output) {
     if (vec_jxi[0] == 1) {
       // Write the preamble of c_OCLU.
       fprintf(p_outfile, " READ(IR,*)NSPH,LI,LE,MXNDM,INPOL,NPNT,NPNTTS,IAVM,ISAM\n");
-#ifdef USE_ILP64
       fprintf(
 	p_outfile, " %5d%5d%5d%5ld%5d%5d%5d%5d%5d\n",
-	nsph, li, le, mxndm, inpol, npnt, npntts, iavm, isam
+	nsph, li, le, (long)mxndm, inpol, npnt, npntts, iavm, isam
       );
-#else
-      fprintf(
-	p_outfile, " %5d%5d%5d%5d%5d%5d%5d%5d%5d\n",
-	nsph, li, le, mxndm, inpol, npnt, npntts, iavm, isam
-      );
-#endif // USE_ILP64
       fprintf(p_outfile, " READ(IR,*)RXX(I),RYY(I),RZZ(I)\n");
       for (int ri = 0; ri < nsph; ri++) {
 	fprintf(
@@ -2011,10 +1985,14 @@ int ClusterOutputInfo::write_legacy(const std::string &output) {
 		      p_outfile, "********** JTH =%3d, JPH =%3d, JTHS =%3d, JPHS =%3d ********************\n",
 		      jth + 1, jph + 1, jths + 1, jphs + 1
 	      );
+	      double tsdg, psdg;
+	      scattered_direction(
+	        isam, th, ths, th + jth * thstp, ph + jph * phstp,
+	        ths + jths * thsstp, phs + jphs * phsstp, tsdg, psdg
+	      );
 	      fprintf(
-		      p_outfile, "  TIDG=%10.3lE, PIDG=%10.3lE, TSDG=%10.3lE, PSDG=%10.3lE\n",
-		      th + jth * thstp, ph + jph * phstp,
-		      ths + jths * thsstp, phs + jphs * phsstp
+	        p_outfile, "  TIDG=%10.3lE, PIDG=%10.3lE, TSDG=%10.3lE, PSDG=%10.3lE\n",
+	        th + jth * thstp, ph + jph * phstp, tsdg, psdg
 	      );
 	      fprintf(p_outfile, "  SCAND=%10.3lE\n", vec_dir_scand[dir_index]);
 	      fprintf(
@@ -2036,7 +2014,7 @@ int ClusterOutputInfo::write_legacy(const std::string &output) {
 		);
 	      } else
 		fprintf(
-			p_outfile, "  UN=(%12.5lE,%12.5lE,%12.5lE)\n\n",
+			p_outfile, "  UN=(%12.5lE,%12.5lE,%12.5lE)\n",
 			vec_dir_un[3 * dir_index], vec_dir_un[3 * dir_index + 1], vec_dir_un[3 * dir_index + 2]
 		);
 	      if (inpol == 0)
@@ -2786,7 +2764,7 @@ int ClusterOutputInfo::mpisend(const mixMPI *mpidata) {
 
 // >>> InclusionOutputInfo CLASS IMPLEMENTATION <<<
 InclusionOutputInfo::InclusionOutputInfo(
-  ScattererConfiguration *sc, GeometryConfiguration *gc,
+  const ScattererConfiguration *sc, const GeometryConfiguration *gc,
   const mixMPI *mpidata, int first_xi, int xi_length
 ) {
   _skip_flag = 0;
@@ -2817,16 +2795,16 @@ InclusionOutputInfo::InclusionOutputInfo(
   ths = gc->sc_theta_start;
   thsstp = gc->sc_theta_step;
   thslst = gc->sc_theta_end;
-  _num_theta = (thstp == 0.0) ? 1 : 1 + int((thlst - th) / thstp);
-  _num_thetas = (thsstp == 0.0) ? 1 : 1 + int((thslst - ths) / thsstp);
+  _num_theta = angle_sweep_count(th, thstp, thlst);
+  _num_thetas = (isam > 1) ? 1 : angle_sweep_count(ths, thsstp, thslst);
   ph = gc->in_phi_start;
   phstp = gc->in_phi_step;
   phlst = gc->in_phi_end;
   phs = gc->sc_phi_start;
   phsstp = gc->sc_phi_step;
   phslst = gc->sc_phi_end;
-  _num_phi = (phstp == 0.0) ? 1 : 1 + int((phlst - ph) / phstp);
-  _num_phis = (phsstp == 0.0) ? 1 : 1 + int((phslst - phs) / phsstp);
+  _num_phi = angle_sweep_count(ph, phstp, phlst);
+  _num_phis = (isam >= 1) ? 1 : angle_sweep_count(phs, phsstp, phslst);
   ndirs = _num_theta * _num_thetas * _num_phi * _num_phis;
   // Get scattering problem configuration
   double exdc = sc->exdc;
@@ -2973,6 +2951,47 @@ InclusionOutputInfo::InclusionOutputInfo(
   vec_dir_mulllr = new double[16 * ndirs * xi_block_size]();
 }
 
+long InclusionOutputInfo::get_size(
+  const ScattererConfiguration *sc, const GeometryConfiguration *gc,
+  int first_xi, int xi_length
+) {
+  const long nsph = gc->number_of_spheres;
+  const long configurations = sc->configurations;
+  const long nxi = sc->number_of_scales;
+  const long xi_block_size = (xi_length == 0) ? nxi - (first_xi - 1) : xi_length;
+  // Number of directions, computed as in the constructor (and in ScatteringAngles).
+  const double th = gc->in_theta_start, thstp = gc->in_theta_step, thlst = gc->in_theta_end;
+  const double ths = gc->sc_theta_start, thsstp = gc->sc_theta_step, thslst = gc->sc_theta_end;
+  const double ph = gc->in_phi_start, phstp = gc->in_phi_step, phlst = gc->in_phi_end;
+  const double phs = gc->sc_phi_start, phsstp = gc->sc_phi_step, phslst = gc->sc_phi_end;
+  const int isam = gc->isam;
+  const long _num_theta = angle_sweep_count(th, thstp, thlst);
+  const long _num_thetas = (isam > 1) ? 1 : angle_sweep_count(ths, thsstp, thslst);
+  const long _num_phi = angle_sweep_count(ph, phstp, phlst);
+  const long _num_phis = (isam >= 1) ? 1 : angle_sweep_count(phs, phsstp, phslst);
+  const long ndirs = _num_theta * _num_thetas * _num_phi * _num_phis;
+  // The instance itself and its arrays, as allocated by the constructor
+  // (120 arrays, grouped by type and length).
+  long result = sizeof(InclusionOutputInfo);
+  result += 3 * sizeof(double) * (nsph);
+  result += sizeof(int) * (xi_block_size);
+  result += sizeof(short) * (xi_block_size);
+  result += 28 * sizeof(double) * (xi_block_size);
+  result += sizeof(double) * (xi_block_size * (configurations + 1));
+  result += sizeof(dcomplex) * (xi_block_size * (configurations + 1));
+  result += 4 * sizeof(dcomplex) * (xi_block_size);
+  result += sizeof(double) * (_num_theta);
+  result += sizeof(double) * (_num_phi);
+  result += sizeof(double) * (_num_thetas);
+  result += sizeof(double) * (_num_phis);
+  result += 5 * sizeof(double) * (ndirs);
+  result += 2 * sizeof(double) * (3 * ndirs);
+  result += 60 * sizeof(double) * (ndirs * xi_block_size);
+  result += 8 * sizeof(dcomplex) * (ndirs * xi_block_size);
+  result += 2 * sizeof(double) * (16 * ndirs * xi_block_size);
+  return result;
+}
+
 InclusionOutputInfo::InclusionOutputInfo(const std::string &hdf5_name) {
   unsigned int flags = H5F_ACC_RDONLY;
   HDFFile *hdf_file = new HDFFile(hdf5_name, flags);
@@ -3003,19 +3022,19 @@ InclusionOutputInfo::InclusionOutputInfo(const std::string &hdf5_name) {
     status = hdf_file->read("TH_START", "FLOAT64_(1)", &th);
     status = hdf_file->read("TH_STEP", "FLOAT64_(1)", &thstp);
     status = hdf_file->read("TH_END", "FLOAT64_(1)", &thlst);
-    _num_theta = (thstp == 0.0) ? 1 : 1 + int((thlst - th) / thstp);
+    _num_theta = angle_sweep_count(th, thstp, thlst);
     status = hdf_file->read("THS_START", "FLOAT64_(1)", &ths);
     status = hdf_file->read("THS_STEP", "FLOAT64_(1)", &thsstp);
     status = hdf_file->read("THS_END", "FLOAT64_(1)", &thslst);
-    _num_thetas = (thsstp == 0.0) ? 1 : 1 + int((thslst - ths) / thsstp);
+    _num_thetas = (isam > 1) ? 1 : angle_sweep_count(ths, thsstp, thslst);
     status = hdf_file->read("PH_START", "FLOAT64_(1)", &ph);
     status = hdf_file->read("PH_STEP", "FLOAT64_(1)", &phstp);
     status = hdf_file->read("PH_END", "FLOAT64_(1)", &phlst);
-    _num_phi = (phstp == 0.0) ? 1 : 1 + int((phlst - ph) / phstp);
+    _num_phi = angle_sweep_count(ph, phstp, phlst);
     status = hdf_file->read("PHS_START", "FLOAT64_(1)", &phs);
     status = hdf_file->read("PHS_STEP", "FLOAT64_(1)", &phsstp);
     status = hdf_file->read("PHS_END", "FLOAT64_(1)", &phslst);
-    _num_phis = (phsstp == 0.0) ? 1 : 1 + int((phslst - phs) / phsstp);
+    _num_phis = (isam >= 1) ? 1 : angle_sweep_count(phs, phsstp, phslst);
     ndirs = _num_theta * _num_thetas * _num_phi * _num_phis;
     status = hdf_file->read("EXRI", "FLOAT64_(1)", &exri);
     status = hdf_file->read("IDFC", "INT32_(1)", &idfc);
@@ -3428,60 +3447,6 @@ InclusionOutputInfo::~InclusionOutputInfo() {
     delete[] vec_dir_mull;
     delete[] vec_dir_mulllr;
   }
-}
-
-long InclusionOutputInfo::compute_size() {
-  long result = sizeof(np_int);
-  result += 21 * sizeof(int);
-  result += 13 * sizeof(double);
-  result += 120 * sizeof(long); // vector pointers
-  result += xi_block_size * (sizeof(int) + sizeof(short)); // vec_jxi, vec_ier
-  result += 3 * nsph * sizeof(double); // coordinate vectors
-  result += 29 * xi_block_size * sizeof(double); // wavelength dependent real values
-  result += 5 * xi_block_size * sizeof(dcomplex); // wavelength dependent complex values
-  result += 15 * ndirs * sizeof(double); // values depending only on directions
-  result += 92 * ndirs * xi_block_size * sizeof(double); // values depending on directions and wavelengths
-  result += 8 * ndirs * xi_block_size * sizeof(dcomplex); // values depending on directions and wavelengths
-  return result;
-}
-
-long InclusionOutputInfo::compute_size(
-  ScattererConfiguration *sc, GeometryConfiguration *gc,
-  int first_xi, int xi_length
-) {
-  long result = sizeof(np_int);
-  result += 21 * sizeof(int);
-  result += 13 * sizeof(double);
-  result += 120 * sizeof(long); // vector pointers
-  int _nsph = gc->number_of_spheres;
-  double _th = gc->in_theta_start;
-  double _thstp = gc->in_theta_step;
-  double _thlst = gc->in_theta_end;
-  double _ths = gc->sc_theta_start;
-  double _thsstp = gc->sc_theta_step;
-  double _thslst = gc->sc_theta_end;
-  int num_theta = 1 + int((_thlst - _th) / _thstp);
-  int num_thetas = 1 + int((_thslst - _ths) / _thsstp);
-  double _ph = gc->in_phi_start;
-  double _phstp = gc->in_phi_step;
-  double _phlst = gc->in_phi_end;
-  double _phs = gc->sc_phi_start;
-  double _phsstp = gc->sc_phi_step;
-  double _phslst = gc->sc_phi_end;
-  int num_phi = 1 + int((_phlst - _ph) / _phstp);
-  int num_phis = 1 + int((_phslst - _phs) / _phsstp);
-  int _ndirs = num_theta * num_thetas * num_phi * num_phis;
-  int _nxi = sc->number_of_scales;
-  int _xi_block_size = (xi_length == 0) ? _nxi : xi_length;
-  int _configurations = sc->configurations;
-  result += _xi_block_size * (sizeof(int) + sizeof(short)); // vec_jxi, vec_ier
-  result += 3 * _nsph * sizeof(double); // coordinate vectors
-  result += 29 * _xi_block_size * sizeof(double); // wavelength dependent real values
-  result += 5 * _xi_block_size * sizeof(dcomplex); // wavelength dependent complex values
-  result += 15 * _ndirs * sizeof(double); // values depending only on directions
-  result += 92 * _ndirs * _xi_block_size * sizeof(double); // values depending on directions and wavelengths
-  result += 8 * _ndirs * _xi_block_size * sizeof(dcomplex); // values depending on directions and wavelengths
-  return result;
 }
 
 int InclusionOutputInfo::insert(const InclusionOutputInfo &rhs) {
@@ -4113,19 +4078,11 @@ int InclusionOutputInfo::write_legacy(const std::string &output) {
   if (p_outfile != NULL) {
     if (vec_jxi[0] == 1) {
       fprintf(p_outfile, " READ(IR,*)NSPH,LI,LE,MXNDM,INPOL,NPNT,NPNTTS,IAVM,ISAM\n");
-#ifdef USE_ILP64
       fprintf(
 	p_outfile, " %5d%5d%5d%5ld%5d%5d%5d%5d%5d\n",
-	nsph, li, le, mxndm, inpol, npnt, npntts,
-	iavm, iavm
+	nsph, li, le, (long)mxndm, inpol, npnt, npntts,
+	iavm, isam
       );
-#else
-      fprintf(
-	p_outfile, " %5d%5d%5d%5d%5d%5d%5d%5d%5d\n",
-	nsph, li, le, mxndm, inpol, npnt, npntts,
-	iavm, iavm
-      );
-#endif // USE_ILP64
       fprintf(p_outfile, " READ(IR,*)RXX(I),RYY(I),RZZ(I)\n");
       for (int ri = 0; ri < nsph; ri++) {
 	fprintf(
@@ -4269,9 +4226,14 @@ int InclusionOutputInfo::write_legacy(const std::string &output) {
 			p_outfile, "********** JTH =%3d, JPH =%3d, JTHS =%3d, JPHS =%3d ********************\n",
 			jth + 1, jph + 1, jths + 1, jphs +1
 		);
+		double tsdg, psdg;
+		scattered_direction(
+		  isam, th, ths, th + jth * thstp, ph + jph * phstp,
+		  ths + jths * thsstp, phs + jphs * phsstp, tsdg, psdg
+		);
 		fprintf(
 		  p_outfile, "  TIDG=%10.3lE, PIDG=%10.3lE, TSDG=%10.3lE, PSDG=%10.3lE\n",
-		  th + jth * thstp, ph + jph * phstp, ths + jths * thsstp, phs + jphs * phsstp
+		  th + jth * thstp, ph + jph * phstp, tsdg, psdg
 		);
 		fprintf(p_outfile, "  SCAND=%10.3lE\n", vec_dir_scand[done_dirs]);
 		fprintf(
@@ -4297,7 +4259,7 @@ int InclusionOutputInfo::write_legacy(const std::string &output) {
 		  );
 		} else { // label 214
 		  fprintf(
-		    p_outfile, "  UN=(%12.5lE,%12.5lE,%12.5lE)\n\n",
+		    p_outfile, "  UN=(%12.5lE,%12.5lE,%12.5lE)\n",
 		    vec_dir_un[3 * done_dirs],
 		    vec_dir_un[3 * done_dirs + 1],
 		    vec_dir_un[3 * done_dirs + 2]
@@ -4849,7 +4811,7 @@ int InclusionOutputInfo::mpisend(const mixMPI *mpidata) {
 
 // >>> SphereOutputInfo CLASS IMPLEMENTATION <<<
 SphereOutputInfo::SphereOutputInfo(
-  ScattererConfiguration *sc, GeometryConfiguration *gc,
+  const ScattererConfiguration *sc, const GeometryConfiguration *gc,
   const mixMPI *mpidata, int first_xi, int xi_length
 ) {
   _skip_flag = 0;
@@ -4864,19 +4826,19 @@ SphereOutputInfo::SphereOutputInfo(
   th = gc->in_theta_start;
   thstp = gc->in_theta_step;
   thlst = gc->in_theta_end;
-  _num_theta = (thstp == 0.0) ? 1 : 1 + (int)((thlst - th) / thstp);
+  _num_theta = angle_sweep_count(th, thstp, thlst);
   ths = gc->sc_theta_start;
   thsstp = gc->sc_theta_step;
   thslst = gc->sc_theta_end;
-  _num_thetas = (thsstp == 0.0) ? 1 : 1 + (int)((thslst - ths) / thsstp);
+  _num_thetas = (isam > 1) ? 1 : angle_sweep_count(ths, thsstp, thslst);
   ph = gc->in_phi_start;
   phstp = gc->in_phi_step;
   phlst = gc->in_phi_end;
-  _num_phi = (phstp == 0.0) ? 1 : 1 + (int)((phlst - ph) / phstp);
+  _num_phi = angle_sweep_count(ph, phstp, phlst);
   phs = gc->sc_phi_start;
   phsstp = gc->sc_phi_step;
   phslst = gc->sc_phi_end;
-  _num_phis = (phsstp == 0.0) ? 1 : 1 + (int)((phslst - phs) / phsstp);
+  _num_phis = (isam >= 1) ? 1 : angle_sweep_count(phs, phsstp, phslst);
   ndirs = _num_theta * _num_thetas * _num_phi * _num_phis;
   configurations = sc->configurations;
   double exdc = sc->exdc;
@@ -4960,6 +4922,49 @@ SphereOutputInfo::SphereOutputInfo(
   vec_dir_mulslr = new double[16 * nsph * ndirs * xi_block_size]();
 }
 
+long SphereOutputInfo::get_size(
+  const ScattererConfiguration *sc, const GeometryConfiguration *gc,
+  int first_xi, int xi_length
+) {
+  const long nsph = gc->number_of_spheres;
+  const long configurations = sc->configurations;
+  const long nxi = sc->number_of_scales;
+  const long xi_block_size = (xi_length == 0) ? nxi : xi_length;
+  // Number of directions, computed as in the constructor (and in ScatteringAngles).
+  const double th = gc->in_theta_start, thstp = gc->in_theta_step, thlst = gc->in_theta_end;
+  const double ths = gc->sc_theta_start, thsstp = gc->sc_theta_step, thslst = gc->sc_theta_end;
+  const double ph = gc->in_phi_start, phstp = gc->in_phi_step, phlst = gc->in_phi_end;
+  const double phs = gc->sc_phi_start, phsstp = gc->sc_phi_step, phslst = gc->sc_phi_end;
+  const int isam = gc->isam;
+  const long _num_theta = angle_sweep_count(th, thstp, thlst);
+  const long _num_thetas = (isam > 1) ? 1 : angle_sweep_count(ths, thsstp, thslst);
+  const long _num_phi = angle_sweep_count(ph, phstp, phlst);
+  const long _num_phis = (isam >= 1) ? 1 : angle_sweep_count(phs, phsstp, phslst);
+  const long ndirs = _num_theta * _num_thetas * _num_phi * _num_phis;
+  // The instance itself and its arrays, as allocated by the constructor
+  // (47 arrays, grouped by type and length).
+  long result = sizeof(SphereOutputInfo);
+  result += sizeof(int) * (xi_block_size);
+  result += sizeof(short) * (xi_block_size);
+  result += 2 * sizeof(double) * (xi_block_size);
+  result += 17 * sizeof(double) * (configurations * xi_block_size);
+  result += 2 * sizeof(dcomplex) * (configurations * xi_block_size);
+  result += sizeof(double) * (_num_theta);
+  result += sizeof(double) * (_num_phi);
+  result += sizeof(double) * (_num_thetas);
+  result += sizeof(double) * (_num_phis);
+  result += 5 * sizeof(double) * (ndirs);
+  result += 2 * sizeof(double) * (3 * ndirs);
+  result += 4 * sizeof(dcomplex) * (nsph * ndirs * xi_block_size);
+  result += 3 * sizeof(double) * (nsph * _num_theta * _num_phi * xi_block_size);
+  result += 2 * sizeof(double) * (16 * nsph * ndirs * xi_block_size);
+  if (nsph != 1) {
+    result += sizeof(dcomplex) * xi_block_size;
+    result += 3 * sizeof(double) * xi_block_size;
+  }
+  return result;
+}
+
 SphereOutputInfo::SphereOutputInfo(const std::string &hdf5_name) {
   unsigned int flags = H5F_ACC_RDONLY;
   HDFFile *hdf_file = new HDFFile(hdf5_name, flags);
@@ -4977,19 +4982,19 @@ SphereOutputInfo::SphereOutputInfo(const std::string &hdf5_name) {
     status = hdf_file->read("TH_START", "FLOAT64_(1)", &th);
     status = hdf_file->read("TH_STEP", "FLOAT64_(1)", &thstp);
     status = hdf_file->read("TH_END", "FLOAT64_(1)", &thlst);
-    _num_theta = (thstp == 0.0) ? 1 : 1 + int((thlst - th) / thstp);
+    _num_theta = angle_sweep_count(th, thstp, thlst);
     status = hdf_file->read("THS_START", "FLOAT64_(1)", &ths);
     status = hdf_file->read("THS_STEP", "FLOAT64_(1)", &thsstp);
     status = hdf_file->read("THS_END", "FLOAT64_(1)", &thslst);
-    _num_thetas = (thsstp == 0.0) ? 1 : 1 + int((thslst - ths) / thsstp);
+    _num_thetas = (isam > 1) ? 1 : angle_sweep_count(ths, thsstp, thslst);
     status = hdf_file->read("PH_START", "FLOAT64_(1)", &ph);
     status = hdf_file->read("PH_STEP", "FLOAT64_(1)", &phstp);
     status = hdf_file->read("PH_END", "FLOAT64_(1)", &phlst);
-    _num_phi = (phstp == 0.0) ? 1 : 1 + int((phlst - ph) / phstp);
+    _num_phi = angle_sweep_count(ph, phstp, phlst);
     status = hdf_file->read("PHS_START", "FLOAT64_(1)", &phs);
     status = hdf_file->read("PHS_STEP", "FLOAT64_(1)", &phsstp);
     status = hdf_file->read("PHS_END", "FLOAT64_(1)", &phslst);
-    _num_phis = (phsstp == 0.0) ? 1 : 1 + int((phslst - phs) / phsstp);
+    _num_phis = (isam >= 1) ? 1 : angle_sweep_count(phs, phsstp, phslst);
     ndirs = _num_theta * _num_thetas * _num_phi * _num_phis;
     status = hdf_file->read("EXRI", "FLOAT64_(1)", &exri);
     status = hdf_file->read("NUM_CONF", "INT32_(1)", &configurations);
@@ -5202,77 +5207,6 @@ SphereOutputInfo::~SphereOutputInfo() {
     delete[] vec_dir_muls;
     delete[] vec_dir_mulslr;
   }
-}
-
-long SphereOutputInfo::compute_size(
-  ScattererConfiguration *sc, GeometryConfiguration *gc,
-  int first_xi, int xi_length
-) {
-  // Size of the configuration set
-  long result = 18 * sizeof(int);
-  result += 12 * sizeof(double);
-  result += 47 * sizeof(long);
-  result += sizeof(dcomplex);
-  // Get configuration parameters
-  int _nsph = gc->number_of_spheres;
-  double _th = gc->in_theta_start;
-  double _thstp = gc->in_theta_step;
-  double _thlst = gc->in_theta_end;
-  int num_theta = (_thstp == 0.0) ? 1 : 1 + (int)((_thlst - _th) / _thstp);
-  double _ths = gc->sc_theta_start;
-  double _thsstp = gc->sc_theta_step;
-  double _thslst = gc->sc_theta_end;
-  int num_thetas = (_thsstp == 0.0) ? 1 : 1 + (int)((_thslst - _ths) / _thsstp);
-  double _ph = gc->in_phi_start;
-  double _phstp = gc->in_phi_step;
-  double _phlst = gc->in_phi_end;
-  int num_phi = (_phstp == 0.0) ? 1 : 1 + (int)((_phlst - _ph) / _phstp);
-  double _phs = gc->sc_phi_start;
-  double _phsstp = gc->sc_phi_step;
-  double _phslst = gc->sc_phi_end;
-  int num_phis = (_phsstp == 0.0) ? 1 : 1 + (int)((_phslst - _phs) / _phsstp);
-  int _ndirs = num_theta * num_thetas * num_phi * num_phis;
-  int _nxi = sc->number_of_scales;
-  int _xi_block_size = (xi_length == 0) ? _nxi : xi_length;
-  int _nconf = sc->configurations;
-  // Size of the data set
-  result += _xi_block_size * (sizeof(short) + sizeof(int));
-  result += 2 * _xi_block_size * sizeof(double);
-  result += 16 * _nconf * _xi_block_size * sizeof(double);
-  result += 2 * _nconf * _xi_block_size * sizeof(dcomplex);
-  result += (num_theta + num_thetas + num_phi + num_phis) * sizeof(double);
-  result += 11 * _ndirs * sizeof(double);
-  result += 4 * _nsph * _ndirs * _xi_block_size * sizeof(dcomplex);
-  result += 3 * _nsph * num_theta * num_phi * sizeof(double);
-  result += 32 * _nsph * _ndirs * _xi_block_size * sizeof(double);
-  if (_nsph != 1) {
-    result += _xi_block_size * sizeof(dcomplex);
-    result += 3 * _xi_block_size * sizeof(double);
-  }
-  return result;
-}
-
-long SphereOutputInfo::compute_size() {
-  // Size of the configuration set
-  long result = 18 * sizeof(int);
-  result += 12 * sizeof(double);
-  result += 47 * sizeof(long);
-  result += sizeof(dcomplex);
-  // Size of the data set
-  result += xi_block_size * (sizeof(short) + sizeof(int));
-  result += 2 * xi_block_size * sizeof(double);
-  result += 16 * configurations * xi_block_size * sizeof(double);
-  result += 2 * configurations * xi_block_size * sizeof(dcomplex);
-  result += (_num_theta + _num_thetas + _num_phi + _num_phis) * sizeof(double);
-  result += 11 * ndirs * sizeof(double);
-  result += 4 * nsph * ndirs * xi_block_size * sizeof(dcomplex);
-  result += 3 * nsph * _num_theta * _num_phi * sizeof(double);
-  result += 32 * nsph * ndirs * xi_block_size * sizeof(double);
-  if (nsph != 1) {
-    result += xi_block_size * sizeof(dcomplex);
-    result += 3 * xi_block_size * sizeof(double);
-  }
-  return result;
 }
 
 int SphereOutputInfo::insert(const SphereOutputInfo &rhs) {
@@ -5722,12 +5656,14 @@ int SphereOutputInfo::write_legacy(const std::string &file_name) {
 		p_outfile, "********** JTH =%3d, JPH =%3d, JTHS =%3d, JPHS =%3d ********************\n",
 		jth + 1, jph + 1, jths + 1, jphs + 1
 	      );
+	      double tsdg, psdg;
+	      scattered_direction(
+	        isam, th, ths, th + jth * thstp, ph + jph * phstp,
+	        ths + jths * thsstp, phs + jphs * phsstp, tsdg, psdg
+	      );
 	      fprintf(
-		p_outfile, "  TIDG=%10.3lE, PIDG=%10.3lE, TSDG=%10.3lE, PSDG=%10.3lE\n",
-		th + jth * thstp,
-		ph + jph * phstp,
-		ths + jths * thsstp,
-		phs + jphs * phsstp
+	        p_outfile, "  TIDG=%10.3lE, PIDG=%10.3lE, TSDG=%10.3lE, PSDG=%10.3lE\n",
+	        th + jth * thstp, ph + jph * phstp, tsdg, psdg
 	      );
 	      fprintf(p_outfile, "  SCAND=%10.3lE\n", vec_dir_scand[done_dirs]);
 	      fprintf(
@@ -5993,6 +5929,7 @@ int SphereOutputInfo::mpisend(const mixMPI *mpidata) {
 
       // Send vectors whose sizes depend on NSPH, incidence directions and wavelengths
       chunk_size = xi_block_size * nsph * _num_theta * _num_phi;
+      MPI_Send(&chunk_size, 1, MPI_INT32_T, 0, 10, MPI_COMM_WORLD);
       MPI_Send(vec_dir_fx, chunk_size, MPI_DOUBLE, 0, 10, MPI_COMM_WORLD);
       MPI_Send(vec_dir_fy, chunk_size, MPI_DOUBLE, 0, 10, MPI_COMM_WORLD);
       MPI_Send(vec_dir_fz, chunk_size, MPI_DOUBLE, 0, 10, MPI_COMM_WORLD);

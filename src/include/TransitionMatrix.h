@@ -17,10 +17,19 @@
 /*! \file TransitionMatrix.h
  *
  * \brief Representation of the Transition Matrix.
+ * \ingroup model
  */
 
 #ifndef INCLUDE_TRANSITIONMATRIX_H_
 #define INCLUDE_TRANSITIONMATRIX_H_
+
+#include <string>
+
+class mixMPI;
+
+/*! \addtogroup model
+ * @{
+ */
 
 /*! \brief Class to represent the Transition Matrix.
  */
@@ -63,6 +72,7 @@ class TransitionMatrix {
    * to the HDF5 standard.
    *
    * \param file_name: `string` Name of the binary configuration data file.
+   * \throws OutputError If the file cannot be written.
    */
   void write_hdf5(const std::string& file_name);
   
@@ -79,6 +89,7 @@ class TransitionMatrix {
    * \param vk: `double` Wave number in scale units.
    * \param exri: `double` External medium refractive index.
    * \param am0m: `complex double **`
+   * \throws OutputError If the file cannot be written.
    */
   static void write_hdf5(
     const std::string& file_name, np_int nlemt, int lm, double vk,
@@ -99,6 +110,7 @@ class TransitionMatrix {
    * \param rmi: `complex double **`
    * \param rei: `complex double **`
    * \param sphere_radius: `double` Radius of the sphere.
+   * \throws OutputError If the file cannot be written.
    */
   static void write_hdf5(
     const std::string& file_name, int lm, double vk, double exri,
@@ -108,6 +120,7 @@ class TransitionMatrix {
   /*! \brief Write the Transition Matrix to legacy binary output.
    *
    * \param file_name: `string` Name of the binary configuration data file.
+   * \throws OutputError If the file cannot be written.
    */
   void write_legacy(const std::string& file_name);
 
@@ -124,6 +137,7 @@ class TransitionMatrix {
    * \param vk: `double` Wave number in scale units.
    * \param exri: `double` External medium refractive index.
    * \param am0m: `complex double **`
+   * \throws OutputError If the file cannot be written.
    */
   static void write_legacy(
     const std::string& file_name, np_int nlemt, int lm, double vk,
@@ -144,6 +158,7 @@ class TransitionMatrix {
    * \param rmi: `complex double **`
    * \param rei: `complex double **`
    * \param radius: `double` Radius of the sphere.
+   * \throws OutputError If the file cannot be written.
    */
   static void write_legacy(
     const std::string& file_name, int lm, double vk, double exri,
@@ -241,6 +256,7 @@ class TransitionMatrix {
    * \param file_name: `string` Name of the file to be written.
    * \param mode: `string` Binary encoding. Can be one of ["LEGACY", "HDF5"] . Optional
    * (default is "LEGACY").
+   * \throws OutputError If the file cannot be written.
    */
   void write_binary(const std::string& file_name, const std::string& mode="LEGACY");
   
@@ -265,6 +281,7 @@ class TransitionMatrix {
    * \param am0m: `complex double **`
    * \param mode: `string` Binary encoding. Can be one of ["LEGACY", "HDF5"] . Optional
    * (default is "LEGACY").
+   * \throws OutputError If the file cannot be written.
    */
   static void write_binary(
      const std::string& file_name, np_int nlemt, int lm, double vk,
@@ -293,6 +310,7 @@ class TransitionMatrix {
    * \param sphere_radius: `double` Radius of the sphere.
    * \param mode: `string` Binary encoding. Can be one of ["LEGACY", "HDF5"] . Optional
    * (default is "LEGACY").
+   * \throws OutputError If the file cannot be written.
    */
   static void write_binary(
     const std::string& file_name, int lm, double vk, double exri,
@@ -304,12 +322,60 @@ class TransitionMatrix {
    *
    * Transition matrices can be the result of a calculation or of a file input operation,
    * reading from a previously computed object. The `==` operator tests for the equivalence
-   * of two transition matrices, returning `true` if they are equivalnet, `false` otherwise.
+   * of two transition matrices, returning `true` if they are equivalent, `false` otherwise.
+   * Matrices containing NaN values always test different, because NaN instances are never
+   * equal.
    *
-   * \param other: `TransitionMatrix &` Reference to the instance to be compared with.
+   * \param[in] other: `const TransitionMatrix &` Reference to the instance to be compared with.
    * \return result: `bool` True, if the two instances are equal, false otherwise.
    */
-  bool operator ==(TransitionMatrix &other);
+  bool operator==(const TransitionMatrix &other) const;
+
+  /*! \brief Test whether two instances of TransitionMatrix are not equal.
+   *
+   * Transition matrices can be the result of a calculation or of a file input operation,
+   * reading from a previously computed object. The `!=` operator tests for the difference
+   * of two transition matrices, returning `true` if they are different, `false` otherwise.
+   * Matrices containing NaN values always test different, because NaN instances are never
+   * equal.
+   *
+   * \param[in] other: `const TransitionMatrix &` Reference to the instance to be compared with.
+   * \return result: `bool` True, if the two instances are different, false otherwise.
+   */
+  bool operator!=(const TransitionMatrix &other) const;
+
+  /*! \brief Send the T-matrix to another MPI process.
+   *
+   * \param mpidata: `const mixMPI *` MPI data of the process.
+   * \param destination: `int` Rank of the receiving process.
+   */
+  void mpisend(const mixMPI *mpidata, int destination);
+
+  /*! \brief Receive a T-matrix sent by another MPI process with `mpisend()`.
+   *
+   * \param mpidata: `const mixMPI *` MPI data of the process.
+   * \param source: `int` Rank of the sending process.
+   * \return tm: `TransitionMatrix *` The new T-matrix (the caller deletes it).
+   */
+  static TransitionMatrix *mpireceive(const mixMPI *mpidata, int source);
+
+  /*! \brief Write the T-matrix from MPI process 0.
+   *
+   * The T-matrix of scale `JWTM` is computed by the process whose thread
+   * computes that scale, but only MPI process 0 writes files. All the
+   * processes call this function at the same point, after the loop on
+   * scales: the process that holds the T-matrix (at most one) sends it to
+   * process 0, which writes `c_TTMS` and `c_TTMS.hd5` in the output folder.
+   *
+   * \param mpidata: `const mixMPI *` MPI data of the process.
+   * \param tm: `TransitionMatrix *` The T-matrix held by this process, or NULL (not deleted).
+   * \param output_path: `const string &` Path of the output folder.
+   * \throws OutputError If process 0 cannot write the files.
+   */
+  static void write_from_main_process(
+    const mixMPI *mpidata, TransitionMatrix *tm, const std::string& output_path
+  );
 };
 
+//! @}
 #endif

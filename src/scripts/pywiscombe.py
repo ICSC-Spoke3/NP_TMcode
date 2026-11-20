@@ -16,6 +16,7 @@
 #   this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
 
 ## @package pywiscombe
+#  \ingroup python_tools
 #  \brief Script to obtain a quick guess of the correct orders for a model.
 #
 #  This script uses the Wiscombe criterion and its modifications to suggest
@@ -30,7 +31,7 @@ import math
 from sys import argv
 
 ## \cond
-__version__ = "0.10.10"
+from nptm_version import __version__
 ## \endcond
 
 

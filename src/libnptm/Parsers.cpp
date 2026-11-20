@@ -1,6 +1,7 @@
 /*! \file Parsers.cpp
  *
  * \brief Implementation of the parsing functions.
+ * \ingroup io
  */
 
 #include <exception>
@@ -31,7 +32,7 @@ std::string *load_file(const std::string& file_name, int *count = 0) {
     }
     input_file.close();
   } else {
-	  throw FILE_NOT_FOUND_ERROR;
+    throw InputError("cannot open file \"" + file_name + "\"");
   }
   std::string *array_lines = file_lines->to_array();
   if (count != 0) *count = file_lines->length();

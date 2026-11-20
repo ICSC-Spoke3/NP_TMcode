@@ -105,17 +105,17 @@ geometry_settings:
   # Ending incidence azimuth angle
   in_th_end   : 89.0
   # Starting incidence elevation angle
-  in_ph_start : 0.0
+  in_ph_start : 34.0
   # Incidence elevation angle incremental step
-  in_ph_step  : 10.0
+  in_ph_step  : 15.0
   # Ending incidence elevation angle
-  in_ph_end   : 10.0
+  in_ph_end   : 49.0
   # Starting scattered azimuth angle
-  sc_th_start : 34.0
+  sc_th_start : 0.0
   # Scattered azimuth angle incremental step
-  sc_th_step  : 15.0
+  sc_th_step  : 10.0
   # Ending scattered azimuth angle
-  sc_th_end   : 49.0
+  sc_th_end   : 10.0
   # Starting scattered elevation angle
   sc_ph_start : 5.0
   # Scattered elevation angle incremental step

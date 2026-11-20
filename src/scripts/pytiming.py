@@ -16,6 +16,7 @@
 #   this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
 
 ## @package pycompare
+#  \ingroup python_tools
 #  \brief Script to calculate the execution time of logged operations
 #
 #  Comparing the numeric output can be rendered hard by the amount of information

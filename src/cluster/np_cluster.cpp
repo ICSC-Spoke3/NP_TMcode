@@ -31,6 +31,7 @@
  * folder to write the output into. The emulation mode is useful for testing,
  * while the advanced mode implements the possibility to change input and
  * output options, without having to modify the code.
+ * \ingroup prog_cluster
  */
 
 #include <cstdio>
@@ -58,6 +59,14 @@
 #include "../include/Commons.h"
 #endif
 
+#ifndef INCLUDE_ERRORS_H_
+#include "../include/errors.h"
+#endif
+
+#ifndef INCLUDE_UTILS_H_
+#include "../include/utils.h"
+#endif
+
 using namespace std;
 
 extern void cluster(const string& config_file, const string& data_file, const string& output_path, const mixMPI *mpidata);
@@ -83,7 +92,7 @@ int main(int argc, char **argv) {
   ierr = MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &mpi_provided);
   // create and initialise class with essential MPI data
   mixMPI *mpidata = new mixMPI(MPI_COMM_WORLD);
-  message = "INFO: MPI rank " + to_string(mpidata->rank) + " starts with MPI level "
+  message = "[INFO] MPI rank " + to_string(mpidata->rank) + " starts with MPI level "
     + to_string(mpi_provided) + "\n";
   printf("%s", message.c_str());
 #else
@@ -93,21 +102,40 @@ int main(int argc, char **argv) {
   string config_file = "../../test_data/cluster/DEDFB";
   string data_file = "../../test_data/cluster/DCLU";
   string output_path = ".";
-  if (argc != 2) {
-    if (argc == 4) {
-      config_file = string(argv[1]);
-      data_file = string(argv[2]);
-      output_path = string(argv[3]);
-    }
-    cluster(config_file, data_file, output_path, mpidata);
-  } else { // argc == 2
-    string arg = argv[1];
-    if (arg.compare("--version") == 0) {
-      printf("np_cluster v%s.\n", NPTM_VERSION);
+  const string usage = "usage: np_cluster [SCATTERER_CONFIGURATION GEOMETRY_CONFIGURATION OUTPUT_FOLDER]";
+  // Errors stop the program with the exit status of their category (see
+  // errors.h). An error known to all the MPI processes lets them finalize MPI
+  // normally; any other error stops all of them with MPI_Abort().
+  try {
+    if (argc == 2) {
+      string arg = argv[1];
+      if (arg.compare("--version") == 0) {
+	printf("np_cluster v%s.\n", NPTM_VERSION);
+      } else {
+	UsageError ex("unrecognized argument \"" + arg + "\"; " + usage);
+	ex.set_all_processes();
+	throw ex;
+      }
     } else {
-      printf("ERROR: unrecognized argument \"%s\".\n", argv[1]);
-      ierr = 1;
+      if (argc == 4) {
+	config_file = string(argv[1]);
+	data_file = string(argv[2]);
+	output_path = string(argv[3]);
+      } else if (argc != 1) {
+	UsageError ex("wrong number of arguments; " + usage);
+	ex.set_all_processes();
+	throw ex;
+      }
+      cluster(config_file, data_file, output_path, mpidata);
     }
+  } catch (const std::exception &ex) {
+    ierr = report_stopping_error(ex, mpidata);
+#ifdef MPI_VERSION
+    const NptmError *nptm_error = dynamic_cast<const NptmError *>(&ex);
+    if (mpidata->nprocs > 1 && (nptm_error == NULL || !nptm_error->all_processes())) {
+      MPI_Abort(MPI_COMM_WORLD, ierr);
+    }
+#endif
   }
 #ifdef MPI_VERSION
   MPI_Finalize();

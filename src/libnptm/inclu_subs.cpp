@@ -17,6 +17,7 @@
 /*! \file inclu_subs.cpp
  *
  * \brief C++ implementation of INCLUSION subroutines.
+ * \ingroup kernels
  */
 
 #ifndef INCLUDE_TYPES_H_
@@ -41,6 +42,10 @@
 
 #ifndef INCLUDE_CLU_SUBS_H_
 #include "../include/clu_subs.h"
+#endif
+
+#ifndef INCLUDE_INCLU_SUBS_H_
+#include "../include/inclu_subs.h"
 #endif
 
 using namespace std;

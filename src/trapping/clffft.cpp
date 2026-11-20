@@ -17,6 +17,7 @@
 /*! \file clffft.cpp
  *
  * \brief C++ implementation of LFFFT functions.
+ * \ingroup prog_trapping
  */
 #include <chrono>
 #include <cmath>
@@ -79,18 +80,46 @@
 #include "../include/outputs.h"
 #endif
 
+#ifndef INCLUDE_UTILS_H_
+#include "../include/utils.h"
+#endif
+
+#ifndef INCLUDE_RESOURCES_H_
+#include "../include/resources.h"
+#endif
+
 #ifdef USE_NVTX
 #include <nvtx3/nvToolsExt.h>
 #endif
 
 using namespace std;
 
+//! \cond
+// Index of the line of the input file being parsed, for error messages.
+static int lffft_input_line = 0;
+//! \endcond
+
+/*! \brief C++ implementation of LFFFT, without the input error handling.
+ *
+ *  \param data_file: `string` Name of the input data file.
+ *  \param output_path: `string` Directory to write the output files in.
+ */
+static void lffft_unguarded(string data_file, string output_path);
+
 /*! \brief C++ implementation of LFFFT
+ *
+ *  Malformed values in the input file are reported as a `ParseError` that
+ *  names the file and the line.
  *
  *  \param data_file: `string` Name of the input data file.
  *  \param output_path: `string` Directory to write the output files in.
  */
 void lffft(string data_file, string output_path) {
+  lffft_input_line = 0;
+  parse_guarded(data_file, lffft_input_line, [&]() { lffft_unguarded(data_file, output_path); });
+}
+
+static void lffft_unguarded(string data_file, string output_path) {
 #ifdef USE_NVTX
   nvtxRangePush("Running lffft()");
 #endif
@@ -121,7 +150,7 @@ void lffft(string data_file, string output_path) {
   string *file_lines = load_file(data_file, &num_lines);
   regex re = regex("-?[0-9]+");
   smatch m;
-  string str_target = file_lines[0];
+  string str_target = checked_line(file_lines, num_lines, 0, data_file, lffft_input_line);
   for (int mi = 0; mi < 3; mi++) {
     regex_search(str_target, m, re);
     if (mi == 0) jft = stoi(m.str());
@@ -131,10 +160,15 @@ void lffft(string data_file, string output_path) {
   } // mi loop
   int last_read_line = 2; // skip the end-of-data code
   double host_ram_gb = 0.0;
+  short memory_policy = MEMORY_POLICY_STOP;
   // Parse runtime options.
   while (last_read_line < num_lines) {
     bool is_parsed = false;
-    string str_target = file_lines[last_read_line++];
+    string str_target = checked_line(file_lines, num_lines, last_read_line++, data_file, lffft_input_line);
+    if (str_target.size() > 14 && str_target.substr(0, 14).compare("MEMORY_POLICY=") == 0) {
+      memory_policy = parse_memory_policy(str_target.substr(14));
+      is_parsed = true;
+    }
     if (str_target.size() > 12) {
       if (str_target.substr(0, 12).compare("HOST_RAM_GB=") == 0) {
 	host_ram_gb = (double)stod(str_target.substr(12, str_target.length()));
@@ -145,7 +179,7 @@ void lffft(string data_file, string output_path) {
       if (str_target.size() > 0) {
 	if (str_target.substr(0, 1).compare("#") != 0) {
 	  // ERROR: found an unrecognized option that is not marked as comment
-	  throw(UnrecognizedConfigurationException("ERROR: unrecognized option \"" + str_target + "\"!\n"));
+	  throw(UnrecognizedConfigurationException("[ERROR] unrecognized option \"" + str_target + "\"!\n"));
 	}
       }
     }
@@ -154,9 +188,10 @@ void lffft(string data_file, string output_path) {
   // fstream ttms;
   // ttms.open(ttms_name, ios::in | ios::binary);
   // if (ttms.is_open()) {
+  check_input_file(ttms_name, "T-matrix (written by a previous np_sphere or np_cluster run)");
   TransitionMatrix *ttms = TransitionMatrix::from_binary(ttms_name, "HDF5");
   if (ttms == NULL)
-    throw(ObjectAllocationException("ERROR: could not load the T-matrix file!\n"));
+    throw(InputError("could not load the T-matrix file \"" + ttms_name + "\""));
   // ttms.read(reinterpret_cast<char *>(&is), sizeof(int));
   // ttms.read(reinterpret_cast<char *>(&le), sizeof(int));
   // ttms.read(reinterpret_cast<char *>(&vks), sizeof(double));
@@ -185,7 +220,7 @@ void lffft(string data_file, string output_path) {
     //   ttms.read(reinterpret_cast<char *>(&vimag), sizeof(double));
     //   tms[i][2] = vreal + vimag * I;
     //} // i loop
-    throw(UnrecognizedConfigurationException("ERROR: T-matrix with IS>=2222 not supported!\n"));
+    throw(UnrecognizedConfigurationException("[ERROR] T-matrix with IS>=2222 not supported!\n"));
   } else if (is >= 1111) { // label 125
     tmsm = new dcomplex[le]();
     tmse = new dcomplex[le]();
@@ -226,7 +261,7 @@ void lffft(string data_file, string output_path) {
     // ttms.read(reinterpret_cast<char *>(&vint), sizeof(int));
     // cil->mxmpo = vint;
     // cil->mxim = vint * 2 - 1;
-    throw(UnrecognizedConfigurationException("ERROR: T-matrix with IS<0 not supported!\n"));
+    throw(UnrecognizedConfigurationException("[ERROR] T-matrix with IS<0 not supported!\n"));
   }
   // label 150
   // ttms.close();
@@ -249,13 +284,11 @@ void lffft(string data_file, string output_path) {
     double *_xv = tfrfme->get_x();
     double *_yv = tfrfme->get_y();
     double *_zv = tfrfme->get_z();
-    if (host_ram_gb > 0.0) {
-      double output_size_gb = TrappingOutputInfo::get_size(jft, jss, nxv, nyv, nzv)
-	/ 1024.0 / 1024.0 / 1024.0;
-      if (output_size_gb >= host_ram_gb) {
-	throw(ObjectAllocationException("Output data do not fit in host RAM!\n"));
-      }
-    }
+    // The FRFME data are already loaded: check the output.
+    check_host_memory(
+      TrappingOutputInfo::get_size(jft, jss, nxv, nyv, nzv), "the trapping output data",
+      host_ram_gb, memory_policy, &logger
+    );
     TrappingOutputInfo *toi = new TrappingOutputInfo(jft, jss, jtw, nxv, nyv, nzv);
     if (lm >= le) {
       vk = tfrfme->vk;
@@ -412,22 +445,23 @@ void lffft(string data_file, string output_path) {
 	  } // iy475 loop
 	} // iz475 loop
       } else { // vk != vks || exri != exris
-	message = "ERROR: T-matrix mismatch!\n";
-	if (vk != vks) message = "ERROR: calculation wavelength not matching T-matrix wavelength!\n";
-	else if (exri != exris) message = "ERROR: external medium not matching T-matrix external medium!\n";
+	message = "[ERROR] T-matrix mismatch!\n";
+	if (vk != vks) message = "[ERROR] calculation wavelength not matching T-matrix wavelength!\n";
+	else if (exri != exris) message = "[ERROR] external medium not matching T-matrix external medium!\n";
 	throw(UnrecognizedConfigurationException(message));
       }
     } else { // lm < le: ERROR!
-      message = "ERROR: calculation order " + to_string(lm) + " smaller than T-matrix order "
+      message = "[ERROR] calculation order " + to_string(lm) + " smaller than T-matrix order "
 	+ to_string(le) + "!\n";
       throw(UnrecognizedConfigurationException(message));
     }
+    check_output_file(output_path + "/c_LFFFT.hd5", "output file");
     toi->write(output_path + "/c_LFFFT.hd5", "HDF5");
     if (jtw == 1) toi->write(output_path + "/c_", "ASCII");
     delete tfrfme;
     delete toi;
   } else {
-    printf("ERROR: could not open binary input file %s.\n", binary_name.c_str());
+    printf("[ERROR] could not open binary input file %s.\n", binary_name.c_str());
   }
   
   // Clean up memory
@@ -467,7 +501,7 @@ void lffft(string data_file, string output_path) {
   delete ccr;
   delete[] file_lines;
   elapsed = chrono::high_resolution_clock::now() - t_start;
-  message = "INFO: LFFT took " + to_string(elapsed.count()) + "s.\n";
+  message = "LFFT took " + to_string(elapsed.count()) + "s.\n";
   logger.log(message);
 #ifdef USE_NVTX
   nvtxRangePop();

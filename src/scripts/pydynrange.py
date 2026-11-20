@@ -16,6 +16,7 @@
 #   this program in the COPYING file. If not, see: <https://www.gnu.org/licenses/>.
 
 ## @package pydynrange
+#  \ingroup python_tools
 #  \brief Script to calculate the dynamic range of a complex matrix.
 #
 #  The script execution requires python3.

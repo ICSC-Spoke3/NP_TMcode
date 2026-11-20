@@ -17,6 +17,7 @@
 /*! \file tra_subs.cpp
  *
  * \brief C++ implementation of TRAPPING subroutines.
+ * \ingroup kernels
  */
 #include <cmath>
 #include <fstream>

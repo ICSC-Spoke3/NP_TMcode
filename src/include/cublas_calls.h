@@ -19,24 +19,42 @@
  *
  * \brief C++ interface to CUBLAS calls.
  *
+ * \ingroup linalg
  */
 
 #ifndef INCLUDE_CUBLAS_CALLS_H_
 #define INCLUDE_CUBLAS_CALLS_H_
 
+/*! \addtogroup linalg
+ * @{
+ */
+
 /**
  * \brief Invert a complex matrix with double precision elements.
  *
- * Use cuBLAS to perform an in-place matrix inversion for a complex
- * matrix with double precision elements.
+ * Use the GPU to perform an in-place LU inversion of a complex matrix with
+ * double precision elements, with cuSOLVER (the refinement uses cuBLAS).
+ * Each calling thread keeps its stream, library handles and device buffers
+ * for the next call.
+ *
+ * If the GPU fails before the inversion is complete, the function throws a
+ * `DeviceError` and leaves the matrix unchanged; if it fails during the
+ * refinement, the unrefined inverse is kept. A singular matrix is left
+ * unchanged, with a positive `jer`.
  *
  * \param mat: Matrix of complex. The matrix to be inverted.
  * \param n: `np_int` The number of rows and columns of the [n x n] matrix.
+ * \param jer: `int &` Reference to an integer return flag (0 on success, the
+ * index of the zero pivot for a singular matrix).
  * \param device_id: `int` ID of the device for matrix inversion offloading.
  * \param rs: `const RuntimeSettings&` Runtime settings instance.
+ * \throws DeviceError If the GPU fails and the matrix is unchanged.
+ * \throws NptmError With the device exit status, if the GPU fails while the
+ * inverse is copied to the host (the matrix may then be partly overwritten).
  */
 void cublas_zinvert(
-  dcomplex **mat, np_int n, int device_id, const RuntimeSettings& rs=RuntimeSettings()
+  dcomplex **mat, np_int n, int &jer, int device_id, const RuntimeSettings& rs=RuntimeSettings()
 );
 
+//! @}
 #endif

@@ -25,10 +25,15 @@
  * rather multi-component structures. In order to manage access to such variety
  * of return values, most functions are declared as `void` and they operate on
  * output arguments passed by reference.
+ * \ingroup kernels
  */
 
 #ifndef INCLUDE_SPH_SUBS_H_
 #define INCLUDE_SPH_SUBS_H_
+
+/*! \addtogroup kernels
+ * @{
+ */
 
 /*! \brief Compute the asymmetry-corrected scattering cross-section of a sphere.
  *
@@ -445,4 +450,5 @@ void wmasp(
 	   int nsph, double *argi, double *args, ParticleDescriptor *c1
 );
 
+//! @}
 #endif /* SRC_INCLUDE_SPH_SUBS_H_ */

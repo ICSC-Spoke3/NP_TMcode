@@ -17,11 +17,18 @@
 /*! \file TransitionMatrix.cpp
  *
  * \brief Implementation of the Transition Matrix structure.
+ * \ingroup model
  */
 #include <exception>
 #include <fstream>
 #include <hdf5.h>
 #include <string>
+
+#ifdef USE_MPI
+#ifndef MPI_VERSION
+#include <mpi.h>
+#endif
+#endif
 
 #ifndef INCLUDE_TYPES_H_
 #include "../include/types.h"
@@ -35,6 +42,18 @@
 #include "../include/List.h"
 #endif
 
+#ifndef INCLUDE_LOGGING_H_
+#include "../include/logging.h"
+#endif
+
+#ifndef INCLUDE_CONFIGURATION_H_
+#include "../include/Configuration.h"
+#endif
+
+#ifndef INCLUDE_COMMONS_H_
+#include "../include/Commons.h"
+#endif
+
 #ifndef INCLUDE_TRANSITIONMATRIX_H_
 #include "../include/TransitionMatrix.h"
 #endif
@@ -43,7 +62,12 @@
 #include "../include/file_io.h"
 #endif
 
+#ifndef INCLUDE_UTILS_H_
+#include "../include/utils.h"
+#endif
+
 using namespace std;
+
 
 TransitionMatrix::~TransitionMatrix() {
   if (elements != NULL) delete[] elements;
@@ -167,8 +191,9 @@ TransitionMatrix* TransitionMatrix::from_hdf5(const std::string& file_name) {
     }
     status = hdf_file->close();
   } else {
-    printf("ERROR: could not open file \"%s\"\n", file_name.c_str());
+    printf("[ERROR] could not open file \"%s\"\n", file_name.c_str());
   }
+  delete hdf_file;
   return tm;
 }
 
@@ -213,7 +238,7 @@ TransitionMatrix* TransitionMatrix::from_legacy(const std::string& file_name) {
       tm = new TransitionMatrix(is, lm, vk, exri, elems);
     }
   } else {
-    printf("ERROR: could not open file \"%s\"\n", file_name.c_str());
+    printf("[ERROR] could not open file \"%s\"\n", file_name.c_str());
   }
   return tm;
 }
@@ -258,6 +283,7 @@ void TransitionMatrix::write_binary(
 }
 
 void TransitionMatrix::write_hdf5(const std::string& file_name) {
+  check_output_file(file_name, "T-matrix file");
   if (_is == 1 || _is == 1111) {
     List<string> rec_name_list(1);
     List<string> rec_type_list(1);
@@ -310,6 +336,7 @@ void TransitionMatrix::write_hdf5(const std::string& file_name) {
 void TransitionMatrix::write_hdf5(
   const std::string& file_name, np_int nlemt, int lm, double vk, double exri, dcomplex **am0m
 ) {
+  check_output_file(file_name, "T-matrix file");
   int is = 1;
   List<string> rec_name_list(1);
   List<string> rec_type_list(1);
@@ -356,6 +383,7 @@ void TransitionMatrix::write_hdf5(
   const std::string& file_name, int lm, double vk, double exri,
   dcomplex **rmi, dcomplex **rei, double radius
 ) {
+  check_output_file(file_name, "T-matrix file");
   int is = 1111;
   List<string> rec_name_list(1);
   List<string> rec_type_list(1);
@@ -404,6 +432,7 @@ void TransitionMatrix::write_hdf5(
 }
 
 void TransitionMatrix::write_legacy(const std::string& file_name) {
+  check_output_file(file_name, "T-matrix file");
   fstream ttms;
   if (_is == 1111 || _is == 1) {
     ttms.open(file_name, ios::binary | ios::out);
@@ -432,7 +461,7 @@ void TransitionMatrix::write_legacy(const std::string& file_name) {
     }
     ttms.close();
   } else { // Failed to open output file. Should never happen.
-    printf("ERROR: could not open Transition Matrix file for writing.\n");
+    throw OutputError("cannot write the T-matrix file \"" + file_name + "\"");
   }
 }
 
@@ -440,6 +469,7 @@ void TransitionMatrix::write_legacy(
   const std::string& file_name, np_int nlemt, int lm, double vk,
   double exri, dcomplex **am0m
 ) {
+  check_output_file(file_name, "T-matrix file");
   fstream ttms;
   int is = 1;
   ttms.open(file_name, ios::binary | ios::out);
@@ -459,7 +489,7 @@ void TransitionMatrix::write_legacy(
     }
     ttms.close();
   } else { // Failed to open output file. Should never happen.
-    printf("ERROR: could not open Transition Matrix file for writing.\n");
+    throw OutputError("cannot write the T-matrix file \"" + file_name + "\"");
   }
 }
 
@@ -467,6 +497,7 @@ void TransitionMatrix::write_legacy(
   const std::string& file_name, int lm, double vk, double exri,
   dcomplex **rmi, dcomplex **rei, double radius
 ) {
+  check_output_file(file_name, "T-matrix file");
   fstream ttms;
   int is = 1111;
   ttms.open(file_name, ios::binary | ios::out);
@@ -492,18 +523,13 @@ void TransitionMatrix::write_legacy(
     ttms.write(reinterpret_cast<char *>(&radius), sizeof(double));
     ttms.close();
   } else { // Failed to open output file. Should never happen.
-    printf("ERROR: could not open Transition Matrix file for writing.\n");
+    throw OutputError("cannot write the T-matrix file \"" + file_name + "\"");
   }
 }
 
-bool TransitionMatrix::operator ==(TransitionMatrix &other) {
+bool TransitionMatrix::operator==(const TransitionMatrix &other) const {
   if (_is != other._is) {
     return false;
-  }
-  if (_is == 1111) {
-    if (_sphere_radius != other._sphere_radius) {
-      return false;
-    }
   }
   if (_l_max != other._l_max) {
     return false;
@@ -530,4 +556,68 @@ bool TransitionMatrix::operator ==(TransitionMatrix &other) {
     }
   }
   return true;
+}
+
+bool TransitionMatrix::operator!=(const TransitionMatrix &other) const {
+  return !(*this == other);
+}
+
+void TransitionMatrix::mpisend(const mixMPI *mpidata, int destination) {
+#ifdef MPI_VERSION
+  int ints[4] = {_is, _l_max, shape[0], shape[1]};
+  double doubles[3] = {_vk, _exri, _sphere_radius};
+  MPI_Send(ints, 4, MPI_INT, destination, 30, MPI_COMM_WORLD);
+  MPI_Send(doubles, 3, MPI_DOUBLE, destination, 31, MPI_COMM_WORLD);
+  MPI_Send(elements, shape[0] * shape[1], MPI_C_DOUBLE_COMPLEX, destination, 32, MPI_COMM_WORLD);
+#endif
+}
+
+TransitionMatrix* TransitionMatrix::mpireceive(const mixMPI *mpidata, int source) {
+  TransitionMatrix *tm = NULL;
+#ifdef MPI_VERSION
+  int ints[4];
+  double doubles[3];
+  MPI_Recv(ints, 4, MPI_INT, source, 30, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Recv(doubles, 3, MPI_DOUBLE, source, 31, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  const int num_elements = ints[2] * ints[3];
+  dcomplex *elems = new dcomplex[num_elements];
+  MPI_Recv(elems, num_elements, MPI_C_DOUBLE_COMPLEX, source, 32, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  tm = new TransitionMatrix(ints[0], ints[1], doubles[0], doubles[1], elems, doubles[2]);
+  // The shape of the sender, as the elements were sent.
+  tm->shape[0] = ints[2];
+  tm->shape[1] = ints[3];
+#endif
+  return tm;
+}
+
+void TransitionMatrix::write_from_main_process(
+  const mixMPI *mpidata, TransitionMatrix *tm, const std::string& output_path
+) {
+  TransitionMatrix *received = NULL;
+#ifdef MPI_VERSION
+  if (mpidata->mpirunning) {
+    // The process that holds the T-matrix (the highest rank, if several did).
+    int holder = (tm != NULL) ? mpidata->rank : -1;
+    int global_holder = -1;
+    MPI_Allreduce(&holder, &global_holder, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+    if (global_holder > 0) {
+      if (mpidata->rank == global_holder) {
+	tm->mpisend(mpidata, 0);
+      } else if (mpidata->rank == 0) {
+	received = TransitionMatrix::mpireceive(mpidata, global_holder);
+	tm = received;
+      }
+    }
+  }
+#endif
+  if (mpidata->rank == 0 && tm != NULL) {
+    try {
+      tm->write_binary(output_path + "/c_TTMS.hd5", "HDF5");
+      tm->write_binary(output_path + "/c_TTMS", "LEGACY");
+    } catch (...) {
+      delete received;
+      throw;
+    }
+  }
+  delete received;
 }

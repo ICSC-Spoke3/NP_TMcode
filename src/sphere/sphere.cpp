@@ -17,6 +17,7 @@
 /*! \file sphere.cpp
  *
  * \brief Implementation of the single sphere calculation.
+ * \ingroup prog_sphere
  */
 #include <cstdio>
 #include <exception>
@@ -78,6 +79,14 @@
 #include "../include/IterationData.h"
 #endif
 
+#ifndef INCLUDE_UTILS_H_
+#include "../include/utils.h"
+#endif
+
+#ifndef INCLUDE_RESOURCES_H_
+#include "../include/resources.h"
+#endif
+
 using namespace std;
 
 /*! \brief Main calculation loop.
@@ -89,11 +98,15 @@ using namespace std;
  *  \param sid: `SphereIterationData *` Pointer to a `SphereIterationData` object.
  *  \param oi: `SphereOutputInfo *` Pointer to a `SphereOutputInfo` object.
  *  \param output_path: `const string &` Path to the output directory.
+ *  \param tmatrix: `TransitionMatrix *&` Pointer that receives the T-matrix of scale
+ *  JWTM, when this cycle computes it (it is written by MPI process 0 after the loop).
+ *  \return jer: `int` Error code: 0 on success, non-zero if a step of the
+ *  calculation (DME) failed for this wavelength.
  */
 int sphere_jxi488_cycle(
   int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf,
   ScatteringAngles *sa, SphereIterationData *sid, SphereOutputInfo *oi,
-  const string& output_path
+  const string& output_path, TransitionMatrix *&tmatrix
 );
 
 /*! \brief C++ implementation of SPH
@@ -107,41 +120,85 @@ void sphere(const string& config_file, const string& data_file, const string& ou
   Logger *logger = new Logger(LOG_INFO);
   int device_count = 0;
 
+  // Checks before the calculation. MPI process 0 reads the input files and
+  // writes the outputs, so it checks them; the result is shared with the
+  // other processes (see agree_on_errors()), which stop with it. Other
+  // processes may run on nodes that do not see the same file system.
+  int preflight_code = 0;
+  string preflight_message;
+  try {
+    if (mpidata->rank == 0) {
+      check_input_file(config_file, "scatterer configuration");
+      check_input_file(data_file, "geometry configuration");
+      check_output_folder(output_path);
+    }
+  } catch (const NptmError &ex) {
+    preflight_code = ex.exit_code();
+    preflight_message = ex.what();
+  }
+  agree_on_errors(mpidata, preflight_code, preflight_message);
+
+  // Memory of all the processes, measured before the calculation allocates
+  // its data: process 0 checks the needs of the calculation.
+  ResourceSurvey survey(mpidata, device_count);
+
   //===========================
   // the following only happens on MPI process 0
   //===========================
   if (mpidata->rank == 0) {
-    logger->log("INFO: making legacy configuration...");
-    ScattererConfiguration *sconf = NULL;
+    // Until the configuration is sent to the other MPI processes, they wait
+    // for it: a problem found here is reported to them before stopping.
+    bool setup_shared = false;
     try {
-      sconf = ScattererConfiguration::from_dedfb(config_file);
-    } catch(const OpenConfigurationFileException &ex) {
-      logger->err("\nERROR: failed to open scatterer configuration file.\n");
-      string message = ex.what();
-      logger->err("FILE: " + message + "\n");
-      delete logger;
-      return;
-    }
+    logger->log("making legacy configuration...");
+    ScattererConfiguration *sconf = NULL;
+    sconf = ScattererConfiguration::from_dedfb(config_file);
     sconf->write_formatted(output_path + "/c_OEDFB");
     sconf->write_binary(output_path + "/c_TEDF");
     sconf->write_binary(output_path + "/c_TEDF.hd5", "HDF5");
     GeometryConfiguration *gconf = NULL;
-    try {
-      gconf = GeometryConfiguration::from_legacy(data_file);
-    } catch(const OpenConfigurationFileException &ex) {
-      logger->err("\nERROR: failed to open geometry configuration file.\n");
-      string message = ex.what();
-      logger->err("FILE: " + message + "\n");
-      if (sconf != NULL) delete sconf;
-      delete logger;
-      return;
-    }
+    gconf = GeometryConfiguration::from_legacy(data_file);
     int s_nsph = sconf->number_of_spheres;
     int nsph = gconf->number_of_spheres;
     int configurations = sconf->configurations;
     logger->log(" done.\n");
     // Sanity check on number of sphere consistency, should always be verified
     if (s_nsph == nsph) {
+      // Memory requirements of MPI process 0, which also stores the results
+      // of all the scales: the full output, one iteration data instance per
+      // thread and the one-scale output of each thread other than thread 0.
+      int omp_wavelength_threads = 1;
+#ifdef _OPENMP
+#pragma omp parallel
+      {
+	if (omp_get_thread_num() == 0) omp_wavelength_threads = omp_get_num_threads();
+      }
+#endif // _OPENMP
+      const long sid_size_bytes = SphereIterationData::get_size(gconf, sconf);
+      const long output_size_bytes = SphereOutputInfo::get_size(sconf, gconf);
+      const long scale_output_bytes = SphereOutputInfo::get_size(sconf, gconf, 1, 1);
+      const long requested_ram_bytes = output_size_bytes
+	+ omp_wavelength_threads * sid_size_bytes
+	+ (omp_wavelength_threads - 1) * scale_output_bytes;
+      char ram_line[128];
+      sprintf(
+	ram_line, "output data require %.5lg GiB of RAM.\n",
+	output_size_bytes / 1024.0 / 1024.0 / 1024.0
+      );
+      logger->log(ram_line);
+      sprintf(
+	ram_line, "code execution needs %.5lg GiB of RAM (%d thread(s)).\n",
+	requested_ram_bytes / 1024.0 / 1024.0 / 1024.0, omp_wavelength_threads
+      );
+      logger->log(ram_line);
+      // Needs of all the processes, against the memory of their nodes (see
+      // resources.h).
+      MemoryDemand demand;
+      demand.full_output = output_size_bytes;
+      demand.scale_output = scale_output_bytes;
+      demand.per_thread = sid_size_bytes;
+      demand.device_per_thread = 0;
+      check_memory(survey, demand, gconf->host_ram_gb, 0.0, gconf->memory_policy, logger);
       ScatteringAngles *p_sa = new ScatteringAngles(gconf);
       SphereIterationData *sid = new SphereIterationData(gconf, sconf, mpidata, 0);
       SphereOutputInfo *p_output = new SphereOutputInfo(sconf, gconf, mpidata);
@@ -175,6 +232,10 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 
       int jer = 0;
 
+      share_setup_status(mpidata, 0);
+
+      setup_shared = true;
+
       // here go the calls that send data to be duplicated on other MPI processes from process 0 to others, using MPI broadcasts, but only if MPI is actually used
 #ifdef MPI_VERSION
       if (mpidata->mpirunning) {
@@ -192,6 +253,11 @@ void sphere(const string& config_file, const string& data_file, const string& ou
       int myMPIstride = ompnumthreads;
       int myMPIblock = ompnumthreads;
       SphereOutputInfo **p_outarray = NULL;
+      // Errors of the threads in the loop on scales (see ScaleLoopErrors).
+      ScaleLoopErrors loop_errors;
+      // T-matrix of scale JWTM, if a thread of this process computes it.
+      TransitionMatrix *tmatrix = NULL;
+      int loop_status = 0;
 
       //===========================================
       // open the OpenMP parallel context, so each thread can initialise its stuff
@@ -209,7 +275,7 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 
 	if (myompthread == 0) {
 	  // Initialise some shared variables only on thread 0
-	  p_outarray = new SphereOutputInfo*[ompnumthreads];
+	  p_outarray = new SphereOutputInfo*[ompnumthreads]();
 	  myMPIblock = ompnumthreads;
 	  myMPIstride = myMPIblock;
 	}
@@ -246,7 +312,11 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	  p_outarray[0] = p_output_2;
 	} else {
 	  // this is not thread 0, so do create fresh copies of all local variables
-	  sid_2 = new SphereIterationData(*sid);
+	  try {
+	    sid_2 = new SphereIterationData(*sid);
+	  } catch (...) {
+	    loop_errors.capture();
+	  }
 	}
 	// make sure all threads align here: I don't want the following loop to accidentally start for thread 0, possibly modifying some variables before they are copied by all other threads
 	if (myompthread==0) {
@@ -255,27 +325,38 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	}
 #pragma omp barrier
 	// ok, now I can actually start the parallel calculations
-	for (int ixi488=1; ixi488<=sid_2->number_of_scales; ixi488 +=myMPIstride) {
+	for (int ixi488=1; ixi488<=sid->number_of_scales; ixi488 +=myMPIstride) {
 	  // the parallel loop over MPI processes covers a different set of indices for each thread
 #pragma omp barrier
 	  int myjxi488 = ixi488+myompthread;
 #pragma omp barrier
 
 	  // each MPI process handles a number of contiguous scales corresponding to its number of OMP threads at this omp level of parallelism
-	  if (myjxi488 <= sid_2->number_of_scales) {
-	    if (myompthread > 0) {
-	      // UPDATE: non-0 threads need to allocate memory for one scale at a time.
-	      p_output_2 = new SphereOutputInfo(sconf, gconf, mpidata, myjxi488, 1);
-	      p_outarray[myompthread] = p_output_2;
-	    }
-	    int jer = sphere_jxi488_cycle(myjxi488 - 1, sconf, gconf, p_sa, sid_2, p_output_2, output_path);
-	  } else {
-	    if (myompthread > 0) {
-	      // If there is no input for this thread, mark to skip.
-	      p_outarray[myompthread] = new SphereOutputInfo(1);
+	  // A failing thread records its error, and all the threads stop after
+	  // this block of scales (see ScaleLoopErrors).
+	  if (sid_2 != NULL) {
+	    try {
+	      if (myjxi488 <= sid->number_of_scales) {
+		if (myompthread > 0) {
+		  // UPDATE: non-0 threads need to allocate memory for one scale at a time.
+		  p_output_2 = new SphereOutputInfo(sconf, gconf, mpidata, myjxi488, 1);
+		  p_outarray[myompthread] = p_output_2;
+		}
+		int jer = sphere_jxi488_cycle(myjxi488 - 1, sconf, gconf, p_sa, sid_2, p_output_2, output_path, tmatrix);
+	      } else {
+		if (myompthread > 0) {
+		  // If there is no input for this thread, mark to skip.
+		  p_outarray[myompthread] = new SphereOutputInfo(1);
+		}
+	      }
+	    } catch (...) {
+	      loop_errors.capture();
 	    }
 	  }
 #pragma omp barrier
+	  if (myompthread == 0) loop_status = loop_errors.agree(mpidata);
+#pragma omp barrier
+	  if (loop_status != 0) break;
 	  // threads different from 0 append their virtual files to the one of thread 0, and delete them
 	  if (myompthread == 0) {
 	    for (int ti=1; ti<ompnumthreads; ti++) {
@@ -308,26 +389,57 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	} // ixi488 strided MPI loop
 #pragma omp barrier
 	if (myompthread == 0) {
+	  // After an error, the outputs of the interrupted block are left.
+	  for (int ti = 1; ti < ompnumthreads; ti++) delete p_outarray[ti];
 	  delete[] p_outarray;
 	}
 	{
-	  string message = "INFO: Closing thread-local output files of thread " + to_string(myompthread) + " and syncing threads.\n";
+	  string message = "Closing thread-local output files of thread " + to_string(myompthread) + " and syncing threads.\n";
 	  logger->log(message);
 	}
 	delete sid_2;
       } // OMP parallel
       delete p_sa;
+      // Stop here if a thread of any process failed: no partial output files.
+      loop_errors.rethrow(loop_status);
+      // Only MPI process 0 writes the T-matrix (all the processes take part).
+      TransitionMatrix::write_from_main_process(mpidata, tmatrix, output_path);
+      delete tmatrix;
+      check_output_file(output_path + "/c_OSPH.hd5", "output file");
+      check_output_file(output_path + "/c_OSPH", "output file");
       p_output->write(output_path + "/c_OSPH.hd5", "HDF5");
       p_output->write(output_path + "/c_OSPH", "LEGACY");
       delete p_output;
       logger->log("Finished. Output written to " + output_path + "/c_OSPH.\n");
     } else { // NSPH mismatch between geometry and scatterer configurations.
       throw UnrecognizedConfigurationException(
-        "Inconsistent geometry and scatterer configurations."
+        "inconsistent configurations: the scatterer configuration describes "
+	+ to_string(s_nsph) + " spheres, the geometry configuration " + to_string(nsph)
       );
     }
     delete sconf;
     delete gconf;
+    } catch (NptmError &ex) {
+      if (!setup_shared) {
+	share_setup_status(mpidata, ex.exit_code());
+	ex.set_all_processes();
+      }
+      throw;
+    } catch (const std::bad_alloc &ex) {
+      if (!setup_shared) {
+	share_setup_status(mpidata, NPTM_EXIT_MEMORY);
+	MemoryError error(
+	  "a memory allocation failed while preparing the calculation: reduce the model "
+	  "size or the number of OpenMP threads, or use a node with more memory"
+	);
+	error.set_all_processes();
+	throw error;
+      }
+      throw;
+    } catch (const std::exception &ex) {
+      if (!setup_shared) share_setup_status(mpidata, NPTM_EXIT_INTERNAL);
+      throw;
+    }
   } // end of instruction block for MPI process 0
   
     //===============================
@@ -337,6 +449,7 @@ void sphere(const string& config_file, const string& data_file, const string& ou
   else { // Instruction block for MPI processes other than 0.
     // here go the code for MPI processes other than 0
     // copy gconf, sconf, cid and p_scattering_angles from MPI process 0
+    receive_setup_status(mpidata);
     GeometryConfiguration *gconf = new GeometryConfiguration(mpidata);
     ScattererConfiguration *sconf = new ScattererConfiguration(mpidata);
     SphereIterationData *sid = new SphereIterationData(mpidata, device_count);
@@ -346,6 +459,11 @@ void sphere(const string& config_file, const string& data_file, const string& ou
     // Create this variable and initialise it with a default here, so that it is defined anyway, with or without OpenMP support enabled
     int ompnumthreads = 1;
     SphereOutputInfo **p_outarray = NULL;
+    // Errors of the threads in the loop on scales (see ScaleLoopErrors).
+    ScaleLoopErrors loop_errors;
+    // T-matrix of scale JWTM, if a thread of this process computes it.
+    TransitionMatrix *tmatrix = NULL;
+    int loop_status = 0;
     int myjxi488startoffset;
     int myMPIstride = ompnumthreads;
     int myMPIblock = ompnumthreads;
@@ -367,7 +485,7 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	// receive myMPIstride sent by MPI process 0 to all processes
 	MPI_Bcast(&myMPIstride, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	// allocate virtual files for each thread
-	p_outarray = new SphereOutputInfo*[ompnumthreads];
+	p_outarray = new SphereOutputInfo*[ompnumthreads]();
       }
 #pragma omp barrier
       // To test parallelism, I will now start feeding this function with "clean" copies of the parameters, so that they will not be changed by previous iterations, and each one will behave as the first one. Define all (empty) variables here, so they have the correct scope, then they get different definitions depending on thread number
@@ -379,12 +497,16 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	sid_2 = sid;
       } else {
 	// this is not thread 0, so do create fresh copies of all local variables
-	sid_2 = new SphereIterationData(*sid);
+	try {
+	  sid_2 = new SphereIterationData(*sid);
+	} catch (...) {
+	  loop_errors.capture();
+	}
       }
       // make sure all threads align here: I don't want the following loop to accidentally start for thread 0, possibly modifying some variables before they are copied by all other threads
 #pragma omp barrier
       // ok, now I can actually start the parallel calculations
-      for (int ixi488=1; ixi488<=sid_2->number_of_scales; ixi488 +=myMPIstride) {
+      for (int ixi488=1; ixi488<=sid->number_of_scales; ixi488 +=myMPIstride) {
 	// the parallel loop over MPI processes covers a different set of indices for each thread
 #pragma omp barrier
 	int myjxi488 = ixi488 + myjxi488startoffset + myompthread;
@@ -393,25 +515,35 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 	if (myompthread==0) logger->log("Syncing OpenMP threads and starting the loop on wavelengths\n");
 	// ok, now I can actually start the parallel calculations
 	// each MPI process handles a number of contiguous scales corresponding to its number of OMP threads at this omp level of parallelism
-	if (myjxi488 <= sid_2->number_of_scales) {
-	  if (myompthread > 0) {
-	    // UPDATE: non-0 threads need to allocate memory for one scale at a time.
-	    p_output_2 = new SphereOutputInfo(sconf, gconf, mpidata, myjxi488, 1);
-	    p_outarray[myompthread] = p_output_2;
-	  } else {
-	    // Thread 0 of non-zero MPI processes needs to allocate memory for the
-	    // output of all threads _doing something_.
-	    int iterstodo = sid_2->number_of_scales - myjxi488 + 1;
-	    if (iterstodo > ompnumthreads) iterstodo = ompnumthreads;
-	    p_output_2 = new SphereOutputInfo(sconf, gconf, mpidata, myjxi488, iterstodo);
-	    p_outarray[0] = p_output_2;
+	// A failing thread records its error, and all the threads stop after
+	// this block of scales (see ScaleLoopErrors).
+	if (sid_2 != NULL) {
+	  try {
+	    if (myjxi488 <= sid->number_of_scales) {
+	      if (myompthread > 0) {
+		// UPDATE: non-0 threads need to allocate memory for one scale at a time.
+		p_output_2 = new SphereOutputInfo(sconf, gconf, mpidata, myjxi488, 1);
+		p_outarray[myompthread] = p_output_2;
+	      } else {
+		// Thread 0 of non-zero MPI processes needs to allocate memory for the
+		// output of all threads _doing something_.
+		int iterstodo = sid->number_of_scales - myjxi488 + 1;
+		if (iterstodo > ompnumthreads) iterstodo = ompnumthreads;
+		p_output_2 = new SphereOutputInfo(sconf, gconf, mpidata, myjxi488, iterstodo);
+		p_outarray[0] = p_output_2;
+	      }
+	      int jer = sphere_jxi488_cycle(myjxi488 - 1, sconf, gconf, p_sa, sid_2, p_output_2, output_path, tmatrix);
+	    } else {
+	      p_outarray[myompthread] = new SphereOutputInfo(1);
+	    }
+	  } catch (...) {
+	    loop_errors.capture();
 	  }
-	  int jer = sphere_jxi488_cycle(myjxi488 - 1, sconf, gconf, p_sa, sid_2, p_output_2, output_path);
-	} else {
-	  p_outarray[myompthread] = new SphereOutputInfo(1);
 	}
-
 #pragma omp barrier
+	if (myompthread == 0) loop_status = loop_errors.agree(mpidata);
+#pragma omp barrier
+	if (loop_status != 0) break;
 	// threads different from 0 append their virtual files to the one of thread 0, and delete them
 	if (myompthread == 0) {
 	  for (int ti=1; ti<ompnumthreads; ti++) {
@@ -433,6 +565,8 @@ void sphere(const string& config_file, const string& data_file, const string& ou
       // Clean memory
 #pragma omp barrier
       if (myompthread == 0) {
+	// After an error, the outputs of the interrupted block are left.
+	for (int ti = 0; ti < ompnumthreads; ti++) delete p_outarray[ti];
 	delete[] p_outarray;
       }
       delete sid_2;
@@ -440,6 +574,11 @@ void sphere(const string& config_file, const string& data_file, const string& ou
     delete p_sa;
     delete sconf;
     delete gconf;
+    // Stop here if a thread of any process failed.
+    loop_errors.rethrow(loop_status);
+    // Only MPI process 0 writes the T-matrix (all the processes take part).
+    TransitionMatrix::write_from_main_process(mpidata, tmatrix, output_path);
+    delete tmatrix;
   } // End instructions block for MPI non-0 processes.
 #endif // MPI_VERSION
   delete logger;
@@ -448,7 +587,7 @@ void sphere(const string& config_file, const string& data_file, const string& ou
 int sphere_jxi488_cycle(
   int jxi488, ScattererConfiguration *sconf, GeometryConfiguration *gconf,
   ScatteringAngles *sa, SphereIterationData *sid, SphereOutputInfo *oi,
-  const string& output_path
+  const string& output_path, TransitionMatrix *&tmatrix
 ) {
   const dcomplex cc0 = 0.0 + I * 0.0;
   const double half_pi = acos(0.0);
@@ -476,7 +615,7 @@ int sphere_jxi488_cycle(
   int ndirs = sa->nkks;
   int lcalc;
   int jw, isq, ibf;
-  logger->log("INFO: running scale iteration " + to_string(jxi) + " of " + to_string(nxi) + ".\n");
+  logger->log("running scale iteration " + to_string(jxi) + " of " + to_string(nxi) + ".\n");
   double vk, vkarg;
   double xi = sconf->get_scale(jxi488);
   double exdc = sconf->exdc;
@@ -504,7 +643,7 @@ int sphere_jxi488_cycle(
     if (recommended_lm < max_lm) {
       if (gconf->dyn_order_flag > 0) {
 	int new_lm = recommended_lm;
-	message = "INFO: lowering internal order from " + to_string(max_lm) + " to "
+	message = "lowering internal order from " + to_string(max_lm) + " to "
 	  + to_string(recommended_lm) + " for scale iteration " + to_string(jxi488 + 1) + ".\n";
 	logger->log(message, LOG_INFO);
 	sid->update_order(new_lm);
@@ -512,7 +651,7 @@ int sphere_jxi488_cycle(
 	// jw = 1;
 	l_max = new_lm;
       } else {
-	message = "WARNING: internal order " + to_string(max_lm) + " for scale iteration "
+	message = "internal order " + to_string(max_lm) + " for scale iteration "
 	  + to_string(jxi488 + 1) + " too high (recommended order is " + to_string(recommended_lm)
 	  + ").\n";
       logger->log(message, LOG_WARN);
@@ -555,16 +694,10 @@ int sphere_jxi488_cycle(
     }
   } // i132
   if (idfc >= 0 and nsph == 1 and jxi == jwtm) {
-    // This is the condition that writes the transition matrix to output.
-    string ttms_name = output_path + "/c_TTMS.hd5";
-    TransitionMatrix::write_binary(
-      ttms_name, l_max, vk, exri, sid->c1->rmi, sid->c1->rei,
-      sconf->get_type_radius(0), "HDF5"
-    );
-    ttms_name = output_path + "/c_TTMS";
-    TransitionMatrix::write_binary(
-      ttms_name, l_max, vk, exri, sid->c1->rmi, sid->c1->rei,
-      sconf->get_type_radius(0)
+    // This is the condition that produces the transition matrix: keep it,
+    // MPI process 0 writes it after the loop on scales.
+    tmatrix = new TransitionMatrix(
+      l_max, vk, exri, sid->c1->rmi, sid->c1->rei, sconf->get_type_radius(0)
     );
   }
   double cs0 = 0.25 * vk * vk * vk / half_pi;
@@ -632,7 +765,9 @@ int sphere_jxi488_cycle(
   int nkks = sa->nth * sa->nph * nks;
   int nth = sa->nth;
   int nph = sa->nph;
-  double frx, fry, frz;
+  // With ISAM < 0 the forces are not computed, but printed: as in the
+  // FORTRAN (whose variables start at zero), they are 0.
+  double frx = 0.0, fry = 0.0, frz = 0.0;
   for (int jth486 = 0; jth486 < sa->nth; jth486++) { // OpenMP parallelizable section
     int jth = jth486 + 1;
     double ph = sa->ph;
@@ -673,30 +808,39 @@ int sphere_jxi488_cycle(
 	    phs = ph + phsph;
 	    if (phs >= 360.0) phs -= 360.0;
 	  }
-	  bool goto190 = (nks == 1) && ((!is_first_scale) || (jth > 1) || (jph > 1));
+	  // label 188: the scattered direction is computed again unless it
+	  // cannot change, i.e. it is fixed (ISAM < 1) or there is only one
+	  // incident direction (with ISAM >= 1 it follows the incident one).
+	  // This differs from the original FORTRAN code and is under evaluation
+	  // by its authors: see dev_notes/questions-for-authors.md, question 1.
+	  bool goto190 = (nks == 1) && (gconf->isam < 1 || sa->nth * sa->nph == 1)
+	    && ((!is_first_scale) || (jth > 1) || (jph > 1));
 	  if (!goto190) {
 	    upvmp(ths, phs, icspnv, sid->costs, sid->sints, sid->cosps, sid->sinps, sid->us, sid->upsmp, sid->unsmp);
 	    if (gconf->isam >= 0) {
 	      wmamp(2, sid->costs, sid->sints, sid->cosps, sid->sinps, in_pol, l_max, 0, nsph, sid->args, sid->us, sid->upsmp, sid->unsmp, sid->c1);
 	    }
 	  }
-	  if (nkks != 0 || is_first_scale) {
+	  // label 190 (FORTRAN: skipped if NKKS = 1 after the first scale)
+	  if (nkks != 1 || is_first_scale) {
 	    upvsp(
 	      sid->u, sid->upmp, sid->unmp, sid->us, sid->upsmp, sid->unsmp,
 	      sid->up, sid->un, sid->ups, sid->uns, sid->duk, isq, ibf,
 	      sid->scan, sid->cfmp, sid->sfmp, sid->cfsp, sid->sfsp
 	    );
 	    if (gconf->isam < 0) {
+	      // the scattering plane vectors of upvsp() are kept (label 194)
 	      wmasp(
 		sid->cost, sid->sint, sid->cosp, sid->sinp, sid->costs,
 		sid->sints, sid->cosps, sid->sinps, sid->u, sid->up,
 		sid->un, sid->us, sid->ups, sid->uns, isq, ibf, in_pol,
 		l_max, 0, nsph, sid->argi, sid->args, sid->c1
 	      );
-	    }
-	    for (int i193 = 0; i193 < 3; i193++) {
-	      sid->un[i193] = sid->unmp[i193];
-	      sid->uns[i193] = sid->unsmp[i193];
+	    } else { // label 192
+	      for (int i193 = 0; i193 < 3; i193++) {
+		sid->un[i193] = sid->unmp[i193];
+		sid->uns[i193] = sid->unsmp[i193];
+	      }
 	    }
 	  }
 	  if (gconf->isam < 0) jw = 1;
@@ -762,14 +906,14 @@ int sphere_jxi488_cycle(
   // at the end of this iteration make sure to set is_first_scale to false, the next iteration will reinitialise _only_ if the order changes
   is_first_scale = 0;
   oi->vec_jxi[jxindex] = jxi;
-  logger->log("INFO: finished scale iteration " + to_string(jxi) + " of " + to_string(nxi) + ".\n");
+  logger->log("finished scale iteration " + to_string(jxi) + " of " + to_string(nxi) + ".\n");
   delete logger;
   return jer;
 }
 
 // >>> IMPLEMENTATION OF SphereIterationData CLASS <<<
 SphereIterationData::SphereIterationData(
-  GeometryConfiguration *gconf, ScattererConfiguration *sconf,
+  const GeometryConfiguration *gconf, const ScattererConfiguration *sconf,
   const mixMPI *mpidata, const int device_count
 ) {
   const dcomplex cc0 = 0.0 + I * 0.0;
@@ -850,6 +994,26 @@ SphereIterationData::SphereIterationData(
     }
   }
   is_first_scale = 1;
+}
+
+long SphereIterationData::get_size(const GeometryConfiguration *gconf, const ScattererConfiguration *sconf) {
+  const long nsph = gconf->number_of_spheres;
+  const long lm = gconf->l_max;
+  long result = sizeof(SphereIterationData);
+  result += ParticleDescriptorSphere::get_size(gconf, sconf); // c1
+  result += 2 * sizeof(double); // argi, args
+  result += sizeof(double) * nsph; // gaps
+  result += 11 * sizeof(double) * 3; // duk, u, us, un, uns, up, ups, upmp, upsmp, unmp, unsmp
+  result += 2 * sizeof(double) * 16; // vec_cmul, vec_cmullr
+  result += 2 * sizeof(double *) * 4; // cmul, cmullr
+  result += 2 * sizeof(dcomplex) * 2 * nsph; // vec_tqspe, vec_tqsps
+  result += 2 * sizeof(double) * 2 * nsph; // vec_tqse, vec_tqss
+  result += 2 * sizeof(dcomplex *) * 2 + 2 * sizeof(double *) * 2; // tqspe, tqsps, tqse, tqss
+  result += sizeof(double) * lm * 12; // vec_zpv
+  result += sizeof(double ***) * lm; // zpv
+  result += sizeof(double **) * 3 * lm; // zpv[i]
+  result += sizeof(double *) * 2 * 3 * lm; // zpv[i][j]
+  return result;
 }
 
 SphereIterationData::SphereIterationData(const SphereIterationData &rhs) {
@@ -1081,6 +1245,35 @@ SphereIterationData::SphereIterationData(const mixMPI *mpidata, const int device
   // Collect vectors whose size depend on LM
   vec_zpv = new double[12 * _lm];
   MPI_Bcast(vec_zpv, 12 * _lm, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  // Build the multi-dimensional views on the received vectors, as the
+  // regular and copy constructors do.
+  cmul = new double*[4];
+  cmullr = new double*[4];
+  for (int ci = 0; ci < 4; ci++) {
+    cmul[ci] = (vec_cmul + 4 * ci);
+    cmullr[ci] = (vec_cmullr + 4 * ci);
+  }
+  tqspe = new dcomplex*[2];
+  tqsps = new dcomplex*[2];
+  tqse = new double*[2];
+  tqss = new double*[2];
+  for (int ti = 0; ti < 2; ti++) {
+    tqspe[ti] = (vec_tqspe + _nsph * ti);
+    tqsps[ti] = (vec_tqsps + _nsph * ti);
+    tqse[ti] = (vec_tqse + _nsph * ti);
+    tqss[ti] = (vec_tqss + _nsph * ti);
+  }
+  zpv = new double***[_lm];
+  for (int zi = 0; zi < _lm; zi++) {
+    zpv[zi] = new double**[3];
+    for (int zj = 0; zj < 3; zj++) {
+      int vec_index = 12 * zi + 4 * zj;
+      zpv[zi][zj] = new double*[2];
+      zpv[zi][zj][0] = (vec_zpv + vec_index);
+      zpv[zi][zj][1] = (vec_zpv + vec_index + 2);
+    }
+  }
 
   MPI_Bcast(&is_first_scale, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
 
