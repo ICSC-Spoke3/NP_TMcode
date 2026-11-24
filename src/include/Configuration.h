@@ -733,12 +733,35 @@ public:
   double get_particle_radius(const GeometryConfiguration *gc) const;
   
   /**
+   * \brief Get the index of the configuration (type) of a sphere.
+   *
+   * The identification vector gives, for each sphere, the first sphere of
+   * its type (1-based), and the configurations are numbered in the order of
+   * their first spheres: the configuration of a sphere is the number of
+   * first spheres up to the first sphere of its type.
+   *
+   * \param index: `int` Index of the sphere (0-based).
+   * \return configuration: `int` Index of the configuration (0-based).
+   */
+  int get_configuration(int index) const;
+
+  /**
+   * \brief Get the indices of the configurations (types) of all the spheres.
+   *
+   * The same result as `get_configuration()` for each sphere, in one pass.
+   *
+   * \param configurations: `int *` Array of `number_of_spheres` elements
+   * that receives the 0-based configuration index of each sphere.
+   */
+  void get_configurations(int *configurations) const;
+
+  /**
    * \brief Get the radius of a sphere by its index.
    *
-   * This is a specialized function to get the radius of a sphere through its
-   * index.
+   * The radius of the configuration (type) of the sphere, found through the
+   * identification vector (see `get_configuration()`).
    *
-   * \param index: `int` Index of the ID to be retrieved.
+   * \param index: `int` Index of the sphere (0-based).
    * \return radius: `double` The requested sphere radius.
    */
   double get_radius(int index) const;

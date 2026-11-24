@@ -1237,21 +1237,44 @@ double ScattererConfiguration::get_particle_radius(const GeometryConfiguration *
     // The external field is expanded around the origin of the coordinates,
     // so the relevant radius is that of the smallest sphere centred in the
     // origin that contains all the spheres: max(|r_i| + a_i).
+    int *configurations = new int[_number_of_spheres];
+    get_configurations(configurations);
     for (int si = 0; si < _number_of_spheres; si++) {
       double x = gc->get_sph_x(si);
       double y = gc->get_sph_y(si);
       double z = gc->get_sph_z(si);
-      double dist = sqrt(x * x + y * y + z * z) + get_radius(si);
+      double dist = sqrt(x * x + y * y + z * z) + _radii_of_spheres[configurations[si]];
       if (dist > result) result = dist;
     }
+    delete[] configurations;
   }
   return result;
 }
 
+int ScattererConfiguration::get_configuration(int index) const {
+  // _iog_vec[i] is the first sphere (1-based) of the type of sphere i, not
+  // the index of the type: count the first spheres up to that one.
+  const int first = _iog_vec[index];
+  int configuration = -1;
+  for (int si = 1; si <= first; si++) {
+    if (_iog_vec[si - 1] >= si) configuration++;
+  }
+  return configuration;
+}
+
+void ScattererConfiguration::get_configurations(int *configurations) const {
+  int last_configuration = -1;
+  for (int si = 0; si < _number_of_spheres; si++) {
+    if (_iog_vec[si] >= si + 1) {
+      configurations[si] = ++last_configuration;
+    } else {
+      configurations[si] = configurations[_iog_vec[si] - 1];
+    }
+  }
+}
+
 double ScattererConfiguration::get_radius(int index) const {
-  int type_id = _iog_vec[index];
-  double radius = _radii_of_spheres[type_id - 1];
-  return radius;
+  return _radii_of_spheres[get_configuration(index)];
 }
 
 void ScattererConfiguration::print() {
@@ -1728,6 +1751,12 @@ int *check_overlaps(
     throw(UnrecognizedConfigurationException("[ERROR] mismatch in number of spheres!"));
   int num_overlaps = 0;
   int *index_matrix = new int[nn]();
+  // The radius of each sphere, from the configuration (type) of the sphere.
+  int *configurations = new int[nsphs];
+  sconf->get_configurations(configurations);
+  double *radii = new double[nsphs];
+  for (int si = 0; si < nsphs; si++) radii[si] = sconf->get_type_radius(configurations[si]);
+  delete[] configurations;
 #pragma omp parallel for reduction(+: num_overlaps)
   for (int si = 0; si < nn; si++) {
     const int i0 = si / nsphs;
@@ -1739,8 +1768,8 @@ int *check_overlaps(
       const double x1 = gconf->get_sph_x(i1);
       const double y1 = gconf->get_sph_y(i1);
       const double z1 = gconf->get_sph_z(i1);
-      const double r0 = sconf->get_radius(i0);
-      const double r1 = sconf->get_radius(i1);
+      const double r0 = radii[i0];
+      const double r1 = radii[i1];
       const double r_sum = (r0 + r1);
       const double dist2 = (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)
 	+ (z1 - z0) * (z1 - z0);
@@ -1767,6 +1796,7 @@ int *check_overlaps(
     }
   }
   delete[] index_matrix;
+  delete[] radii;
   return vec_overlaps;
 }
 
