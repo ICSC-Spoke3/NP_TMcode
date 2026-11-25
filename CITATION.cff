@@ -15,7 +15,7 @@ authors:
     given-names: "Rosalba"
     orcid: "https://orcid.org/0000-0002-5823-9749"
     affiliation: "Università degli Studi di Messina"
-version: 0.11.0-pre
+version: 0.11.1
 license: GPL-3.0-or-later
 references:
   - authors:
